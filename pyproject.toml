@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "artic_training"
+version = "0.0.1"
+description = "Snowflake LLM training library"
+authors = [
+    {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
+]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/snowflakedb/ArcticTraining"
+repository = "https://github.com/snowflakedb/ArcticTraining"
+
+keywords = ["llm", "training"]
+
+# Dependencies for the project
+dependencies = [
+    "pydantic>=2.0",
+    "datasets",
+    "transformers",
+    "torch",
+    "loguru",
+    "peft",
+    "deepspeed",
+    "tqdm",
+]
+
+# Optional development dependencies
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "pytest>=7.0",
+    "black>=23.1",
+    "flake8>=5.0",
+    "mypy>=1.1",
+]
+
+[project.scripts]
+arctic_training = "artic_training.cli:main"
+artic_training_run = "artic_training.cli:run_script"
+
+# Configuration for Black (code formatter)
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+# Configuration for Flake8 (linter)
+[tool.flake8]
+max-line-length = 88
+ignore = ["E203", "E266", "E501", "W503"]
+exclude = ["tests/*"]
+
+# Configuration for Mypy (type checker)
+[tool.mypy]
+python_version = 3.8
+check_untyped_defs = true
+ignore_missing_imports = true
+
+# Optional configuration for isort (import sorting)
+[tool.isort]
+profile = "black"
+line_length = 88
+force_single_line = true
+filter_files = true
