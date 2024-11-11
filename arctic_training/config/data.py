@@ -3,11 +3,12 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-from arctic_training.register import get_dataset_class
 from loguru import logger
 from pydantic import Field
 from pydantic import model_validator
 from typing_extensions import Self
+
+from arctic_training.register import get_dataset_class
 
 from .base import BaseConfig
 

@@ -2,8 +2,9 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Optional
 
-from arctic_training.config import ModelConfig
 from deepspeed.ops.adam import FusedAdam
+
+from arctic_training.config import ModelConfig
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer

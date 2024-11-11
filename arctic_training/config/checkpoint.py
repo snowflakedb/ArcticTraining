@@ -1,10 +1,11 @@
 from pathlib import Path
 
-from arctic_training.config import BaseConfig
-from arctic_training.register import get_checkpoint_class
 from pydantic import Field
 from pydantic import model_validator
 from typing_extensions import Self
+
+from arctic_training.config import BaseConfig
+from arctic_training.register import get_checkpoint_class
 
 
 class CheckpointConfig(BaseConfig):

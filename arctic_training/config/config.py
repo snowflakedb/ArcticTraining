@@ -7,13 +7,14 @@ from typing import Tuple
 from typing import Union
 
 import yaml
-from arctic_training.config import BaseConfig
-from arctic_training.register import get_config_class
-from arctic_training.register import get_trainer_class
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
+
+from arctic_training.config import BaseConfig
+from arctic_training.register import get_config_class
+from arctic_training.register import get_trainer_class
 
 from .checkpoint import CheckpointConfig
 from .data import DataConfig

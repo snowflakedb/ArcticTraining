@@ -6,12 +6,13 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from arctic_training.data.loader import ConcatenatedDataSetsLoader
-from datasets import Dataset
 from loguru import logger
 from torch.utils.data import DataLoader
 from torch.utils.data import RandomSampler
 from transformers import AutoTokenizer
+from transformers import PreTrainedTokenizerBase
+
+from arctic_training.data.loader import ConcatenatedDataSetsLoader
 
 if TYPE_CHECKING:
     from arctic_training.config import DataConfig
@@ -142,11 +143,13 @@ class DataCollatorForCausalLM:
 
 def data_factory(
     trainer: "Trainer", data_config: Optional["DataConfig"] = None
-) -> Tuple[Dataset, Optional[Dataset]]:
+) -> Tuple[DataLoader, Optional[DataLoader]]:
     if data_config is None:
         data_config = trainer.config.data
 
-    tokenizer = AutoTokenizer.from_pretrained(data_config.tokenizer_name_or_path)
+    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
+        data_config.tokenizer_name_or_path
+    )
 
     if not hasattr(tokenizer, "pad_token") or tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token

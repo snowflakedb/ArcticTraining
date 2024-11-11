@@ -7,9 +7,11 @@ from typing import Any
 from typing import List
 
 import torch
+from datasets import Dataset
 from datasets import concatenate_datasets
 from datasets import disable_caching
 from datasets import load_from_disk
+from transformers import PreTrainedTokenizerBase
 
 from .sft_utils import packing_sft_dataset
 
@@ -48,7 +50,11 @@ class DataSetLoader(DataLoaderBase):
     dataset_type: str = ""
 
     def __init__(
-        self, dataset: str, tokenizer: Any, eval: bool, config: "DataConfig"
+        self,
+        dataset: str,
+        tokenizer: PreTrainedTokenizerBase,
+        eval: bool,
+        config: "DataConfig",
     ) -> None:
         self.dataset = dataset
         self.tokenizer = tokenizer
@@ -56,16 +62,19 @@ class DataSetLoader(DataLoaderBase):
         self.config = config
 
     @abstractmethod
-    def load_fn(self, num_proc: int, eval: bool) -> Any:
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         raise NotImplementedError("load_fn method is not implemented.")
 
     @abstractmethod
     def tokenize_fn(
-        self, dataset: Any, tokenizer: Any, data_config: "DataConfig"
+        self,
+        dataset: Dataset,
+        tokenizer: PreTrainedTokenizerBase,
+        data_config: "DataConfig",
     ) -> Any:
         raise NotImplementedError("tokenize_fn method is not implemented.")
 
-    def load_dataset(self) -> Any:
+    def load_dataset(self) -> Dataset:
         disable_caching()
 
         if self.config.use_data_cache and self.cache_path.exists():
@@ -95,14 +104,18 @@ class DataSetLoader(DataLoaderBase):
 
 class ConcatenatedDataSetsLoader(DataLoaderBase):
     def __init__(
-        self, dataset_list: List[str], tokenizer: Any, eval: bool, config: "DataConfig"
+        self,
+        dataset_list: List[str],
+        tokenizer: PreTrainedTokenizerBase,
+        eval: bool,
+        config: "DataConfig",
     ) -> None:
-        self.dataset_list = dataset_list
-        self.tokenizer = tokenizer
-        self.eval = eval
-        self.config = config
+        self.dataset_list: List[str] = dataset_list
+        self.tokenizer: PreTrainedTokenizerBase = tokenizer
+        self.eval: bool = eval
+        self.config: "DataConfig" = config
 
-    def load_datasets(self) -> Any:
+    def load_datasets(self) -> Dataset:
         if self.config.use_data_cache and self.cache_path.exists():
             return load_from_disk(self.cache_path)
 
@@ -126,7 +139,7 @@ class ConcatenatedDataSetsLoader(DataLoaderBase):
 
         return dataset
 
-    def get_shortest_data_length(self, dataset: Any) -> int:
+    def get_shortest_data_length(self, dataset: Dataset) -> int:
         local_length = len(dataset)
         data_length = torch.zeros(self.world_size).cuda()
         data_length[self.global_rank] = local_length
