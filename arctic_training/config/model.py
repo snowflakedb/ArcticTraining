@@ -6,9 +6,10 @@ from typing import List
 from typing import Optional
 from typing import Union
 
-from arctic_training.model import get_optimizer_grouped_parameters
 from pydantic import model_validator
 from typing_extensions import Self
+
+from arctic_training.model import get_optimizer_grouped_parameters
 
 from .base import BaseConfig
 from .enums import DType

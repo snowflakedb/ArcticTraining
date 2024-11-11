@@ -3,9 +3,10 @@ from typing import Any
 
 import deepspeed
 import torch
+from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
+
 from arctic_training.checkpoint import CheckpointEngine
 from arctic_training.register import register_checkpoint
-from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
 
 
 @register_checkpoint

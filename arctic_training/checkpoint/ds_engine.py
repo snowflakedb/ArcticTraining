@@ -5,6 +5,7 @@ from typing import Dict
 
 import numpy as np
 import torch
+
 from arctic_training.register import register_checkpoint
 
 from .checkpoint import CheckpointEngine

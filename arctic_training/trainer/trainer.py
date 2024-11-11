@@ -15,11 +15,16 @@ import deepspeed
 import numpy as np
 import torch
 from deepspeed.accelerator import get_accelerator
+from torch.utils.data import DataLoader
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
+
+from loguru import logger
+from tqdm import tqdm
+from transformers import set_seed
 
 from arctic_training.callback.callback import Callback
 from arctic_training.callback.factory import callback_factory
@@ -30,9 +35,6 @@ from arctic_training.data.factory import data_factory
 from arctic_training.model.factory import model_factory
 from arctic_training.optimizer.factory import optimizer_factory
 from arctic_training.scheduler.factory import scheduler_factory
-from loguru import logger
-from tqdm import tqdm
-from transformers import set_seed
 
 
 def _callback_wrapper(name: str) -> Callable:
@@ -90,8 +92,8 @@ class Trainer(ABC):
 
     def __init__(self, config: Config) -> None:
         self.config: Config
-        self.train_dataloader: Any
-        self.eval_dataloader: Any
+        self.train_dataloader: DataLoader
+        self.eval_dataloader: Optional[DataLoader]
         self.model: Any
         self.optimizer: Any
         self.scheduler: Any

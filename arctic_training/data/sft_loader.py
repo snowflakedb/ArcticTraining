@@ -1,12 +1,13 @@
 from functools import partial
 from typing import TYPE_CHECKING
-from typing import Any
 from typing import Dict
 from typing import List
 from typing import Tuple
 
-import torch
+from datasets import Dataset
 from datasets import load_dataset
+from transformers import BatchEncoding
+from transformers import PreTrainedTokenizerBase
 
 if TYPE_CHECKING:
     from arctic_training.config import DataConfig
@@ -21,8 +22,11 @@ class SFTDataSetLoader(DataSetLoader):
     dataset_type = "sft"
 
     def tokenize_fn(
-        self, dataset: Any, tokenizer: Any, data_config: "DataConfig"
-    ) -> Any:
+        self,
+        dataset: Dataset,
+        tokenizer: PreTrainedTokenizerBase,
+        data_config: "DataConfig",
+    ) -> Dataset:
         # sft based tokenization,
         # we assume the messages are in the format of:
         # {'role': '...', 'content': '...'}
@@ -43,8 +47,11 @@ class SFTDataSetLoader(DataSetLoader):
 
     @classmethod
     def tokenize_messages(
-        cls, messages: List[Dict], tokenizer, mask_inputs: bool = True
-    ) -> Dict[str, torch.Tensor]:
+        cls,
+        messages: List[Dict[str, str]],
+        tokenizer: PreTrainedTokenizerBase,
+        mask_inputs: bool = True,
+    ) -> BatchEncoding:
         conversation_text = tokenizer.apply_chat_template(
             conversation=messages, tokenize=False
         )
@@ -75,8 +82,8 @@ class SFTDataSetLoader(DataSetLoader):
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
     def get_assistant_start_end_indices(
-        messages: List[Dict[str, Any]], conversation_text: str
-    ) -> List:
+        messages: List[Dict[str, str]], conversation_text: str
+    ) -> List[Tuple[int, int]]:
         return_indices = []
         for message in messages:
             if message["role"] == "assistant":
@@ -89,8 +96,8 @@ class SFTDataSetLoader(DataSetLoader):
 
     @staticmethod
     def get_masked_labels(
-        conversation_ids: Dict[str, List], assistant_ranges: List[Tuple[int, int]]
-    ) -> List[Any]:
+        conversation_ids: BatchEncoding, assistant_ranges: List[Tuple[int, int]]
+    ) -> List[int]:
         pre_output = IGNORE_INDEX
         output = []
 
@@ -121,7 +128,7 @@ class SFTDataSetLoader(DataSetLoader):
 class UltraChat200K(SFTDataSetLoader):
     dataset_name = "HuggingFaceH4/ultrachat_200k"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Any:
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         return load_dataset(
             "HuggingFaceH4/ultrachat_200k",
             split="test_sft" if eval else "train_sft",
@@ -133,7 +140,7 @@ class UltraChat200K(SFTDataSetLoader):
 class OpenHermes2_5(SFTDataSetLoader):
     dataset_name = "teknium/OpenHermes-2.5"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Any:
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         # OpenHermes-2.5 does not have an evaluation set
         if eval:
             return None
@@ -164,7 +171,7 @@ class OpenHermes2_5(SFTDataSetLoader):
 class MetaMathQA(SFTDataSetLoader):
     dataset_name = "meta-math/MetaMathQA"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Any:
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         if eval:
             assert False, "Test split does not exist."
         dataset = load_dataset("meta-math/MetaMathQA", split="train", num_proc=num_proc)
@@ -198,7 +205,7 @@ class MetaMathQA(SFTDataSetLoader):
 class MagicoderOSSInstruct75k(SFTDataSetLoader):
     dataset_name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Any:
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         if eval:
             assert False, "Test split does not exist."
         dataset = load_dataset(
@@ -235,7 +242,7 @@ class MagicoderOSSInstruct75k(SFTDataSetLoader):
 class LMSysChat1M(SFTDataSetLoader):
     dataset_name = "lmsys/lmsys-chat-1m"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Any:
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         if eval:
             assert False, "Test split does not exist."
         dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", num_proc=num_proc)

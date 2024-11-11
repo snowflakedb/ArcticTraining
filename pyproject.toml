@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "artic_training"
+name = "arctic_training"
 version = "0.0.1"
 description = "Snowflake LLM training library"
 authors = [
@@ -39,8 +39,8 @@ dev = [
 ]
 
 [project.scripts]
-arctic_training = "artic_training.cli:main"
-artic_training_run = "artic_training.cli:run_script"
+arctic_training = "arctic_training.cli:main"
+arctic_training_run = "arctic_training.cli:run_script"
 
 # Configuration for Black (code formatter)
 [tool.black]
