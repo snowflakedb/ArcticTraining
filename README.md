@@ -11,3 +11,4 @@
 - Refactor data loader to better accomodate collator
 - Work on CLI and user-facing APIs
 - Refactor TrainerState... do we want to keep this? What attributes should be set in the trainer vs trainerstate objeect?
+- Extend type hints (remove `Any` where possible)
