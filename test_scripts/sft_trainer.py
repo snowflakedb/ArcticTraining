@@ -28,6 +28,5 @@ config = Config(
     lr=1e-5,
     gradient_accumulation_steps=1,
 )
-print(config)
 trainer = SFTTrainer(config)
 trainer.train()

@@ -1,9 +1,11 @@
 from typing import Dict
 from typing import List
 
+from transformers import PretrainedModel
+
 
 def get_optimizer_grouped_parameters(
-    model,
+    model: PretrainedModel,
     weight_decay: float,
     no_decay_name_list: List[str] = [
         "bias",

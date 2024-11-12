@@ -1,17 +1,17 @@
 from typing import TYPE_CHECKING
-from typing import Any
 from typing import Optional
 
 from peft import get_peft_model
 from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
+from transformers import PretrainedModel
 
 if TYPE_CHECKING:
     from arctic_training.config import ModelConfig
     from arctic_training.trainer import Trainer
 
 
-def hf_model_loader(model_config: "ModelConfig") -> Any:
+def hf_model_loader(model_config: "ModelConfig") -> PretrainedModel:
     hf_model_config = AutoConfig.from_pretrained(model_config.name_or_path)
 
     if model_config.use_liger_kernel:
@@ -40,7 +40,7 @@ def hf_model_loader(model_config: "ModelConfig") -> Any:
 
 def model_factory(
     trainer: "Trainer", model_config: Optional["ModelConfig"] = None
-) -> Any:
+) -> PretrainedModel:
     if model_config is None:
         model_config = trainer.config.model
 
@@ -63,7 +63,9 @@ def model_factory(
     return model
 
 
-def make_model_gradient_checkpointing_compatible(model):
+def make_model_gradient_checkpointing_compatible(
+    model: PretrainedModel,
+) -> PretrainedModel:
     # Higgingface added this enable input require grads function to make gradient checkpointing work for lora-only optimization
     if hasattr(model, "enable_input_require_grads"):
         model.enable_input_require_grads()
@@ -74,11 +76,3 @@ def make_model_gradient_checkpointing_compatible(model):
 
         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
     return model
-
-
-def get_warmup_steps(config):
-    pass
-
-
-def get_training_horizon(config):
-    pass
