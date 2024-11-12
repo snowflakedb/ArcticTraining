@@ -16,6 +16,7 @@ import numpy as np
 import torch
 from deepspeed.accelerator import get_accelerator
 from torch.utils.data import DataLoader
+from transformers import PretrainedModel
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
@@ -94,7 +95,7 @@ class Trainer(ABC):
         self.config: Config
         self.train_dataloader: DataLoader
         self.eval_dataloader: Optional[DataLoader]
-        self.model: Any
+        self.model: PretrainedModel
         self.optimizer: Any
         self.scheduler: Any
         self.callbacks: List[Callback]
