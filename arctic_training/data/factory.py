@@ -6,13 +6,13 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from loguru import logger
 from torch.utils.data import DataLoader
 from torch.utils.data import RandomSampler
 from transformers import AutoTokenizer
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.data.loader import ConcatenatedDataSetsLoader
+from arctic_training.logging import logger
 
 if TYPE_CHECKING:
     from arctic_training.config import DataConfig

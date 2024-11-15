@@ -7,6 +7,5 @@ from .data.sft_loader import SFTDataSetLoader
 from .register import register_config
 from .register import register_dataset
 from .register import register_trainer
-from .trainer.factory import trainer_factory
 from .trainer.sft_trainer import SFTTrainer
 from .trainer.trainer import Trainer

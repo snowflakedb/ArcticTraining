@@ -23,7 +23,6 @@ try:
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
-from loguru import logger
 from tqdm import tqdm
 from transformers import set_seed
 
@@ -33,6 +32,7 @@ from arctic_training.checkpoint.checkpoint import CheckpointEngine
 from arctic_training.checkpoint.factory import checkpoint_factory
 from arctic_training.config.config import Config
 from arctic_training.data.factory import data_factory
+from arctic_training.logging import logger
 from arctic_training.model.factory import model_factory
 from arctic_training.optimizer.factory import optimizer_factory
 from arctic_training.scheduler.factory import scheduler_factory

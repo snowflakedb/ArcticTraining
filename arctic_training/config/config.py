@@ -1,5 +1,3 @@
-import os
-from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -22,18 +20,9 @@ from .data import DataConfig
 from .enums import LRSchedType
 from .logger import LoggerConfig
 from .model import ModelConfig
+from .utils import get_local_rank
+from .utils import get_world_size
 from .wandb import WandBConfig
-
-_context_local_rank: ContextVar = ContextVar("context_local_rank")
-_context_world_size: ContextVar = ContextVar("context_world_size")
-
-
-def get_local_rank() -> int:
-    return int(os.getenv("LOCAL_RANK", -1))
-
-
-def get_world_size() -> int:
-    return int(os.getenv("WORLD_SIZE", 1))
 
 
 class Config(BaseConfig):
@@ -56,16 +45,9 @@ class Config(BaseConfig):
     local_rank: int = Field(default_factory=get_local_rank, exclude=True)
     world_size: int = Field(default_factory=get_world_size, exclude=True)
 
-    @model_validator(mode="wrap")
-    @classmethod
-    def set_world_info_context(cls, v, handler) -> Self:
-        local_rank_token = _context_local_rank.set(get_local_rank())
-        world_size_token = _context_world_size.set(get_world_size())
-        try:
-            return handler(v)
-        finally:
-            _context_local_rank.reset(local_rank_token)
-            _context_world_size.reset(world_size_token)
+    @property
+    def zero_3_enabled(self) -> bool:
+        return self.deepspeed.get("zero_optimization", {}).get("stage", 0) == 3
 
     @model_validator(mode="after")
     def initialize_logger(self) -> Self:
@@ -123,7 +105,7 @@ def get_config(config_file_or_dict: Union[Path, Dict[str, Any]]) -> Config:
     if "trainer_class" not in config_dict:
         raise ValueError("`trainer_class` must be defined in input config.")
     trainer_cls = get_trainer_class(config_dict["trainer_class"])
-    config_cls = get_config_class(trainer_cls.config)
+    config_cls = get_config_class(trainer_cls.config_type)
 
     config = config_cls(**config_dict)
 
