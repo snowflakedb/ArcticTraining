@@ -92,6 +92,8 @@ class Trainer(ABC):
         return getattr(self._trainer_state, name)
 
     def __init__(self, config: Config) -> None:
+        logger.info(f"Initializing {self.__class__.__name__} trainer")
+
         self.config: Config
         self.train_dataloader: DataLoader
         self.eval_dataloader: Optional[DataLoader]
@@ -147,6 +149,7 @@ class Trainer(ABC):
     def _run_callbacks(self, event: str) -> None:
         for cb in self.callbacks:
             if cb.event == event:
+                logger.info(f"Running callback: {cb} at event: {event}")
                 cb(self)
 
     @property

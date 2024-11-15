@@ -26,6 +26,12 @@ class LoggerConfig(BaseConfig):
 
     @property
     @computed_field
+    def log_file(self) -> Path:
+        local_rank = get_local_rank()
+        return self.output_dir / f"rank_{local_rank}.log"
+
+    @property
+    @computed_field
     def file_enabled(self) -> bool:
         local_rank = get_local_rank()
         return local_rank in self.file_output_ranks

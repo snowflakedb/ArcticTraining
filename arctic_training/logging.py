@@ -17,7 +17,7 @@ def setup_logger(config: "Config"):
     )
 
     if config.logger.file_enabled:
-        log_file = config.logger.output_dir / f"log_{config.local_rank}.log"
+        log_file = config.logger.log_file
         logger.add(log_file, colorize=False, format=log_format)
         logger.info(f"Logging to {log_file}")
 

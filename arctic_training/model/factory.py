@@ -6,6 +6,8 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
+from arctic_training.logging import logger
+
 if TYPE_CHECKING:
     from arctic_training.config import ModelConfig
     from arctic_training.trainer import Trainer
@@ -41,6 +43,8 @@ def hf_model_loader(model_config: "ModelConfig") -> PreTrainedModel:
 def model_factory(
     trainer: "Trainer", model_config: Optional["ModelConfig"] = None
 ) -> PreTrainedModel:
+    logger.info("Initializing model")
+
     if model_config is None:
         model_config = trainer.config.model
 
@@ -48,15 +52,22 @@ def model_factory(
     if trainer.model_loader is not None:
         model_load_fn = trainer.model_loader
 
+    logger.info(
+        f"Loading model from {model_config.name_or_path} with loader {model_load_fn}"
+    )
+
     model = model_load_fn(model_config)
 
     for adjustment in model_config.adjustments:
+        logger.info(f"Applying model adjustment {adjustment}")
         model = adjustment(model)
 
     if model_config.peft_config:
+        logger.info("Applying PEFT to model")
         model = get_peft_model(model, model_config.peft_config)
 
     if not model_config.disable_activation_checkpoint:
+        logger.info("Enabling activation checkpointing")
         model.gradient_checkpointing_enable()
         model = make_model_gradient_checkpointing_compatible(model)
 
