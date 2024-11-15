@@ -5,6 +5,14 @@ from typing import Tuple
 import torch
 
 
+class LogLevel(str, Enum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
 class LRSchedType(str, Enum):
     LINEAR = "linear"
 

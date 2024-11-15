@@ -1,4 +1,5 @@
 import os
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -19,8 +20,12 @@ from arctic_training.register import get_trainer_class
 from .checkpoint import CheckpointConfig
 from .data import DataConfig
 from .enums import LRSchedType
+from .logger import LoggerConfig
 from .model import ModelConfig
 from .wandb import WandBConfig
+
+_context_local_rank: ContextVar = ContextVar("context_local_rank")
+_context_world_size: ContextVar = ContextVar("context_world_size")
 
 
 def get_local_rank() -> int:
@@ -34,7 +39,8 @@ def get_world_size() -> int:
 class Config(BaseConfig):
     model: ModelConfig
     data: DataConfig
-    wandb: WandBConfig = WandBConfig()
+    logger: LoggerConfig = Field(default_factory=LoggerConfig)
+    wandb: WandBConfig = Field(default_factory=WandBConfig)
     deepspeed: Dict[str, Any] = {}
     epochs: int = Field(default=1, ge=0)
     warmup_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
@@ -49,6 +55,24 @@ class Config(BaseConfig):
     train_iters: int = Field(default=0, ge=0)
     local_rank: int = Field(default_factory=get_local_rank, exclude=True)
     world_size: int = Field(default_factory=get_world_size, exclude=True)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def set_world_info_context(cls, v, handler) -> Self:
+        local_rank_token = _context_local_rank.set(get_local_rank())
+        world_size_token = _context_world_size.set(get_world_size())
+        try:
+            return handler(v)
+        finally:
+            _context_local_rank.reset(local_rank_token)
+            _context_world_size.reset(world_size_token)
+
+    @model_validator(mode="after")
+    def initialize_logger(self) -> Self:
+        from arctic_training.logging import setup_logger
+
+        setup_logger(self)
+        return self
 
     @field_validator("checkpoint", mode="before")
     def checkpoint_to_list(cls, v: Union[Dict, List[Dict]]) -> List[Dict]:
