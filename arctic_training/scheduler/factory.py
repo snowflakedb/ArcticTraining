@@ -3,11 +3,15 @@ from typing import Any
 
 from transformers import get_scheduler
 
+from arctic_training.logging import logger
+
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
 def scheduler_factory(trainer: "Trainer") -> Any:
+    logger.info("Initializing scheduler")
+
     lr_scheduler = get_scheduler(
         name=trainer.config.lr_scheduler_type,
         optimizer=trainer.optimizer,

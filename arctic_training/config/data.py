@@ -3,11 +3,11 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-from loguru import logger
 from pydantic import Field
 from pydantic import model_validator
 from typing_extensions import Self
 
+from arctic_training.logging import logger
 from arctic_training.register import get_dataset_class
 
 from .base import BaseConfig
@@ -46,7 +46,7 @@ class DataConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_dataset_type_settings(self) -> Self:
         if self.dataset_type == "dpo":
-            assert not self.not_mask_input, "DPO dataset should have masked input."
+            assert self.mask_inputs, "DPO dataset should have masked input."
         if not self.not_packing_input:
             assert (
                 self.dataset_type == "sft"

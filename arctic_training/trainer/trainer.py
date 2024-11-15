@@ -16,14 +16,13 @@ import numpy as np
 import torch
 from deepspeed.accelerator import get_accelerator
 from torch.utils.data import DataLoader
-from transformers import PretrainedModel
+from transformers import PreTrainedModel
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
-from loguru import logger
 from tqdm import tqdm
 from transformers import set_seed
 
@@ -33,6 +32,7 @@ from arctic_training.checkpoint.checkpoint import CheckpointEngine
 from arctic_training.checkpoint.factory import checkpoint_factory
 from arctic_training.config.config import Config
 from arctic_training.data.factory import data_factory
+from arctic_training.logging import logger
 from arctic_training.model.factory import model_factory
 from arctic_training.optimizer.factory import optimizer_factory
 from arctic_training.scheduler.factory import scheduler_factory
@@ -92,10 +92,12 @@ class Trainer(ABC):
         return getattr(self._trainer_state, name)
 
     def __init__(self, config: Config) -> None:
+        logger.info(f"Initializing {self.__class__.__name__} trainer")
+
         self.config: Config
         self.train_dataloader: DataLoader
         self.eval_dataloader: Optional[DataLoader]
-        self.model: PretrainedModel
+        self.model: PreTrainedModel
         self.optimizer: Any
         self.scheduler: Any
         self.callbacks: List[Callback]
@@ -147,6 +149,7 @@ class Trainer(ABC):
     def _run_callbacks(self, event: str) -> None:
         for cb in self.callbacks:
             if cb.event == event:
+                logger.info(f"Running callback: {cb} at event: {event}")
                 cb(self)
 
     @property

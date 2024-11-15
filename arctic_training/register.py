@@ -40,8 +40,14 @@ def get_dataset_class(dataset_type: str, dataset_name: str) -> Type["DataSetLoad
     return _supported_dataset_registry[dataset_type][dataset_name]
 
 
-def get_config_class(config_name: str) -> Type["Config"]:
+def get_config_class(
+    config_name_or_class: Union[str, Type["Config"]]
+) -> Type["Config"]:
     global _supported_config_registry
+    if isinstance(config_name_or_class, str):
+        config_name = config_name_or_class
+    else:
+        config_name = config_name_or_class.__name__
     if config_name not in _supported_config_registry:
         raise ValueError(f"Config {config_name} is not supported.")
     return _supported_config_registry[config_name]
