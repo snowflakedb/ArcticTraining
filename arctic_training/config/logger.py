@@ -3,7 +3,6 @@ from typing import List
 from typing import Literal
 from typing import Union
 
-from pydantic import computed_field
 from pydantic import field_validator
 
 from .base import BaseConfig
@@ -25,19 +24,18 @@ class LoggerConfig(BaseConfig):
         return v
 
     @property
-    @computed_field
     def log_file(self) -> Path:
         local_rank = get_local_rank()
         return self.output_dir / f"rank_{local_rank}.log"
 
     @property
-    @computed_field
     def file_enabled(self) -> bool:
+        if self.output_dir == Path("/dev/null"):
+            return False
         local_rank = get_local_rank()
         return local_rank in self.file_output_ranks
 
     @property
-    @computed_field
     def print_enabled(self) -> bool:
         local_rank = get_local_rank()
         return local_rank in self.print_output_ranks

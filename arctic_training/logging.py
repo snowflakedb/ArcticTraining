@@ -5,8 +5,14 @@ from typing_extensions import TYPE_CHECKING
 if TYPE_CHECKING:
     from arctic_training.config import Config
 
+_logger_setup: bool = False
 
-def setup_logger(config: "Config"):
+
+def setup_logger(config: "Config") -> None:
+    global _logger_setup
+    if _logger_setup:
+        return
+
     log_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | Rank %d | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
         % config.local_rank
@@ -28,4 +34,5 @@ def setup_logger(config: "Config"):
         )
         logger.info("Logger enabled")
 
+    _logger_setup = True
     logger.info("Logger initialized")
