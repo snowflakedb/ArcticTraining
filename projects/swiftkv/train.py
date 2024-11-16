@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from deepspeed.runtime.zero import GatheredParameters
 
-from snowtraining.trainer.sft_trainer import SFTTrainer
+from arctic_training.trainer.sft_trainer import SFTTrainer
 from llama_swiftkv import LlamaSwiftKVConfig
 from llama_swiftkv import LlamaSwiftKVForCausalLM
 
@@ -178,7 +178,7 @@ if __name__ == "__main__":
 
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=["HuggingFaceH4/ultrachat_200k"], #, "teknium/OpenHermes-2.5"],
+        datasets=["HuggingFaceH4/ultrachat_200k", "teknium/OpenHermes-2.5"],
         use_data_cache=True,
         cache_processed_data=True,
         data_cache_dir="/data-fast/st-data-new",
@@ -193,11 +193,14 @@ if __name__ == "__main__":
 
     config = SwiftKVConfig(
         num_key_value_layers=16,
-        key_value_group_size=4,
-        lr=2e-4,
+        key_value_group_size=1,
+        lr=0.0002,
         warmup_ratio=0.05,
+        deepspeed={"zero_optimization": {"stage": 3}},
         decoder_loss_mult=0.0,
         gradient_accumulation_steps=1,
+        betas=(0.9, 0.999),
+        seed=42,
         # ckpt_save_interval=1000,
         # eval_frequency=0,
         epochs=1,
@@ -205,7 +208,6 @@ if __name__ == "__main__":
         zero=2,
         weight_decay=0.0,
         temperature=2.0,
-        output_dir="/data-fast/debug",
         data=data_config,
         model=model_config,
         model_path=model_path
