@@ -210,7 +210,8 @@ if __name__ == "__main__":
         temperature=2.0,
         data=data_config,
         model=model_config,
-        model_path=model_path
+        model_path=model_path,
+        checkpoint={"type":"huggingface", "output_dir":"/checkpoint/swiftkv/mike-repro", "save_every_n_steps":1000, "save_every_n_epochs":1},
     )
 
     trainer = SwiftKVTrainer(config)
