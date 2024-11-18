@@ -98,7 +98,7 @@ class DataSetLoader(DataLoaderBase):
     def cache_path(self) -> Path:
         # TODO: fix this
         return self.get_cache_path(
-            self.config.data_cache_dir, self.config, self.world_size, self.global_rank
+            self.config.data_cache_dir, self.dataset_name, self.config, self.world_size, self.global_rank
         )
 
 
@@ -121,6 +121,11 @@ class ConcatenatedDataSetsLoader(DataLoaderBase):
 
         datasets = [d.load_dataset() for d in self.dataset_loaders]
         dataset = concatenate_datasets(datasets)
+        if self.config.dataset_type == "sft":
+            # DPO has length filter inside the tokenization step
+            dataset = dataset.filter(
+                lambda x: len(x["input_ids"]) <= self.config.max_length, num_proc=self.config.num_proc
+            )
 
         # TODO can this be moved to the DataSetLoader?
         if self.config.dataset_type == "sft":

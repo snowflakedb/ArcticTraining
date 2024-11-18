@@ -40,7 +40,7 @@ class DataConfig(BaseConfig):
                 logger.warning(
                     f"Caching directory {self.data_cache_dir} does not exist. Creating it."
                 )
-                self.data_cache_dir.mkdir(parents=True)
+                self.data_cache_dir.mkdir(parents=True, exist_ok=True)
         return self
 
     @model_validator(mode="after")
