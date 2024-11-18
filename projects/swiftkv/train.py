@@ -2,6 +2,7 @@
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
+from transformers.modeling_utils import no_init_weights
 
 import copy
 from typing import Any
@@ -17,6 +18,7 @@ from arctic_training.config import ModelConfig
 
 from arctic_training.config import Config, DataConfig
 from arctic_training.trainer.sft_trainer import to_device
+from arctic_training.checkpoint import CheckpointEngine
 
 
 class SwiftKVConfig(Config):
@@ -71,6 +73,42 @@ def init_student_layers(self):
     self.model.gradient_checkpointing_enable()
 
 
+class SwiftKVCheckpointEngine(CheckpointEngine):
+    checkpoint_type: str = "swiftkv"
+
+    def load(self) -> None:
+        raise NotImplementedError()
+
+    def save(self) -> None:
+        if dist.get_rank() == 0:
+            model_config = copy.deepcopy(self.model.module.config)
+            with no_init_weights():
+                final_model = LlamaSwiftKVForCausalLM(model_config).swiftkv(True)
+            final_parameters = final_model.parameters()
+        else:
+            final_parameters = [None for _ in self.model.parameters()]
+
+        dist.barrier()
+
+        # Gather final model.
+        for hf_param, (name, ds_param) in zip(
+            final_parameters, self.model.named_parameters()
+        ):
+            with GatheredParameters(ds_param):
+                if dist.get_rank() == 0:
+                    hf_param.data.copy_(ds_param.data)
+
+        if dist.get_rank() == 0 and self.config.output_dir is not None:
+            final_model.save_pretrained(
+                self.config.output_dir,
+                safe_serialization=True,
+                max_shard_size="4GB",
+            )
+            self.trainer.tokenizer.save_pretrained(self.config.output_dir)
+
+        dist.barrier()
+
+
 class SwiftKVTrainer(SFTTrainer):
     config_type = SwiftKVConfig
     _trainer_callbacks = [("post-model-init", init_student_layers)]
@@ -78,6 +116,11 @@ class SwiftKVTrainer(SFTTrainer):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         self.model_config = None
+        self.epoch = 0
+
+    def checkpoint_engine(self):
+        ckpt_engine = SwiftKVCheckpointEngine(trainer=self, config=self.config.checkpoint[0])
+        return [ckpt_engine]
 
     def model_loader(self, model_config: "ModelConfig") -> Any:
         #TODO(jeff): change model_path to model_name_or_path
@@ -178,7 +221,7 @@ if __name__ == "__main__":
 
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=["HuggingFaceH4/ultrachat_200k", "teknium/OpenHermes-2.5"],
+        datasets=["HuggingFaceH4/ultrachat_200k"], #, "teknium/OpenHermes-2.5"],
         use_data_cache=True,
         cache_processed_data=True,
         data_cache_dir="/data-fast/st-data-new",
@@ -218,7 +261,7 @@ if __name__ == "__main__":
         data=data_config,
         model=model_config,
         model_path=model_path,
-        checkpoint={"type":"huggingface", "output_dir":"/checkpoint/swiftkv/mike-repro", "save_every_n_steps":10, "save_every_n_epochs":1},
+        checkpoint={"type":"huggingface", "output_dir":"/data-fast/debug", "save_every_n_steps":10, "save_every_n_epochs":1},
     )
 
     trainer = SwiftKVTrainer(config)
