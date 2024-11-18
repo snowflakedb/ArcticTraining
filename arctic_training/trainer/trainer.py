@@ -123,6 +123,7 @@ class Trainer(ABC):
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
         random.seed(self.config.seed)
+        set_seed(self.config.seed)
 
         self.tokenizer, self.train_dataloader, self.eval_dataloader = data_factory(self)
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
@@ -140,7 +141,6 @@ class Trainer(ABC):
             lr_scheduler=self.scheduler,
             config=self.config.deepspeed,
         )
-        set_seed(self.config.seed)
 
         self.checkpoint_engines = self.checkpoint_engine()
 
