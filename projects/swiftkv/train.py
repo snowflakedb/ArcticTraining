@@ -189,6 +189,7 @@ if __name__ == "__main__":
     model_config = ModelConfig(
         name_or_path=model_path,
         use_liger_kernel=False,
+        disable_activation_checkpoint=True,
     )
 
     config = SwiftKVConfig(
@@ -196,7 +197,13 @@ if __name__ == "__main__":
         key_value_group_size=1,
         lr=0.0002,
         warmup_ratio=0.05,
-        deepspeed={"zero_optimization": {"stage": 2}},
+        deepspeed={"zero_optimization": {
+        "stage": 2, 
+        "stage3_param_persistence_threshold": 1.000000e+04, 
+        "stage3_max_live_parameters": 3.000000e+07, 
+        "stage3_prefetch_bucket_size": 3.000000e+07, 
+        "memory_efficient_linear": False
+    }}, 
         decoder_loss_mult=0.0,
         gradient_accumulation_steps=1,
         betas=(0.9, 0.999),

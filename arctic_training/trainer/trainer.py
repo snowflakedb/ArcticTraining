@@ -145,9 +145,6 @@ class Trainer(ABC):
         self.checkpoint_engines = checkpoint_factory(self)
 
         self._run_callbacks("post-init")
-        if self.local_rank == 0:
-            print("CONFIG")
-            print(self.config)
 
     def _run_callbacks(self, event: str) -> None:
         for cb in self.callbacks:
