@@ -201,4 +201,4 @@ def data_factory(
             drop_last=True,
         )
 
-    return train_dataloader, eval_dataloader
+    return tokenizer, train_dataloader, eval_dataloader

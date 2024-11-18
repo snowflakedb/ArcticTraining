@@ -124,7 +124,7 @@ class Trainer(ABC):
         np.random.seed(self.config.seed)
         random.seed(self.config.seed)
 
-        self.train_dataloader, self.eval_dataloader = data_factory(self)
+        self.tokenizer, self.train_dataloader, self.eval_dataloader = data_factory(self)
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         self._run_callbacks("pre-model-init")
         self.model = model_factory(self)
@@ -142,12 +142,15 @@ class Trainer(ABC):
         )
         set_seed(self.config.seed)
 
-        self.checkpoint_engines = checkpoint_factory(self)
+        self.checkpoint_engines = self.checkpoint_engine()
 
         self._run_callbacks("post-init")
         if self.local_rank == 0:
             print("CONFIG")
             print(self.config)
+
+    def checkpoint_engine(self):
+        return checkpoint_factory(self)
 
     def _run_callbacks(self, event: str) -> None:
         for cb in self.callbacks:
