@@ -32,7 +32,7 @@ class CheckpointEngine(ABC):
         ):
             return self.model.global_steps % self.config.save_every_n_steps == 0
         if self.config.save_every_n_epochs:
-            return self.trainer.epoch % self.config.save_every_n_epochs == 0
+            return (self.trainer.epoch_idx > 0) and (self.trainer.epoch_idx % self.config.save_every_n_epochs) == 0
         if self.config.save_end_of_training:
             return self.trainer.training_finished
         return False
