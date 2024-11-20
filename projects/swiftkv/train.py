@@ -1,3 +1,5 @@
+import tempfile
+tempfile.tempdir = '/data-fast/tmp'
 
 import torch
 import torch.nn.functional as F
@@ -209,19 +211,17 @@ class SwiftKVTrainer(SFTTrainer):
 
 
 if __name__ == "__main__":
-    """
-    --model_path ${BASE} \
-    --tokenizer_path ${BASE} \
-    --datasets HuggingFaceH4/ultrachat_200k teknium/OpenHermes-2.5 \
-    --data_cache_dir /data-fast/sft-test \
-    --output_dir ${FINAL}
-    """
-
     model_path = "/checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/5206a32e0bd3067aef1ce90f5528ade7d866253f"
+
+    datasets = ["HuggingFaceH4/ultrachat_200k",
+                "meta-math/MetaMathQA",
+                "ise-uiuc/Magicoder-OSS-Instruct-75K",
+                "lmsys/lmsys-chat-1m",
+                "Open-Orca/SlimOrca"]
 
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=["HuggingFaceH4/ultrachat_200k"], #, "teknium/OpenHermes-2.5"],
+        datasets=datasets,
         use_data_cache=True,
         cache_processed_data=True,
         data_cache_dir="/data-fast/st-data-new",
@@ -234,6 +234,8 @@ if __name__ == "__main__":
         use_liger_kernel=False,
         disable_activation_checkpoint=True,
     )
+
+    output_dir = "/checkpoint/swiftkv/llama-swiftkv-8b-oss-ultra-math-magic-lmsys-orca-r2"
 
     config = SwiftKVConfig(
         num_key_value_layers=16,
@@ -261,7 +263,7 @@ if __name__ == "__main__":
         data=data_config,
         model=model_config,
         model_path=model_path,
-        checkpoint={"type":"huggingface", "output_dir":"/data-fast/debug", "save_every_n_steps":10, "save_every_n_epochs":1},
+        checkpoint={"type":"huggingface", "output_dir": output_dir, "save_every_n_steps":1000, "save_every_n_epochs":1},
     )
 
     trainer = SwiftKVTrainer(config)
