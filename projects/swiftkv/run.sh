@@ -10,6 +10,3 @@ HF_HOME=/data-fast/hf-hub python -c 'import tempfile; import os; \
 		datasets.load_dataset("Open-Orca/SlimOrca");'
 
 HF_HOME=/data-fast/hf-hub deepspeed train.py
-
-sleep 5
-deepspeed /tmp/run.py
