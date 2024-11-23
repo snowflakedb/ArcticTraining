@@ -15,6 +15,7 @@ class LogLevel(str, Enum):
 
 class LRSchedType(str, Enum):
     LINEAR = "linear"
+    COSINE = "cosine"
 
 
 class DType(Enum):

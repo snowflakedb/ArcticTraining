@@ -6,7 +6,7 @@ import tqdm
 from datasets import Dataset
 
 
-def packing_sft_dataset(dataset, seed: int, rank: int, max_length: int):
+def packing_sft_dataset(dataset, seed: int, rank: int, max_length: int, always_max_length: bool):
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
     train_dataset: Dict[str, List] = {
@@ -36,7 +36,10 @@ def packing_sft_dataset(dataset, seed: int, rank: int, max_length: int):
         attention_mask = data["attention_mask"]
         labels = data["labels"]
 
-        if len(example["input_ids"]) + len(input_ids) > max_length:
+        if (
+            not always_max_length
+            and len(example["input_ids"]) + len(input_ids) > max_length
+        ) or len(example["input_ids"]) > max_length:
             train_dataset["input_ids"].append(example["input_ids"])
             train_dataset["labels"].append(example["labels"])
             train_dataset["position_ids"].append(example["position_ids"])

@@ -25,6 +25,7 @@ class DataConfig(BaseConfig):
     seed: int = 42
     bypass_tokenizer_verification: bool = False
     not_packing_input: bool = False
+    always_max_length: bool = False
     use_data_cache: bool = True
     cache_processed_data: bool = False
     data_cache_dir: Path = Path("/tmp/")

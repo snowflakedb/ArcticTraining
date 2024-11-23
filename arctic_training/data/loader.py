@@ -134,6 +134,7 @@ class ConcatenatedDataSetsLoader(DataLoaderBase):
                 seed=self.config.seed,
                 rank=self.global_rank,
                 max_length=self.config.max_length,
+                always_max_length=self.config.always_max_length,
             )
 
         truncate_length = self.get_shortest_data_length(dataset)
