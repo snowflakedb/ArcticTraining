@@ -1,6 +1,7 @@
 import tempfile
 tempfile.tempdir = '/data-fast/tmp'
 
+import argparse
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -211,7 +212,12 @@ class SwiftKVTrainer(SFTTrainer):
 
 
 if __name__ == "__main__":
-    model_path = "/checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/5206a32e0bd3067aef1ce90f5528ade7d866253f"
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--model-path', type=str, help='model path to load')
+    parser.add_argument('-o', '--output', type=str, help='output path')
+    args = parser.parse_args()
+
+    model_path = args.model_path #"/checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/5206a32e0bd3067aef1ce90f5528ade7d866253f"
 
     datasets = ["HuggingFaceH4/ultrachat_200k",
                 "meta-math/MetaMathQA",
@@ -235,7 +241,7 @@ if __name__ == "__main__":
         disable_activation_checkpoint=True,
     )
 
-    output_dir = "/checkpoint/swiftkv/llama-swiftkv-8b-oss-ultra-math-magic-lmsys-orca-r2"
+    output_dir = args.output #"/checkpoint/swiftkv/llama-swiftkv-8b-oss-ultra-math-magic-lmsys-orca-r2"
 
     config = SwiftKVConfig(
         num_key_value_layers=16,
