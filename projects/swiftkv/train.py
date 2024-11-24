@@ -215,6 +215,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--model-path', type=str, help='model path to load')
     parser.add_argument('-o', '--output', type=str, help='output path')
+    parser.add_argument('--local_rank', type=int, help='gpu rank')
     args = parser.parse_args()
 
     model_path = args.model_path #"/checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/5206a32e0bd3067aef1ce90f5528ade7d866253f"
