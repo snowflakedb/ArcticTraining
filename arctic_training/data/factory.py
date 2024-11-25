@@ -146,7 +146,7 @@ def data_factory(
 ) -> Tuple[DataLoader, Optional[DataLoader]]:
     if data_config is None:
         data_config = trainer.config.data
-        
+
     if data_config.always_max_length:
         assert (
             not data_config.not_packing_input

@@ -1,30 +1,26 @@
-
-import torch
-import torch.nn.functional as F
-import torch.distributed as dist
-from transformers.modeling_utils import no_init_weights
-
 import copy
 from typing import Any
-from typing import TYPE_CHECKING
 
+import torch
+import torch.distributed as dist
+import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
-
-from arctic_training.trainer.sft_trainer import SFTTrainer
 from llama_swiftkv import LlamaSwiftKVConfig
 from llama_swiftkv import LlamaSwiftKVForCausalLM
+from transformers.modeling_utils import no_init_weights
 
-from arctic_training.config import ModelConfig
-
-from arctic_training.config import Config, DataConfig
-from arctic_training.trainer.sft_trainer import to_device
 from arctic_training.checkpoint import CheckpointEngine
+from arctic_training.config import Config
+from arctic_training.config import DataConfig
+from arctic_training.config import ModelConfig
+from arctic_training.trainer.sft_trainer import SFTTrainer
+from arctic_training.trainer.sft_trainer import to_device
 
 
 class SwiftKVConfig(Config):
     num_key_value_layers: int = None
     key_value_group_size: int = 1
-    decoder_loss_mult : float = 0.0
+    decoder_loss_mult: float = 0.0
     temperature: float = 1.0
     zero: int = 2
     model_path: str = None
@@ -119,11 +115,13 @@ class SwiftKVTrainer(SFTTrainer):
         self.epoch = 0
 
     def checkpoint_engine(self):
-        ckpt_engine = SwiftKVCheckpointEngine(trainer=self, config=self.config.checkpoint[0])
+        ckpt_engine = SwiftKVCheckpointEngine(
+            trainer=self, config=self.config.checkpoint[0]
+        )
         return [ckpt_engine]
 
     def model_loader(self, model_config: "ModelConfig") -> Any:
-        #TODO(jeff): change model_path to model_name_or_path
+        # TODO(jeff): change model_path to model_name_or_path
         hf_model_config = LlamaSwiftKVConfig.from_pretrained(self.config.model_path)
         hf_model_config.num_key_value_layers = self.config.num_key_value_layers
         hf_model_config.key_value_group_size = self.config.key_value_group_size
@@ -191,8 +189,9 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-
-    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
+    def distillation_loss(
+        self, student_output, teacher_output, temperature=1.0, dim=-1
+    ):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)
@@ -221,7 +220,7 @@ if __name__ == "__main__":
 
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=["HuggingFaceH4/ultrachat_200k"], #, "teknium/OpenHermes-2.5"],
+        datasets=["HuggingFaceH4/ultrachat_200k"],  # , "teknium/OpenHermes-2.5"],
         use_data_cache=True,
         cache_processed_data=True,
         data_cache_dir="/data-fast/st-data-new",
@@ -240,13 +239,15 @@ if __name__ == "__main__":
         key_value_group_size=1,
         lr=0.0002,
         warmup_ratio=0.05,
-        deepspeed={"zero_optimization": {
-        "stage": 2, 
-        "stage3_param_persistence_threshold": 1.000000e+04, 
-        "stage3_max_live_parameters": 3.000000e+07, 
-        "stage3_prefetch_bucket_size": 3.000000e+07, 
-        "memory_efficient_linear": False
-    }}, 
+        deepspeed={
+            "zero_optimization": {
+                "stage": 2,
+                "stage3_param_persistence_threshold": 1.000000e04,
+                "stage3_max_live_parameters": 3.000000e07,
+                "stage3_prefetch_bucket_size": 3.000000e07,
+                "memory_efficient_linear": False,
+            }
+        },
         decoder_loss_mult=0.0,
         gradient_accumulation_steps=1,
         betas=(0.9, 0.999),
@@ -261,7 +262,12 @@ if __name__ == "__main__":
         data=data_config,
         model=model_config,
         model_path=model_path,
-        checkpoint={"type":"huggingface", "output_dir":"/data-fast/debug", "save_every_n_steps":10, "save_every_n_epochs":1},
+        checkpoint={
+            "type": "huggingface",
+            "output_dir": "/data-fast/debug",
+            "save_every_n_steps": 10,
+            "save_every_n_epochs": 1,
+        },
     )
 
     trainer = SwiftKVTrainer(config)

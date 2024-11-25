@@ -1,25 +1,30 @@
-import torch, transformers
-import os, json
+import json
+import os
+
+import transformers
+
 from arctic_training.config import Config
 
-#Configs used for training the model
+
+# Configs used for training the model
 class MLPSpeculatorTrainConfig(Config):
-   speculator_width: int = 3072
-   n_speculator_heads: int = 3
-   speculator_tie_weights: bool = False
-   speculator_scale_input: bool = False
-   speculator_path: str = "None"
-   gen_train: bool = False
-   gen_train_simple: bool = False
-   gen_micro_batch: int = 32
-   gen_train_micro_batch: int = 32
-   gen_prompt_length: int = 64
-   gen_seq_length: int = 256
-    
-#Configs used for savings model checkpoint for inference  
-class MLPSpeculatorConfig():
+    speculator_width: int = 3072
+    n_speculator_heads: int = 3
+    speculator_tie_weights: bool = False
+    speculator_scale_input: bool = False
+    speculator_path: str = "None"
+    gen_train: bool = False
+    gen_train_simple: bool = False
+    gen_micro_batch: int = 32
+    gen_train_micro_batch: int = 32
+    gen_prompt_length: int = 64
+    gen_seq_length: int = 256
+
+
+# Configs used for savings model checkpoint for inference
+class MLPSpeculatorConfig:
     """
-    This is a simple MLP-based speculator Config.    
+    This is a simple MLP-based speculator Config.
     ...
     Args
     ----
@@ -48,29 +53,26 @@ class MLPSpeculatorConfig():
         n_predict,
         tie_weights=False,
         scale_input=False,
-        
     ):
-        self.architectures = 'MLPSpeculatorPreTrainedModel'
+        self.architectures = "MLPSpeculatorPreTrainedModel"
         self.base_model_name_or_path = base_model_name_or_path
-        
+
         self.emb_dim = emb_dim
         self.inner_dim = inner_dim
-        self.model_type = 'mlp_speculator'
-        
+        self.model_type = "mlp_speculator"
+
         self.n_candidates = n_predict
         self.n_predict = n_predict
-        
+
         self.scale_input = scale_input
         self.tie_weights = tie_weights
         self.top_k_tokesns_per_head = [1 for i in range(self.n_predict)]
-        
-        self.torch_dtype = 'bfloat16'
+
+        self.torch_dtype = "bfloat16"
         self.transformers_version = transformers.__version__
         self.vocab_size = vocab_size
-        
-    def save(self, output_dir):
-        save_path = os.path.join(output_dir,'config.json')
-        with open(save_path, 'w') as f:
-            json.dump(self.__dict__, f)
 
-    
+    def save(self, output_dir):
+        save_path = os.path.join(output_dir, "config.json")
+        with open(save_path, "w") as f:
+            json.dump(self.__dict__, f)

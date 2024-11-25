@@ -1,13 +1,14 @@
+import copy
+import os
 
 import torch
 import torch.distributed as dist
-import os
-import copy
-
-from .speculator import MLPSpeculator
 from deepspeed.runtime.zero import GatheredParameters
+
 from arctic_training.checkpoint import CheckpointEngine
 from arctic_training.register import register_checkpoint
+
+from .speculator import MLPSpeculator
 
 
 @register_checkpoint
@@ -18,13 +19,13 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
         raise NotImplementedError()
 
     def save(self) -> None:
-        if dist.get_rank() == 0:  
+        if dist.get_rank() == 0:
             model_config = copy.deepcopy(self.model.speculator.config)
             model_to_save = MLPSpeculator(model_config)
             parameters_to_save = model_to_save.parameters()
         else:
             parameters_to_save = [None for param in self.model.speculator.parameters()]
-        
+
         dist.barrier()
 
         # Gather final model.
@@ -37,8 +38,8 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
 
         if dist.get_rank() == 0 and self.config.output_dir is not None:
             os.makedirs(self.config.output_dir, exist_ok=True)
-            save_path = os.path.join(self.config.output_dir, 'pytorch_model.bin')
+            save_path = os.path.join(self.config.output_dir, "pytorch_model.bin")
             torch.save(model_to_save.state_dict(), save_path)
             model_config.save(self.config.output_dir)
-            
+
         dist.barrier()

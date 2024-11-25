@@ -1,14 +1,15 @@
 import os
-os.environ["HF_HOME"] = "/checkpoint/huggingface/hub/"
-
 import tempfile
+
+from mlp_speculator.configs import MLPSpeculatorTrainConfig
+from mlp_speculator.mlp_speculator_trainer import MLPSpeculatorTrainer
+
+from arctic_training.config import DataConfig
+from arctic_training.config import ModelConfig
+
+os.environ["HF_HOME"] = "/checkpoint/huggingface/hub/"
 tempfile.tempdir = "/data-fast/temp"
 print(tempfile.gettempdir())
-
-from arctic_training.config import ModelConfig
-from arctic_training.config import Config, DataConfig
-from mlp_speculator.mlp_speculator_trainer import MLPSpeculatorTrainer
-from mlp_speculator.configs import MLPSpeculatorTrainConfig
 
 if __name__ == "__main__":
     """
@@ -23,7 +24,10 @@ if __name__ == "__main__":
 
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=["HuggingFaceH4/ultrachat_200k","ise-uiuc/Magicoder-OSS-Instruct-75K"],
+        datasets=[
+            "HuggingFaceH4/ultrachat_200k",
+            "ise-uiuc/Magicoder-OSS-Instruct-75K",
+        ],
         use_data_cache=True,
         always_max_length=True,
         cache_processed_data=True,
@@ -45,19 +49,21 @@ if __name__ == "__main__":
         speculator_scale_input=False,
         gen_train=True,
         gen_micro_batch=384,
-        gen_seq_length=64, #256,
+        gen_seq_length=64,  # 256,
         gen_prompt_length=64,
         gen_train_micro_batch=32,
         lr=1e-3,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
-        deepspeed={"zero_optimization": {
-        "stage": 2, 
-        "stage3_param_persistence_threshold": 1.000000e+04, 
-        "stage3_max_live_parameters": 3.000000e+07, 
-        "stage3_prefetch_bucket_size": 3.000000e+07, 
-        "memory_efficient_linear": False
-    }}, 
+        deepspeed={
+            "zero_optimization": {
+                "stage": 2,
+                "stage3_param_persistence_threshold": 1.000000e04,
+                "stage3_max_live_parameters": 3.000000e07,
+                "stage3_prefetch_bucket_size": 3.000000e07,
+                "memory_efficient_linear": False,
+            }
+        },
         gradient_accumulation_steps=8,
         betas=(0.9, 0.999),
         seed=42,
@@ -65,9 +71,13 @@ if __name__ == "__main__":
         micro_batch_size=6,
         data=data_config,
         model=model_config,
-        checkpoint={"type":"mlp_speculator", "output_dir":"/data-fast/debug", "save_every_n_steps":1, "save_every_n_epochs":1},
+        checkpoint={
+            "type": "mlp_speculator",
+            "output_dir": "/data-fast/debug",
+            "save_every_n_steps": 1,
+            "save_every_n_epochs": 1,
+        },
     )
 
     trainer = MLPSpeculatorTrainer(config)
     trainer.train()
-

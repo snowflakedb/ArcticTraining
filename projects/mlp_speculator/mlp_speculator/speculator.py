@@ -2,7 +2,10 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 from .configs import MLPSpeculatorConfig
+
 
 class LayerNormParameterized(nn.Module):
     """
@@ -102,31 +105,38 @@ class MLPSpeculator(nn.Module):
         Helps training dynamics, particularly when base model output has unusual scale.
     """
 
-    def __init__(
-        self,
-        config : MLPSpeculatorConfig
-    ):
+    def __init__(self, config: MLPSpeculatorConfig):
         super().__init__()
-        
+
         self.config = config
         self.n_predict = config.n_predict
         self.emb_dim = config.emb_dim
         inner_dim = config.inner_dim
-        self.inner_dim = inner_dim if inner_dim != 0 else emb_dim
+        self.inner_dim = inner_dim if inner_dim != 0 else self.emb_dim
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
         self.emb = nn.ModuleList(
-            [nn.Embedding(self.vocab_size, self.inner_dim) for _ in range(self.n_predict)]
+            [
+                nn.Embedding(self.vocab_size, self.inner_dim)
+                for _ in range(self.n_predict)
+            ]
         )
         self.proj = nn.ModuleList(
             [
-                nn.Linear((self.emb_dim if i == 0 else self.inner_dim), self.inner_dim, bias=False)
+                nn.Linear(
+                    (self.emb_dim if i == 0 else self.inner_dim),
+                    self.inner_dim,
+                    bias=False,
+                )
                 for i in range(self.n_predict)
             ]
         )
         self.head = nn.ModuleList(
-            [nn.Linear(self.inner_dim, self.vocab_size, bias=False) for _ in range(self.n_predict)]
+            [
+                nn.Linear(self.inner_dim, self.vocab_size, bias=False)
+                for _ in range(self.n_predict)
+            ]
         )
         self.ln = nn.ModuleList(
             [

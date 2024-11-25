@@ -6,7 +6,9 @@ import tqdm
 from datasets import Dataset
 
 
-def packing_sft_dataset(dataset, seed: int, rank: int, max_length: int, always_max_length: bool):
+def packing_sft_dataset(
+    dataset, seed: int, rank: int, max_length: int, always_max_length: bool
+):
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
     train_dataset: Dict[str, List] = {
