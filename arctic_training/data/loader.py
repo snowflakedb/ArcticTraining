@@ -78,7 +78,7 @@ class DataSetLoader(DataLoaderBase):
         disable_caching()
 
         if self.config.use_data_cache and self.cache_path.exists():
-            return load_from_disk(self.cache_path)
+            return load_from_disk(self.cache_path.as_posix())
 
         dataset = self.load_fn(num_proc=self.config.num_proc, eval=self.eval)
 
@@ -90,7 +90,7 @@ class DataSetLoader(DataLoaderBase):
 
         if self.config.use_data_cache:
             print(f"SAVING DATA: {self.cache_path}")
-            dataset.save_to_disk(self.cache_path)
+            dataset.save_to_disk(self.cache_path.as_posix())
 
         return dataset
 
@@ -121,7 +121,7 @@ class ConcatenatedDataSetsLoader(DataLoaderBase):
 
     def load_datasets(self) -> Dataset:
         if self.config.use_data_cache and self.cache_path.exists():
-            return load_from_disk(self.cache_path)
+            return load_from_disk(self.cache_path.as_posix())
 
         datasets = [d.load_dataset() for d in self.dataset_loaders]
         dataset = concatenate_datasets(datasets)
@@ -146,7 +146,7 @@ class ConcatenatedDataSetsLoader(DataLoaderBase):
         dataset = dataset.select(range(truncate_length))
 
         if self.config.cache_processed_data:
-            dataset.save_to_disk(self.cache_path)
+            dataset.save_to_disk(self.cache_path.as_posix())
 
         return dataset
 

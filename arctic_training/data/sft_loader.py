@@ -1,3 +1,4 @@
+import os
 from functools import partial
 from typing import TYPE_CHECKING
 from typing import Dict
@@ -168,6 +169,33 @@ class OpenHermes2_5(SFTDataSetLoader):
 
 
 @register_dataset
+class SlimOrca(SFTDataSetLoader):
+    dataset_name = "Open-Orca/SlimOrca"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        if eval:
+            assert False, "Test split does not exist."
+        dataset = load_dataset("Open-Orca/SlimOrca", split="train", num_proc=num_proc)
+
+        def process_example(example):
+            return {
+                "messages": [
+                    {
+                        "content": message["value"],
+                        "role": {
+                            "system": "system",
+                            "human": "user",
+                            "gpt": "assistant",
+                        }[message["from"]],
+                    }
+                    for message in example["conversations"]
+                ]
+            }
+
+        return dataset.map(process_example, num_proc=num_proc, desc="Loading slim orca")
+
+
+@register_dataset
 class MetaMathQA(SFTDataSetLoader):
     dataset_name = "meta-math/MetaMathQA"
 
@@ -245,7 +273,7 @@ class LMSysChat1M(SFTDataSetLoader):
     def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         if eval:
             assert False, "Test split does not exist."
-        dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", num_proc=num_proc)
+        dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", num_proc=num_proc, token=os.environ.get("HF_TOKEN", None))
         # TODO
         # if sample:
         #    shuffled_dataset = dataset.shuffle(seed=42)

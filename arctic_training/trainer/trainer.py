@@ -260,7 +260,7 @@ class Trainer(ABC):
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
                 self._epoch_loop()
-                if self.early_stop:
+                if getattr(self, 'early_stop', False):
                     break
                 self._save_checkpoint()
             self.training_finished = True
