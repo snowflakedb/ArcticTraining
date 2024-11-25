@@ -147,6 +147,11 @@ def data_factory(
     if data_config is None:
         data_config = trainer.config.data
 
+    if data_config.always_max_length:
+        assert (
+            not data_config.not_packing_input
+        ), "always_max_length and not_packing_input cannot be both True"
+
     tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
         data_config.tokenizer_name_or_path
     )
