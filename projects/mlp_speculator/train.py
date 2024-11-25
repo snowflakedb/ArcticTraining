@@ -7,8 +7,8 @@ print(tempfile.gettempdir())
 
 from arctic_training.config import ModelConfig
 from arctic_training.config import Config, DataConfig
-from mlp_speculator.mlp_speculator_trainer import MLPSpeculatorTrainConfig
 from mlp_speculator.mlp_speculator_trainer import MLPSpeculatorTrainer
+from mlp_speculator.configs import MLPSpeculatorTrainConfig
 
 if __name__ == "__main__":
     """
@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=["HuggingFaceH4/ultrachat_200k"],
+        datasets=["HuggingFaceH4/ultrachat_200k","ise-uiuc/Magicoder-OSS-Instruct-75K"],
         use_data_cache=True,
         always_max_length=True,
         cache_processed_data=True,

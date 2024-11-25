@@ -1,41 +1,43 @@
-import logging
+#General Imports
 import sys
+import json
+import shutil, os
+import copy
+import tqdm
+
 import types
 from typing import Any
 from typing import TYPE_CHECKING
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
-import torch.distributed as dist
-import tqdm
-import transformers
-import shutil, os
-from safetensors.torch import load_file
-import json
-
-import copy
-
-from .speculator import MLPSpeculator
-from .configs import MLPSpeculatorConfig
 from torch import nn
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
+import torch.distributed as dist
+
+import transformers
 from transformers.cache_utils import DynamicCache
 from transformers.trainer_pt_utils import LabelSmoother
-from deepspeed.runtime.zero import GatheredParameters
 
+from deepspeed.runtime.zero import GatheredParameters
+from safetensors.torch import load_file
+
+#ArcticTraining Imports
 from arctic_training.trainer.sft_trainer import SFTTrainer
-from arctic_training.config import ModelConfig
-from arctic_training.config import Config, DataConfig
 from arctic_training.trainer.sft_trainer import to_device
-from arctic_training.checkpoint import CheckpointEngine
 from arctic_training.register import register_checkpoint
+from arctic_training.logging import logger
+
+
+
+#MLPSpeculator Imports
+from .speculator import MLPSpeculator
+from .configs import MLPSpeculatorConfig
+from .checkpointing import MLPSpeculatorCheckpointEngine
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
-
-logger = LOG = logging.getLogger("mlp_speculator")
-
-
+#logger = LOG = logging.getLogger("mlp_speculator")
 
 #WIP
 def get_average_accepted_tokens(config, sft_trainer, inputs):
@@ -94,75 +96,6 @@ def get_average_accepted_tokens(config, sft_trainer, inputs):
                                               
     
     predictions = predictions.reshape(-1, for_speculation.size(1), config.n_speculator_heads)
-
-# class MLPSpeculatorConfig():
-#     """
-#     This is a simple MLP-based speculator Config.    
-#     ...
-#     Args
-#     ----
-#     emb_dim : int
-#         Dimensionality of the input vector from the base model.
-#     inner_dim : int
-#         Latent dimensionality of the speculator model.
-#     vocab_size : int
-#         Number of entries in the tokenizer associated with the base model.
-#     n_predict : int
-#         Number of heads / number of tokens to guess ahead. Model size and speed scale with this value.
-#     tie_weights : bool
-#         If true, use a single set of weights for every model head/stage after the first.
-#         The initial projection from the base model may have a different size, so that stays separate.
-#     scale_input: bool
-#         If true, apply an extra layernorm to the initial state vector input.
-#         Helps training dynamics, particularly when base model output has unusual scale.
-#     """
-
-#     def __init__(
-#         self,
-#         base_model_name_or_path,
-#         emb_dim,
-#         inner_dim,
-#         vocab_size,
-#         n_predict,
-#         tie_weights=False,
-#         scale_input=False,
-        
-#     ):
-#         self.architectures = ["MLPSpeculatorPreTrainedModel"]
-#         self.base_model_name_or_path = base_model_name_or_path
-        
-#         self.emb_dim = emb_dim
-#         self.inner_dim = inner_dim
-#         self.model_type = "mlp_speculator",
-        
-#         self.n_candidates = n_predict
-#         self.n_predict = n_predict
-        
-#         self.scale_input = scale_input
-#         self.tie_weights = tie_weights
-#         self.top_k_tokesns_per_head = [1 for i in range(self.n_predict)]
-        
-#         self.torch_dtype = torch.half
-#         self.transformers_version = transformers.__version__
-#         self.vocab_size = vocab_size
-        
-#     def save(self, output_dir):
-#         save_path = os.path.join(output_dir,'config.json')
-#         with open(save_path, 'w') as f:
-#             json.dump(self.__dict__, f)
-        
-class MLPSpeculatorTrainConfig(Config):
-    speculator_width: int = 3072
-    n_speculator_heads: int = 3
-    speculator_tie_weights: bool = False
-    speculator_scale_input: bool = False
-    speculator_path: str = "None"
-    gen_train: bool = False
-    gen_train_simple: bool = False
-    gen_micro_batch: int = 32
-    gen_train_micro_batch: int = 32
-    gen_prompt_length: int = 64
-    gen_seq_length: int = 256
         
 class MLPSpeculatorTrainer(SFTTrainer): 
     def add_mlp_speculator(self):
@@ -497,6 +430,16 @@ class MLPSpeculatorTrainer(SFTTrainer):
         else:
             return self._compute_loss1(inputs)
 
+    # #overriding the train_batch_loop method to include gen_train
+    def train_batch_loop(self) -> None:
+        self._step()
+        if self.local_rank == 0:
+            batch_factor = 1 if not self.config.gen_train \
+                            else self.config.gen_micro_batch / self.config.gen_train_micro_batch
+            logger.info(
+                f"EPOCH: {self.epoch_idx}, TRAIN BATCH: {self.train_batch_idx * batch_factor}, LOSS: {self._loss_output.item()}"
+            )
+
     def step(self):
         """
         Perform a single training step or single generation with multiple training steps.
@@ -572,36 +515,3 @@ class MLPSpeculatorTrainer(SFTTrainer):
     def checkpoint_engine(self):
         ckpt_engine = MLPSpeculatorCheckpointEngine(trainer=self, config=self.config.checkpoint[0])
         return [ckpt_engine]
-
-@register_checkpoint
-class MLPSpeculatorCheckpointEngine(CheckpointEngine):
-    checkpoint_type: str = "mlp_speculator"
-
-    def load(self) -> None:
-        raise NotImplementedError()
-
-    def save(self) -> None:
-        if dist.get_rank() == 0:  
-            model_config = copy.deepcopy(self.model.speculator.config)
-            model_to_save = MLPSpeculator(model_config)
-            parameters_to_save = model_to_save.parameters()
-        else:
-            parameters_to_save = [None for param in self.model.speculator.parameters()]
-        
-        dist.barrier()
-
-        # Gather final model.
-        for parameter_to_save, (name, ds_param) in zip(
-            parameters_to_save, self.model.speculator.named_parameters()
-        ):
-            with GatheredParameters(ds_param):
-                if dist.get_rank() == 0:
-                    parameter_to_save.data.copy_(ds_param.data)
-
-        if dist.get_rank() == 0 and self.config.output_dir is not None:
-            os.makedirs(self.config.output_dir, exist_ok=True)
-            save_path = os.path.join(self.config.output_dir, 'pytorch_model.bin')
-            torch.save(model_to_save.state_dict(), save_path)
-            model_config.save(self.config.output_dir)
-            
-        dist.barrier()
