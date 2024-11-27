@@ -25,19 +25,20 @@ class CheckpointEngine(ABC):
     def do_checkpoint(self) -> bool:
         if not self.config.enabled:
             return False
+        return_value=False
         if (
             self.model.is_gradient_accumulation_boundary()
             and self.config.save_every_n_steps
             and self.model.global_steps > 0
         ):
-            return self.model.global_steps % self.config.save_every_n_steps == 0
+            return_value = self.model.global_steps % self.config.save_every_n_steps == 0
         if self.config.save_every_n_epochs:
-            return (self.trainer.epoch_idx > 0) and (
+            return_value = return_value or (self.trainer.epoch_idx > 0) and (
                 self.trainer.epoch_idx % self.config.save_every_n_epochs
             ) == 0
         if self.config.save_end_of_training:
-            return self.trainer.training_finished
-        return False
+            return_value = return_value or self.trainer.training_finished
+        return return_value
 
     @property
     def checkpoint_dir(self) -> Path:
