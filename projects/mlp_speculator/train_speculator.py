@@ -112,10 +112,11 @@ if __name__ == "__main__":
         deepspeed={
             "zero_optimization": {
                 "stage": args.zero_stage,        
-                "allgather_bucket_size": 1e9,
+                "allgather_bucket_size": 5e8,
                 "stage3_param_persistence_threshold": 1.000000e04,
                 "stage3_max_live_parameters": 3.000000e07,
-                "stage3_prefetch_bucket_size": 1.0e9,
+                "stage3_prefetch_bucket_size": 5e8,
+                "reduce_bucket_size": 2.5e8, 
                 "memory_efficient_linear": False,
             }
         },
