@@ -375,7 +375,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
                 else self.config.gen_micro_batch / self.config.gen_train_micro_batch
             )
             logger.info(
-                f"EPOCH: {self.epoch_idx}, TRAIN BATCH: {self.train_batch_idx * batch_factor}, LOSS: {self._loss_output.item()}"
+                f"EPOCH: {self.epoch_idx}, TRAIN BATCH: {self.train_batch_idx * batch_factor}, GLOBAL_STEP: {self.global_step_idx}, LOSS: {self._loss_output.item()}"
             )
 
     def step(self):
@@ -429,7 +429,9 @@ class MLPSpeculatorTrainer(SFTTrainer):
                         hidden_states.size(2),
                     ]
                 )
-
+            #The generation takes a long time so doing this once in a while wont be a big overhead
+            torch.cuda.empty_cache()
+            
             speculator_inputs = {}
             for i in tqdm.tqdm(
                 range(generated_tokens.size(0)),

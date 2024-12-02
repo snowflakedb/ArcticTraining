@@ -1,27 +1,72 @@
 import os
 import tempfile
+import pprint
+import argparse
 
 from mlp_speculator.configs import MLPSpeculatorTrainConfig
 from mlp_speculator.mlp_speculator_trainer import MLPSpeculatorTrainer
 
 from arctic_training.config import DataConfig
 from arctic_training.config import ModelConfig
+from arctic_training.logging import logger
+
+from projects.swiftkv.llama_swiftkv import (
+    register_auto as swiftkv_model_register,
+)
+swiftkv_model_register()
+
+import torch
+import torch.distributed as dist
 
 os.environ["HF_HOME"] = "/checkpoint/huggingface/hub/"
 tempfile.tempdir = "/data-fast/temp"
-print(tempfile.gettempdir())
+os.makedirs(tempfile.tempdir, exist_ok=True)
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    
+def MLPSpeculatorParser():
+    parser = argparse.ArgumentParser(description="MLP Speculator Configurations")
+    group = parser.add_argument_group(description="MLP Speculator Configs")
+    
+    group.add_argument('--local_rank', type=int, help='gpu rank')
+    
+    group.add_argument("--model_path", type=str, default="NousResearch/Meta-Llama-3-8B-Instruct")
+    group.add_argument("--output_path", type=str, default="")
+    
+    # DataLoader micro batch size
+    group.add_argument("--global_batch_size", type=int, default=48)
+    group.add_argument("--micro_batch_size", type=int, default=6)
+    
+    #Total training iterations
+    group.add_argument("--train_iters", type=int, default=1000)
+    group.add_argument("--checkpoint_interval", type=int, default=300)
+    
+    group.add_argument("--zero_stage", type=int, default=2)
+    
+    group.add_argument("--speculator_width", type=int, default=4096)
+    group.add_argument("--n_speculator_heads", type=int, default=3)
+
+    group.add_argument("--speculator_tie_weights", action="store_true", default=False)
+    group.add_argument("--speculator_scale_input", action="store_true", default=False)
+    group.add_argument("--speculator_path", type=str, default=None)
+
+    ################### Arguments for generative training ###################
+
+    # if true, the training will generate data for training the speculator
+    group.add_argument("--gen_train", action="store_true", default=False)
+    group.add_argument("--gen_train_global_batch", type=int, default=2048)
+    group.add_argument("--gen_train_micro_batch", type=int, default=32)
+    group.add_argument("--gen_micro_batch", type=int, default=384)
+    
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    """
-    --model_path ${BASE} \
-    --tokenizer_path ${BASE} \
-    --datasets HuggingFaceH4/ultrachat_200k teknium/OpenHermes-2.5 \
-    --data_cache_dir /data-fast/sft-test \
-    --output_dir ${FINAL}
-    """
-
-    model_path = "/checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/5206a32e0bd3067aef1ce90f5528ade7d866253f"
-
+    args=MLPSpeculatorParser()
+    
+    #need this to get gpu count to calculate gas
+    dist.init_process_group(backend="nccl")
+    
+    model_path = args.model_path
+    
     data_config = DataConfig(
         tokenizer=model_path,
         datasets=[
@@ -41,43 +86,58 @@ if __name__ == "__main__":
         use_liger_kernel=False,
         disable_activation_checkpoint=True,
     )
-
+    
+    if args.gen_train:
+        gradient_accumulation_steps = args.gen_train_global_batch // \
+                                    args.gen_train_micro_batch // \
+                                    torch.distributed.get_world_size()
+    else:
+        gradient_accumulation_steps = args.global_batch_size // \
+                                    args.micro_batch_size // \
+                                    torch.distributed.get_world_size()
+                                                                      
     config = MLPSpeculatorTrainConfig(
-        speculator_width=4096,
-        n_speculator_heads=1,
-        speculator_tie_weights=False,
-        speculator_scale_input=False,
-        gen_train=True,
-        gen_micro_batch=384,
-        gen_seq_length=64,  # 256,
+        speculator_width=args.speculator_width,
+        n_speculator_heads=args.n_speculator_heads,
+        speculator_tie_weights=args.speculator_tie_weights,
+        speculator_scale_input=args.speculator_scale_input,
+        gen_train=args.gen_train,
+        gen_micro_batch=args.gen_micro_batch,
+        gen_seq_length=256,
         gen_prompt_length=64,
-        gen_train_micro_batch=32,
+        gen_train_micro_batch=args.gen_train_micro_batch,
         lr=1e-3,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
         deepspeed={
             "zero_optimization": {
-                "stage": 2,
+                "stage": args.zero_stage,        
+                "allgather_bucket_size": 5e8,
                 "stage3_param_persistence_threshold": 1.000000e04,
                 "stage3_max_live_parameters": 3.000000e07,
-                "stage3_prefetch_bucket_size": 3.000000e07,
+                "stage3_prefetch_bucket_size": 5e8,
+                "reduce_bucket_size": 2.5e8, 
                 "memory_efficient_linear": False,
             }
         },
-        gradient_accumulation_steps=8,
+        gradient_accumulation_steps=gradient_accumulation_steps,
         betas=(0.9, 0.999),
         seed=42,
         epochs=5,
-        micro_batch_size=6,
+        micro_batch_size=args.micro_batch_size,
+        train_iters=args.train_iters,
         data=data_config,
         model=model_config,
         checkpoint={
             "type": "mlp_speculator",
-            "output_dir": "/data-fast/debug",
-            "save_every_n_steps": 1,
+            "output_dir": args.output_path,
+            "save_every_n_steps": args.checkpoint_interval,
             "save_every_n_epochs": 1,
+            "save_end_of_training": True,
         },
     )
-
+    
+    logger.info(f"Config: {pprint.pformat(config,indent=1)}")
     trainer = MLPSpeculatorTrainer(config)
+    #trainer.checkpoint_engines[0].save()
     trainer.train()

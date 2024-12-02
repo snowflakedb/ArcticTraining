@@ -73,7 +73,6 @@ class Trainer(ABC):
     config_type: Union[str, Type[Config]]
     dataset_type: str
     model_loader: Optional[Callable] = None
-    training_finished: bool = False
 
     _default_callbacks: List[Tuple[str, Callable]] = []
     _trainer_callbacks: List[Tuple[str, Callable]] = []
@@ -105,6 +104,7 @@ class Trainer(ABC):
         self._epoch_idx: int = 0
         self._global_step_idx: int = 0  # TODO: Use this value in checkpoint engine
         self._loss_output: Any = None
+        self.training_finished: bool = False
 
         self.config = config
 
@@ -188,9 +188,16 @@ class Trainer(ABC):
     def step(self) -> None:
         self.model.train()
         self._loss(self.train_batch_data)
-        self._save_checkpoint()  # TODO: must this happen before backward?
         self.model.backward(self._loss_output)
         self.model.step()
+        
+        # Do not increment, instead use the deepspeed global step
+        # deepspeed global step is the golden truth here
+        self._global_step_idx = self.model.global_steps
+        
+        # Save checkpoint if needed
+        self._save_checkpoint()       
+        
 
     @_callback_wrapper("step")
     def _step(self) -> None:
@@ -200,7 +207,7 @@ class Trainer(ABC):
         self._step()
         if self.local_rank == 0:
             logger.info(
-                f"EPOCH: {self.epoch_idx}, BATCH: {self.train_batch_idx}, LOSS: {self._loss_output.item()}"
+                f"EPOCH: {self.epoch_idx}, MICRO BATCH: {self.train_batch_idx}, GLOBAL_STEP: {self.global_step_idx} LOSS: {self._loss_output.item()}"
             )
 
     @_callback_wrapper("batch")
@@ -215,10 +222,15 @@ class Trainer(ABC):
 
     def epoch_loop(self) -> None:
         for train_batch_idx, train_batch_data in self.train_batches:
+            if self.global_step_idx >= self.training_horizon:
+                self.early_stop = True
+                break
+            
             self.train_batch_idx = train_batch_idx
             self.train_batch_data = train_batch_data
             self._train_batch_loop()
-
+            
+            
     @_callback_wrapper("epoch")
     def _epoch_loop(self) -> None:
         self.epoch_loop()
@@ -246,6 +258,7 @@ class Trainer(ABC):
     def _save_checkpoint(self) -> None:
         for engine in self.checkpoint_engines:
             if engine.do_checkpoint:
+                logger.info(f"Saving Checkpoint at global step: {self.global_step_idx}.")
                 engine.save()
 
     @_callback_wrapper("resume_checkpoint")
@@ -264,6 +277,7 @@ class Trainer(ABC):
                     break
                 self._save_checkpoint()
             self.training_finished = True
+            logger.info("Training finished.")
             self._save_checkpoint()
         except Exception as e:
             logger.error(f"Training failed with error: {e}")
