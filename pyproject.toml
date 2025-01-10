@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "arctic_training"
+version = "0.0.1"
+description = "Snowflake LLM training library"
+authors = [
+    {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
+    {author = "Jeff Rasley", email = "jeff.rasley@snowflake.com"},
+    {author = "Zhewei Yao", email = "zhewei.yao@snowflake.com"},
+    {author = "Samyam Rajbhandari", email = "samyam.rajbhandari@snowflake.com"},
+    {author = "Aurick Qiao", email = "aurick.qiao@snowflake.com"}
+]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/snowflakedb/ArcticTraining"
+repository = "https://github.com/snowflakedb/ArcticTraining"
+
+keywords = ["llm", "training"]
+
+# Dependencies for the project
+dependencies = [
+    "pydantic>=2.0",
+    "datasets",
+    "transformers",
+    "torch",
+    "loguru",
+    "peft",
+    "deepspeed",
+    "tqdm",
+    "devtools",
+]
+
+# Optional development dependencies
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "pytest>=7.0",
+    "black>=23.1",
+    "flake8>=5.0",
+    "mypy>=1.1",
+    "sphinx>8.1.3",
+    "autodoc_pydantic>=2.0.0",
+    "sphinx-rtd-theme"
+]
+
+[project.scripts]
+arctic_training = "arctic_training.cli:main"
+arctic_training_run = "arctic_training.cli:run_script"
+
+# Configuration for Black (code formatter)
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+# Configuration for Flake8 (linter)
+[tool.flake8]
+max-line-length = 88
+ignore = ["E203", "E266", "E501", "W503"]
+exclude = ["tests/*"]
+
+# Configuration for Mypy (type checker)
+[tool.mypy]
+python_version = 3.8
+check_untyped_defs = true
+ignore_missing_imports = true
+
+# Optional configuration for isort (import sorting)
+[tool.isort]
+profile = "black"
+line_length = 88
+force_single_line = true
+filter_files = true

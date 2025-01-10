@@ -1,0 +1,43 @@
+type: mlp
+micro_batch_size: 12
+epochs: 5
+gen_train: true
+gen_micro_batch_size: 768
+gen_train_global_batch_size: 2048
+gen_train_micro_batch_size: 32
+model:
+  name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
+  disable_activation_checkpoint: true
+tokenizer:
+  name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
+deepspeed:
+  zero_optimization:
+    stage: 3
+    allgather_bucket_size: 500000000
+    stage3_param_persistence_threshold: 10000
+    stage3_max_live_parameters: 30000000
+    stage3_prefetch_bucket_size: 500000000
+    reduce_bucket_size: 250000000
+    memory_efficient_linear: false
+data:
+  sources:
+    - HuggingFaceH4/ultrachat_200k
+    - ise-uiuc/Magicoder-OSS-Instruct-75K
+  use_data_cache: true
+  cache_processed_data: true
+  cache_dir: /data-fast/st-data-redesign
+  num_proc: 16
+  max_length: 4096
+logger:
+  output_dir: "./"
+  file_output_ranks: [0]
+scheduler:
+  lr: 1e-3
+  warmup_ratio: 0.05
+optimizer:
+  betas: [0.9,0.999]
+  weight_decay: 0.1
+checkpoint:
+  - type: deepspeed
+    save_every_n_steps: 1000
+    output_dir: /data-fast/checkpoint-redesign
