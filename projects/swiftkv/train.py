@@ -25,6 +25,7 @@ from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
 from arctic_training import register
+from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
 
 
@@ -133,19 +134,7 @@ class SwiftKVTrainer(SFTTrainer):
                 decoder_loss_count += 1
             decoder_loss *= self.config.decoder_loss_mult / decoder_loss_count
 
-        """
-        if dist.get_rank() == 0:
-            print(
-                "student loss:",
-                student_outputs.loss.item(),
-                "teacher loss:",
-                teacher_outputs.loss.item(),
-                "distill loss:",
-                distill_loss.item(),
-                "decoder loss:",
-                decoder_loss.item(),
-            )
-        """
+        logger.info(f"student loss: {student_outputs.loss.item()}, teacher loss: {teacher_outputs.loss.item()}, distill loss: {distill_loss.item()}")
 
         loss = distill_loss + decoder_loss
 

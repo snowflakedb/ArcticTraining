@@ -119,6 +119,9 @@ class TrainerConfig(BaseConfig):
     global_rank: int = Field(default_factory=get_local_rank, exclude=True)
     world_size: int = Field(default_factory=get_world_size, exclude=True)
 
+    exit_iteration: int = Field(default=0, ge=0)
+    """ Force exit of training after specified iteration count (useful for debugging). """
+
     @model_validator(mode="after")
     def init_dist(self) -> Self:
         get_accelerator().set_device(self.global_rank)
