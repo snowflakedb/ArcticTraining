@@ -64,7 +64,9 @@ class CheckpointEngine(ABC, CallbackMixin):
             and self.config.save_every_n_steps
             and self.trainer.global_step > 0
         ):
-            return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
+            return_value = (
+                self.trainer.global_step % self.config.save_every_n_steps == 0
+            )
         if self.config.save_every_n_epochs:
             return_value = (self.trainer.epoch_idx > 0) and (
                 self.trainer.epoch_idx % self.config.save_every_n_epochs
