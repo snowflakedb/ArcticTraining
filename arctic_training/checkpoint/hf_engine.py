@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 from typing import Any
+from typing import Dict
 
-import json
-import torch
 import deepspeed
 import safetensors as sf
 from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
@@ -74,7 +74,7 @@ class HFCheckpointEngine(CheckpointEngine):
 
     def _save_z3_checkpoint(self, model) -> None:
         output_state_dict = {}
-        sf_index_json = {"metadata": {}, "weight_map": {}}
+        sf_index_json: Dict = {"metadata": {}, "weight_map": {}}
         so_far_params = 0
         checkpoint_id = 1
         total_params = 0
@@ -89,9 +89,13 @@ class HFCheckpointEngine(CheckpointEngine):
                 so_far_params += v_p.numel()
                 total_params += v_p.numel()
                 if so_far_params > SHARD_SIZE:
-                    tmp_file_name = f"model-{checkpoint_id:05}-{ckpt_count:05}.safetensors"
+                    tmp_file_name = (
+                        f"model-{checkpoint_id:05}-{ckpt_count:05}.safetensors"
+                    )
                     sf.torch.save_file(
-                        output_state_dict, self.model_file(tmp_file_name), metadata={"format": "pt"}
+                        output_state_dict,
+                        self.model_file(tmp_file_name),
+                        metadata={"format": "pt"},
                     )
                     # update the index file
                     for k in output_state_dict.keys():
@@ -106,7 +110,9 @@ class HFCheckpointEngine(CheckpointEngine):
         if len(output_state_dict) > 0 and model.global_rank == 0:
             tmp_file_name = f"model-{checkpoint_id:05}-{ckpt_count:05}.safetensors"
             sf.torch.save_file(
-                output_state_dict, self.model_file(tmp_file_name), metadata={"format": "pt"}
+                output_state_dict,
+                self.model_file(tmp_file_name),
+                metadata={"format": "pt"},
             )
             # update the index file
             for k in output_state_dict.keys():

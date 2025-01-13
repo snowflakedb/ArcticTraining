@@ -157,7 +157,7 @@ if __name__ == "__main__":
         },
     )
 
-    logger.info(f"Config: {pprint.pformat(config,indent=1)}")
+    logger.info(f"Config: {pprint.pformat(config, indent=1)}")
     trainer = MLPSpeculatorTrainer(config)
     # trainer.checkpoint_engines[0].save()
     trainer.train()
