@@ -29,7 +29,7 @@ post_init_log_cb = (
 
 def _log_loss_value(self, loss: Any) -> Any:
     if self.global_step % self.config.loss_log_interval == 0:
-        logger.info(f"Global Step: {self.global_step}, Loss: {loss}")
+        logger.info(f"Global Step: {self.global_step}/{self.training_horizon}, Loss: {loss}")
     return loss
 
 
