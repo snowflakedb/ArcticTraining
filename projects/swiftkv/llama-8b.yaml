@@ -8,23 +8,21 @@ model:
   name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
   num_key_value_layers: 16
   key_value_group_size: 1
+tokenizer:
+  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
 deepspeed:
   zero_optimization:
-    stage: 2
-    memory_efficient_linear: false
+    stage: 3
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
-    - meta-math/MetaMathQA
-    - ise-uiuc/Magicoder-OSS-Instruct-75K
-    - lmsys/lmsys-chat-1m
-    - Open-Orca/SlimOrca
   use_data_cache: true
   cache_processed_data: true
-  cache_dir: /data-fast/st-data-redesign
+  cache_dir: /data/data-cache
   num_proc: 16
   max_length: 8192
 logger:
+  level: INFO
   output_dir: "./"
   file_output_ranks: [0]
 scheduler:
@@ -33,7 +31,9 @@ scheduler:
 optimizer:
   betas: [0.9,0.999]
   weight_decay: 0.0
+exit_iteration: 11
 checkpoint:
-  - type: deepspeed
-    save_every_n_steps: 1000
-    output_dir: /data-fast/checkpoint-redesign
+  - type: huggingface
+    save_every_n_steps: 10
+    output_dir: /data/swiftkv-llama-8b
+    save_end_of_training: true

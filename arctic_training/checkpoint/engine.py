@@ -58,19 +58,22 @@ class CheckpointEngine(ABC, CallbackMixin):
     def do_checkpoint(self) -> bool:
         if not self.config.enabled:
             return False
+        return_value = False
         if (
             self.trainer.model.is_gradient_accumulation_boundary()
             and self.config.save_every_n_steps
             and self.trainer.global_step > 0
         ):
-            return self.trainer.global_step % self.config.save_every_n_steps == 0
+            return_value = (
+                self.trainer.global_step % self.config.save_every_n_steps == 0
+            )
         if self.config.save_every_n_epochs:
-            return (self.trainer.epoch_idx > 0) and (
+            return_value = (self.trainer.epoch_idx > 0) and (
                 self.trainer.epoch_idx % self.config.save_every_n_epochs
             ) == 0
         if self.config.save_end_of_training:
-            return self.training_finished
-        return False
+            return_value = return_value or self.training_finished
+        return return_value
 
     @property
     def checkpoint_dir(self) -> Path:
