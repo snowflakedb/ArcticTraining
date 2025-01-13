@@ -159,7 +159,10 @@ class Trainer(ABC, CallbackMixin):
         self.model.step()
         self.checkpoint()
 
-        if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
+        if (
+            self.config.exit_iteration > 0
+            and self.config.exit_iteration == self.global_step
+        ):
             logger.info(f"Hit exit iteration of {self.global_step}, forcing exit")
             torch.distributed.barrier()
             torch.distributed.destroy_process_group()
