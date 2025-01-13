@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install pre-commit
-        run: pip install pre-commit==3.8.0
+      - name: Install
+        run: pip install ".[dev]"
       - name: Formatting checks
         run: |
           pre-commit run --all-files
