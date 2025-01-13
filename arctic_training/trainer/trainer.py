@@ -153,18 +153,27 @@ class Trainer(ABC, CallbackMixin):
 
     @callback_wrapper("step")
     def step(self, batch) -> None:
-        self.global_step = self.model.global_steps
         self.model.train()
         loss = self.loss(batch)
         self.model.backward(loss)
         self.model.step()
+        self.checkpoint()
+
+        if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
+            logger.info(f"Hit exit iteration of {self.global_step}, forcing exit")
+            torch.distributed.barrier()
+            torch.distributed.destroy_process_group()
+            exit()
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
         self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
-            self.global_step += 1
+
+            # Do not increment, instead use deepspeed global step as golden truth
+            self.global_step = self.model.global_steps
+
             self.step(batch)
             if self.early_stop:
                 break
@@ -177,7 +186,18 @@ class Trainer(ABC, CallbackMixin):
                 self.epoch()
                 if self.early_stop:
                     break
+                self.checkpoint()
+            self.training_finished = True
+            logger.info("Training finished.")
+            self.checkpoint()
         except Exception as e:
             logger.error(f"Training failed with error: {e}")
             # logger.info(f"{self._trainer_state}")
             raise (e)
+
+    @callback_wrapper("checkpoint")
+    def checkpoint(self) -> None:
+        for engine in self.checkpoint_engines:
+            if engine.do_checkpoint:
+                logger.info(f"Saving Checkpoint at global step: {self.global_step}.")
+                engine.save(self.model)
