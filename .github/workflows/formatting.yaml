@@ -1,0 +1,25 @@
+name: Formatting
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formatting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        # TODO: Make this install only the necessary dependencies for formatting
+        run: pip install ".[dev]"
+      - name: Formatting checks
+        run: |
+          pre-commit run --all-files
