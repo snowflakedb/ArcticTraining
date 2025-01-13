@@ -28,8 +28,6 @@ name: sft
 micro_batch_size: 2
 model:
   name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
-tokenizer:
-  name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
