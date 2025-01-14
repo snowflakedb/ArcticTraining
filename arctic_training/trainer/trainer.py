@@ -153,6 +153,9 @@ class Trainer(ABC, CallbackMixin):
 
     @callback_wrapper("step")
     def step(self, batch) -> None:
+        # use deepspeed global step as golden truth
+        self.global_step = self.model.global_steps
+
         self.model.train()
         loss = self.loss(batch)
         self.model.backward(loss)
@@ -173,9 +176,6 @@ class Trainer(ABC, CallbackMixin):
         self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
-
-            # Do not increment, instead use deepspeed global step as golden truth
-            self.global_step = self.model.global_steps
 
             self.step(batch)
             if self.early_stop:
