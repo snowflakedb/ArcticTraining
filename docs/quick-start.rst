@@ -23,18 +23,17 @@ To get started training a model with ArcticTraining, follow the steps below:
 
    .. code-block:: yaml
 
-      trainer:
-        name: sft
-        micro_batch_size: 2
-        model:
-          name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
-        data:
-          sources:
-            - HuggingFaceH4/ultrachat_200k
-        checkpoint:
-          - type: huggingface
-            save_end_of_training: true
-            output_dir: ./fine-tuned-model
+      type: sft
+      micro_batch_size: 2
+      model:
+        name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+      data:
+        sources:
+          - HuggingFaceH4/ultrachat_200k
+      checkpoint:
+        - type: huggingface
+          save_end_of_training: true
+          output_dir: ./fine-tuned-model
 
 4. Run the training recipe with the ArcticTraining CLI:
 
@@ -78,7 +77,7 @@ training recipe:
 
 .. code-block:: yaml
 
-   name: my_custom_trainer
+   type: my_custom_trainer
    code: path/to/custom_trainers.py
    model:
      name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
