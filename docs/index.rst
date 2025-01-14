@@ -59,6 +59,7 @@ Contents
 
    quick-start
    install
+   usage
    config
    callbacks
    trainer
