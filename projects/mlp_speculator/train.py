@@ -380,12 +380,6 @@ class MLPSpeculatorTrainer(SFTTrainer):
             losses.append(loss)
 
         loss = sum(losses)
-        if self.global_rank == 0:
-            print(
-                f"STEP: {self.global_step}, LOSS: {loss.item()}, LR:"
-                f" {self.scheduler.get_last_lr()}, OG LR:"
-                f" {self.config.scheduler.learning_rate}"
-            )
         return loss
 
     def loss(self, batch):
@@ -449,7 +443,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
             dynamic_ncols=True,
             file=sys.stdout,
             desc="Multi steps per generation: ",
-            disable=True,  # torch.distributed.get_rank() != 0,
+            disable=torch.distributed.get_rank() != 0,
         ):
             speculator_inputs["speculator_input"] = hidden_states[i]
 
