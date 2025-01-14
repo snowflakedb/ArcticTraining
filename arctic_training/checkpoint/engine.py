@@ -31,12 +31,27 @@ if TYPE_CHECKING:
 
 
 class CheckpointEngine(ABC, CallbackMixin):
+    """Base class for all checkpoint engines."""
+
     name: str
+    """
+    The name of the checkpoint engine. This is used to identify the checkpoint
+    engine in the registry.
+    """
+
     config_type: Type[CheckpointConfig] = CheckpointConfig
+    """
+    The configuration class for the checkpoint engine. This is used to validate
+    the configuration passed to the engine.
+    """
 
     def __init__(self, trainer: "Trainer", config: "CheckpointConfig") -> None:
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = config
+
+    @property
+    def trainer(self) -> "Trainer":
+        return self._trainer
 
     @property
     def global_rank(self) -> int:
@@ -56,6 +71,10 @@ class CheckpointEngine(ABC, CallbackMixin):
 
     @property
     def do_checkpoint(self) -> bool:
+        """
+        Checks the current state of the trainer and determines if we are at a
+        checkpoint boundary.
+        """
         if not self.config.enabled:
             return False
         return_value = False
@@ -77,6 +96,7 @@ class CheckpointEngine(ABC, CallbackMixin):
 
     @property
     def checkpoint_dir(self) -> Path:
+        """Returns the directory where the checkpoint will be saved."""
         checkpoint_dir = (
             self.config.output_dir / f"global_step_{self.trainer.global_step}"
         )
@@ -86,9 +106,11 @@ class CheckpointEngine(ABC, CallbackMixin):
     @abstractmethod
     @callback_wrapper("load")
     def load(self, model: Any) -> Any:
+        """Loads the model weights from a checkpoint when training is resumed."""
         raise NotImplementedError("load method must be implemented")
 
     @abstractmethod
     @callback_wrapper("save")
     def save(self, model: Any) -> None:
+        """Saves the model weights to a checkpoint."""
         raise NotImplementedError("save method must be implemented")
