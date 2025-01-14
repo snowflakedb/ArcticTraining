@@ -60,7 +60,6 @@ class Trainer(ABC, CallbackMixin):
     trainer to be used.
     """
 
-    #: Config class for the trainer
     config_type: Type[TrainerConfig]
     """
     The type of the config class that the trainer uses. This should be a
