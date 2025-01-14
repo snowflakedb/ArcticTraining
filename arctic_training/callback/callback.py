@@ -26,7 +26,7 @@ from arctic_training.logging import logger
 class Callback:
     def __init__(self, event: str, fn: Callable, method: Callable) -> None:
         logger.debug(
-            f"Initializing Callback with for {method} with event={event} and"
+            f"Initializing Callback for {method} with event={event} and"
             f" fn={fn.__name__}"
         )
         self.event = event
