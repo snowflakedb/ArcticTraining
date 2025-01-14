@@ -28,8 +28,19 @@ if TYPE_CHECKING:
 
 
 class SchedulerFactory(ABC, CallbackMixin):
+    """Base class for all scheduler factories."""
+
     name: str
+    """
+    The name of the scheduler factory. This is used to identify the scheduler
+    factory in the registry.
+    """
+
     config_type: Type[SchedulerConfig] = SchedulerConfig
+    """
+    The configuration class for the scheduler factory. This is used to validate
+    the configuration passed to the factory.
+    """
 
     def __init__(
         self,
@@ -39,14 +50,35 @@ class SchedulerFactory(ABC, CallbackMixin):
         if scheduler_config is None:
             scheduler_config = trainer.config.scheduler
 
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = scheduler_config
 
     def __call__(self) -> Any:
-        scheduler = self.create_scheduler(optimizer=self.trainer.optimizer)
+        scheduler = self.create_scheduler(optimizer=self.optimizer)
         return scheduler
+
+    @property
+    def trainer(self) -> "Trainer":
+        return self._trainer
+
+    @property
+    def device(self) -> str:
+        return self.trainer.device
+
+    @property
+    def world_size(self) -> int:
+        return self.trainer.world_size
+
+    @property
+    def global_rank(self) -> int:
+        return self.trainer.global_rank
+
+    @property
+    def optimizer(self) -> Any:
+        return self.trainer.optimizer
 
     @abstractmethod
     @callback_wrapper("create-scheduler")
     def create_scheduler(self, optimizer: Any) -> Any:
+        """Create a scheduler from the optimizer."""
         raise NotImplementedError
