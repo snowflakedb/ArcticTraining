@@ -30,4 +30,5 @@ class BaseConfig(BaseModel):
         # validate_assignment=True,
         validate_default=True,
         use_attribute_docstrings=True,
+        populate_by_name=True,
     )

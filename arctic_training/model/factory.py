@@ -52,13 +52,29 @@ class ModelFactory(ABC, CallbackMixin):
         if model_config is None:
             model_config = trainer.config.model
 
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = model_config
 
     def __call__(self) -> PreTrainedModel:
         config = self.create_config()
         model = self.create_model(model_config=config)
         return model
+
+    @property
+    def trainer(self) -> "Trainer":
+        return self._trainer
+
+    @property
+    def device(self) -> str:
+        return self.trainer.device
+
+    @property
+    def world_size(self) -> int:
+        return self.trainer.world_size
+
+    @property
+    def global_rank(self) -> int:
+        return self.trainer.global_rank
 
     @abstractmethod
     @callback_wrapper("create-config")
