@@ -25,6 +25,7 @@ from typing import Tuple
 from typing import Type
 
 from arctic_training.callback.callback import Callback
+from arctic_training.callback.logging import post_init_callback_ordering_cb
 from arctic_training.callback.logging import post_init_log_cb
 from arctic_training.callback.logging import pre_init_log_cb
 from arctic_training.logging import logger
@@ -54,7 +55,11 @@ def callback_wrapper(name: str):
 
 class CallbackMixin:
     _class_callbacks: Set[Tuple[str, Callable]] = set()
-    callbacks: List[Tuple[str, Callable]] = [pre_init_log_cb, post_init_log_cb]
+    callbacks: List[Tuple[str, Callable]] = [
+        pre_init_log_cb,
+        post_init_log_cb,
+        post_init_callback_ordering_cb,
+    ]
     _initialized_callbacks: List[Callback] = []
 
     @callback_wrapper("init")
