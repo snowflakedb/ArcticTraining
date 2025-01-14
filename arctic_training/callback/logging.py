@@ -70,7 +70,7 @@ def _log_callback_ordering(self) -> None:
         ]
         log_str += str(post_cbs)
 
-    logger.warning(log_str)
+    logger.info(log_str)
 
 
 post_init_callback_ordering_cb = ("post-init", _log_callback_ordering)
