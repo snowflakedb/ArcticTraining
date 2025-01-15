@@ -57,7 +57,7 @@ class CallbackMixin:
     """A mixin class that provides callback functionality to a class."""
 
     _class_callbacks: Set[Tuple[str, Callable]] = set()
-      
+
     _initialized_callbacks: List[Callback] = []
 
     callbacks: List[Tuple[str, Callable]] = [
