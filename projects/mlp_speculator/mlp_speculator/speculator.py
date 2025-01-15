@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# The model definition was built on-top of the model defined in:
+# https://github.com/foundation-model-stack/fms-extras/blob/c5c294defa01459ff435e8ff6132c707eff9d22b/fms_extras/models/speculator.py.
+# Modifications have been made by Snowflake.
 
 import math
 
