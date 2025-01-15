@@ -53,6 +53,18 @@ autodoc_default_options = {
     "show-inheritance": False,
     "member-order": "bysource",
 }
+autodoc_mock_imports = [
+    "deepspeed",
+    "loguru",
+    "tqdm",
+    "torch",
+    "transformers",
+    "yaml",
+    "peft",
+    "datasets",
+    "numpy",
+    "devtools",
+]
 
 
 # -- Options for HTML output -------------------------------------------------
