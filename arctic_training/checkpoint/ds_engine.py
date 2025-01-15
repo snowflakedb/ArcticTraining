@@ -60,9 +60,7 @@ class DSCheckpointEngine(CheckpointEngine):
         _, client_states = model.load_checkpoint(self.checkpoint_dir)
 
         self.trainer.global_step = model.global_step
-        self.trainer.epoch_idx = (
-            client_states["end_of_epoch"] + 1
-        )  # TODO: make sure this is used correctly in the trainer
+        self.trainer.epoch_idx = client_states["end_of_epoch"] + 1
         torch.set_rng_state(client_states["torch_random_state"])
         torch.cuda.set_rng_state(client_states["torch_cuda_random_state"])
         np.random.set_state(client_states["np_random_state"])
