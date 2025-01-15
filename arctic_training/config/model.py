@@ -45,8 +45,8 @@ class ModelConfig(BaseConfig):
     save_name: Optional[str] = None
     """ Name to use when saving the model. """
 
-    disable_flash_attn: bool = False
-    """ Disable the use of Flash Attention. """
+    attn_implementation: str = "flash_attention_2"
+    """ Attention implementation to use. """
 
     disable_activation_checkpoint: bool = False
     """ Disable the use of activation checkpointing. """
@@ -57,12 +57,6 @@ class ModelConfig(BaseConfig):
     @property
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(self.type)
-
-    @property
-    def attn_implementation(self) -> str:
-        if self.disable_flash_attn:
-            return "eager"
-        return "flash_attention_2"
 
     @field_serializer("dtype")
     def serialize_dtype(self, value: DType) -> str:
