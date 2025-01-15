@@ -25,6 +25,7 @@ from typing import Tuple
 from typing import Type
 
 from arctic_training.callback.callback import Callback
+from arctic_training.callback.logging import post_init_callback_ordering_cb
 from arctic_training.callback.logging import post_init_log_cb
 from arctic_training.callback.logging import pre_init_log_cb
 from arctic_training.logging import logger
@@ -56,9 +57,14 @@ class CallbackMixin:
     """A mixin class that provides callback functionality to a class."""
 
     _class_callbacks: Set[Tuple[str, Callable]] = set()
+      
     _initialized_callbacks: List[Callback] = []
 
-    callbacks: List[Tuple[str, Callable]] = [pre_init_log_cb, post_init_log_cb]
+    callbacks: List[Tuple[str, Callable]] = [
+        pre_init_log_cb,
+        post_init_log_cb,
+        post_init_callback_ordering_cb,
+    ]
     """ A list of callbacks that are applied to the class. """
 
     @callback_wrapper("init")

@@ -25,5 +25,5 @@ repos:
     rev: v1.13.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-PyYAML, pydantic]
+        additional_dependencies: [types-PyYAML, types-tabulate, pydantic]
         files: ^(arctic_training/)
