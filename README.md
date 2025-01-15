@@ -1,7 +1,7 @@
 [![License Apache 2.0](https://badgen.net/badge/license/apache2.0/blue)](https://github.com/snowflakedb/ArcticTraining/blob/main/LICENSE)
 
 <h3 align="center">
-  <img src="docs/Arctic Training.svg" width=500px><br>
+  <img src="docs/images/arctic_training_logo.svg" width=500px><br>
   | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="#"><b>Blog</b></a> | <a href="#"><b>Discourse</b></a> |
 </h3>
 
