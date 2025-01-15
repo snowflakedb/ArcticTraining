@@ -379,9 +379,6 @@ class MLPSpeculatorTrainer(SFTTrainer):
             )
             losses.append(loss)
 
-        # DEBUG
-        # if self.global_rank == 0:
-        #    print("LOSS RAW", [l.item() for l in losses], preds[i].reshape(-1, preds.size(3)).sum(), label.long().reshape(-1).sum(), inputs["speculator_input"].sum(), inputs["speculator_label"].sum(), self.model.is_gradient_accumulation_boundary())
         loss = sum(losses)
         return loss
 
@@ -394,9 +391,6 @@ class MLPSpeculatorTrainer(SFTTrainer):
             return self._compute_loss1(batch)
 
     def step(self, batch) -> None:
-        # DEBUG
-        # if self.global_rank == 0:
-        #    print(self.model.speculator)
         if not (self.config.gen_train or self.config.gen_train_simple):
             super().step(batch)
 
@@ -413,9 +407,6 @@ class MLPSpeculatorTrainer(SFTTrainer):
                 inputs["input_ids"].size(0) * grow_factor, self.config.gen_prompt_length
             )
 
-            # DEBUG
-            # print(self.config.data.max_length, self.config.gen_seq_length, inputs["input_ids"].shape)
-            # exit()
             generated_tokens, hidden_states = self.generate(
                 inputs,
                 self.config.data.max_length,
@@ -460,9 +451,4 @@ class MLPSpeculatorTrainer(SFTTrainer):
             # since there is no further prediction to be made
             # how ever it is needed in the loss function so we leave it in tact
             speculator_inputs["speculator_label"] = generated_tokens[i]
-            # DEBUG
-            # if self.global_rank == 0:
-            #    print("RUNNING STEP")
             super().step(speculator_inputs)
-        # DEBUG
-        # exit()

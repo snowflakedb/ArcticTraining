@@ -5,6 +5,7 @@ gen_train: true
 gen_micro_batch_size: 768
 gen_train_global_batch_size: 2048
 gen_train_micro_batch_size: 32
+train_iters: 3000
 model:
   name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
   disable_activation_checkpoint: true
@@ -32,6 +33,7 @@ logger:
   output_dir: "./"
   file_output_ranks: [0]
 scheduler:
+  name: cosine
   lr: 1e-3
   warmup_ratio: 0.05
 optimizer:
