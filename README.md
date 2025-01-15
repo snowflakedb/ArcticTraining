@@ -1,5 +1,9 @@
 [![License Apache 2.0](https://badgen.net/badge/license/apache2.0/blue)](https://github.com/snowflakedb/ArcticTraining/blob/main/LICENSE)
 
+<h3>
+<a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a>
+</h3>
+
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
 
 ArcticTraining is a framework designed to simplify and accelerate the post-training process for large language models (LLMs). It addresses challenges in current frameworks, such as limited support for rapid prototyping and the lack of native data generation tools, by offering modular trainer designs, simplified code structures, and integrated pipelines for creating and cleaning synthetic data. These features enable users to enhance LLM capabilities, like code generation and complex reasoning, with greater efficiency and flexibility.
@@ -48,7 +52,8 @@ arctic_training path/to/sft-recipe.yaml
 To customize the training workflow, you can modify the training recipe YAML we
 created in step 3 above. For example, you can change the model, dataset,
 checkpoint, or other settings to meet your specific requirements. A full list of
-configuration options can be found on the [config page](http://todo).
+configuration options can be found on the [configuration documentation
+page](https://arctictraining.readthedocs.io/en/latest/config.html).
 
 ## Creating a New Trainer
 
@@ -84,5 +89,3 @@ data:
  sources:
    - HuggingFaceH4/ultrachat_200k
 ```
-
-# Documentation
