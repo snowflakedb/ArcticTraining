@@ -43,8 +43,20 @@ if TYPE_CHECKING:
 
 
 class DataFactory(ABC, CallbackMixin):
+    """Base DataFactory class for loading training and evaluation data."""
+
     name: str
-    config_type: Type[DataConfig] = DataConfig
+    """
+    Name of the DataFactory. This name should be unique to each registered
+    DataFactory object. This name can be used in the training recipe YAMLs to
+    specify the DataFactory to use.
+    """
+
+    config_type: Type[DataConfig]
+    """
+    The type of the DataConfig object that this DataFactory uses. Any
+    DataFactory-specific options should be specified in this class.
+    """
 
     def __init__(
         self, trainer: "Trainer", data_config: Optional["DataConfig"] = None
@@ -52,7 +64,7 @@ class DataFactory(ABC, CallbackMixin):
         if data_config is None:
             data_config = trainer.config.data
 
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = data_config
 
     def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
@@ -96,20 +108,29 @@ class DataFactory(ABC, CallbackMixin):
         return train_dataloader, eval_dataloader
 
     @property
-    def global_rank(self) -> int:
-        return self.trainer.global_rank
-
-    @property
-    def world_size(self) -> int:
-        return self.trainer.world_size
+    def trainer(self) -> "Trainer":
+        """The Trainer object that is using this DataFactory."""
+        return self._trainer
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
+        """The tokenizer object used by the Trainer."""
         return self.trainer.tokenizer
 
     @property
     def micro_batch_size(self) -> int:
+        """The micro batch size used by the Trainer."""
         return self.trainer.config.micro_batch_size
+
+    @property
+    def global_rank(self) -> int:
+        """The global rank of the current process."""
+        return self.trainer.global_rank
+
+    @property
+    def world_size(self) -> int:
+        """The total number of processes in the world."""
+        return self.trainer.world_size
 
     def _load_data(self, data_source_list: List[str], eval: bool) -> Dataset:
         cache_path = self._processed_data_cache(data_source_list=data_source_list)
@@ -200,6 +221,10 @@ class DataFactory(ABC, CallbackMixin):
 
     @abstractmethod
     def tokenize_fn(self, trainer: "Trainer", dataset: Dataset) -> Dataset:
+        """
+        Function to tokenize the dataset. This function should be implemented by
+        the subclass and return a Dataset of tokenized data.
+        """
         raise NotImplementedError(
             "tokenize_fn must be implemented by DataFactory subclass."
         )
@@ -207,9 +232,16 @@ class DataFactory(ABC, CallbackMixin):
     @staticmethod
     @abstractmethod
     def collate_fn(tokenizer: PreTrainedTokenizerBase) -> Callable:
+        """
+        Returns a collate function that can be used with a Torch DataLoader.
+        """
         raise NotImplementedError(
             "collate_fn must be implemented by DataFactory subclass."
         )
 
     def modify_dataset(self, dataset: Dataset) -> Dataset:
+        """
+        Called after concatenating multiple data sources and before caching the
+        processed data (if enabled).
+        """
         return dataset

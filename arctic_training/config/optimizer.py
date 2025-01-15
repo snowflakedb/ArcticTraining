@@ -38,6 +38,9 @@ class OptimizerConfig(BaseConfig):
     betas: Tuple[float, float] = (0.9, 0.999)
     """ Tuple of coefficients used for computing running averages of gradient and its square (e.g., (beta1, beta2) for Adam). """
 
+    learning_rate: float = Field(default=5e-4, ge=0.0, alias="lr")
+    """ The initial learning rate. """
+
     @property
     def factory(self) -> Type["OptimizerFactory"]:
         return get_registered_optimizer_factory(self.type)
