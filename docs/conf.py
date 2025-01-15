@@ -33,10 +33,27 @@ author = "Snowflake"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx.ext.autodoc", "sphinxcontrib.autodoc_pydantic"]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinxcontrib.autodoc_pydantic",
+    "sphinx_autodoc_typehints",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.autosummary",
+    "sphinx_copybutton",
+]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+autodoc_typehints = "description"  # Adds type hints to the descriptions
+autodoc_default_options = {
+    "members": True,
+    "undoc-members": False,
+    "show-inheritance": False,
+    "member-order": "bysource",
+}
+
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

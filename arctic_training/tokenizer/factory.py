@@ -30,8 +30,19 @@ if TYPE_CHECKING:
 
 
 class TokenizerFactory(ABC, CallbackMixin):
+    """Base class for all tokenizer factories."""
+
     name: str
+    """
+    The name of the tokenizer factory. This is used to identify the tokenizer
+    factory in the registry.
+    """
+
     config_type: Type[TokenizerConfig] = TokenizerConfig
+    """
+    The configuration class for the tokenizer factory. This is used to validate
+    the configuration passed to the factory.
+    """
 
     def __init__(
         self, trainer: "Trainer", tokenizer_config: Optional["TokenizerConfig"] = None
@@ -39,14 +50,31 @@ class TokenizerFactory(ABC, CallbackMixin):
         if tokenizer_config is None:
             tokenizer_config = trainer.config.tokenizer
 
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = tokenizer_config
 
     def __call__(self) -> PreTrainedTokenizer:
         tokenizer = self.create_tokenizer()
         return tokenizer
 
+    @property
+    def trainer(self) -> "Trainer":
+        return self._trainer
+
+    @property
+    def device(self) -> str:
+        return self.trainer.device
+
+    @property
+    def world_size(self) -> int:
+        return self.trainer.world_size
+
+    @property
+    def global_rank(self) -> int:
+        return self.trainer.global_rank
+
     @abstractmethod
     @callback_wrapper("create-tokenizer")
     def create_tokenizer(self) -> PreTrainedTokenizer:
+        """Creates the tokenizer."""
         raise NotImplementedError("create_tokenizer method must be implemented")

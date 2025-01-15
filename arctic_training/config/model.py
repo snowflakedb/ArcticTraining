@@ -21,6 +21,8 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
+from pydantic import field_serializer
+
 from arctic_training.registry.model import get_registered_model_factory
 
 if TYPE_CHECKING:
@@ -61,3 +63,7 @@ class ModelConfig(BaseConfig):
         if self.disable_flash_attn:
             return "eager"
         return "flash_attention_2"
+
+    @field_serializer("dtype")
+    def serialize_dtype(self, value: DType) -> str:
+        return value.value
