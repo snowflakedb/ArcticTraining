@@ -64,8 +64,8 @@ Contents
    callbacks
    trainer
    data
+   checkpoint
    model
    tokenizer
    optimizer
-   checkpoint
    scheduler
