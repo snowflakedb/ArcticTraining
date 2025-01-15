@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Some of the loss pieces here were built from train_speculator.py and train_speculator_util.py from:
+# https://github.com/foundation-model-stack/fms-fsdp/tree/0e47e934e69a340a7a2183b15b5f24979eb9db9c/speculator
+# Modifications have been made by Snowflake.
 
 # General Imports
 import sys
