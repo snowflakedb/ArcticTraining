@@ -21,6 +21,9 @@ repository = "https://github.com/snowflakedb/ArcticTraining"
 
 keywords = ["llm", "training"]
 
+[tool.hatch.build.hooks.custom]
+[tool.hatch.build.targets.hooks.custom]
+
 # Dependencies for the project
 dependencies = [
     "pydantic>=2.0",
