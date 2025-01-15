@@ -2,7 +2,7 @@
 
 <h3 align="center">
   <img src="docs/Arctic Training.svg" width=500px><br>
-  | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="#"><b>Blog</b></a> | <a href="#"><b>Discource</b></a> |
+  | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="#"><b>Blog</b></a> | <a href="#"><b>Discourse</b></a> |
 </h3>
 
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
