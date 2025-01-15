@@ -1,8 +1,8 @@
 .. _data:
 
-====
-Data
-====
+============
+Data Factory
+============
 
 Data Source
 -----------
