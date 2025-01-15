@@ -31,8 +31,20 @@ if TYPE_CHECKING:
 
 
 class ModelFactory(ABC, CallbackMixin):
+    """Base class for model creation."""
+
     name: str
+    """
+    Name of the model factory used for registering custom model factories. This
+    name should be unique and is used in training recipe YAMLs to identify which
+    model factory to be used.
+    """
+
     config_type: Type[ModelConfig] = ModelConfig
+    """
+    The type of config class that the model factory uses. This should contain
+    all model-specific parameters.
+    """
 
     def __init__(
         self, trainer: "Trainer", model_config: Optional["ModelConfig"] = None
@@ -40,7 +52,7 @@ class ModelFactory(ABC, CallbackMixin):
         if model_config is None:
             model_config = trainer.config.model
 
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = model_config
 
     def __call__(self) -> PreTrainedModel:
@@ -48,12 +60,30 @@ class ModelFactory(ABC, CallbackMixin):
         model = self.create_model(model_config=config)
         return model
 
+    @property
+    def trainer(self) -> "Trainer":
+        return self._trainer
+
+    @property
+    def device(self) -> str:
+        return self.trainer.device
+
+    @property
+    def world_size(self) -> int:
+        return self.trainer.world_size
+
+    @property
+    def global_rank(self) -> int:
+        return self.trainer.global_rank
+
     @abstractmethod
     @callback_wrapper("create-config")
     def create_config(self) -> Any:
+        """Creates the model config (e.g., huggingface model config)."""
         raise NotImplementedError("create_config method must be implemented")
 
     @abstractmethod
     @callback_wrapper("create-model")
     def create_model(self, model_config) -> PreTrainedModel:
+        """Creates the model."""
         raise NotImplementedError("create_model method must be implemented")

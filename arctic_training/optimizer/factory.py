@@ -29,8 +29,20 @@ if TYPE_CHECKING:
 
 
 class OptimizerFactory(ABC, CallbackMixin):
+    """Base class for optimizer creation."""
+
     name: str
+    """
+    Name of the optimizer factory used for registering custom optimizer
+    factories. This name should be unique and is used in training recipe YAMLs
+    to identify which optimizer factory to be used.
+    """
+
     config_type: Type[OptimizerConfig] = OptimizerConfig
+    """
+    The type of config class that the optimizer factory uses. This should
+    contain all optimizer-specific parameters.
+    """
 
     def __init__(
         self,
@@ -40,14 +52,35 @@ class OptimizerFactory(ABC, CallbackMixin):
         if optimizer_config is None:
             optimizer_config = trainer.config.optimizer
 
-        self.trainer = trainer
+        self._trainer = trainer
         self.config = optimizer_config
 
     def __call__(self) -> Any:
         optimizer = self.create_optimizer(self.trainer.model, self.config)
         return optimizer
 
+    @property
+    def trainer(self) -> "Trainer":
+        return self._trainer
+
+    @property
+    def device(self) -> str:
+        return self.trainer.device
+
+    @property
+    def model(self) -> Any:
+        return self.trainer.model
+
+    @property
+    def world_size(self) -> int:
+        return self.trainer.world_size
+
+    @property
+    def global_rank(self) -> int:
+        return self.trainer.global_rank
+
     @abstractmethod
     @callback_wrapper("create-optimizer")
     def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
+        """Creates the optimizer given a model and an optimizer config."""
         pass

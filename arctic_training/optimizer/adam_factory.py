@@ -79,11 +79,11 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
 
     def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
         optimizer_grouped_params = self.get_optimizer_grouped_params(
-            model, self.config.weight_decay
+            model, optimizer_config.weight_decay
         )
         optimizer = FusedAdam(
             optimizer_grouped_params,
-            lr=self.trainer.config.scheduler.learning_rate,
-            betas=self.config.betas,
+            lr=optimizer_config.learning_rate,
+            betas=optimizer_config.betas,
         )
         return optimizer

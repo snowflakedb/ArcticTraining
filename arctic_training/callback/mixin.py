@@ -54,13 +54,18 @@ def callback_wrapper(name: str):
 
 
 class CallbackMixin:
+    """A mixin class that provides callback functionality to a class."""
+
     _class_callbacks: Set[Tuple[str, Callable]] = set()
+
+    _initialized_callbacks: List[Callback] = []
+
     callbacks: List[Tuple[str, Callable]] = [
         pre_init_log_cb,
         post_init_log_cb,
         post_init_callback_ordering_cb,
     ]
-    _initialized_callbacks: List[Callback] = []
+    """ A list of callbacks that are applied to the class. """
 
     @callback_wrapper("init")
     def __init__(self, *args, **kwargs) -> None:

@@ -22,8 +22,13 @@ from arctic_training.callback.mixin import CallbackMixin
 
 
 class DataSource(ABC, CallbackMixin):
+    """Base DataSource class for loading training and evaluation data."""
+
     name: str
+    """ Name of the DataSource. """
+
     data_factory_type: str
+    """ Type of the DataFactory that is compatible with this data source. """
 
     def __init__(self, num_proc: int, eval: bool) -> None:
         self.num_proc = num_proc
@@ -34,4 +39,5 @@ class DataSource(ABC, CallbackMixin):
 
     @abstractmethod
     def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        """Method to load the data. It should return a Hugging Face Dataset object."""
         raise NotImplementedError("load_fn must be implemented in subclass")
