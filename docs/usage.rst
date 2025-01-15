@@ -4,7 +4,7 @@
 Usage
 =====
 
-After :ref:`installation <installation>`, you can use ArcticTraining to train
+After :ref:`installation <install>`, you can use ArcticTraining to train
 your models using a simple YAML recipe or a Python script. Here we provide an
 overview of how to use each.
 
