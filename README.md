@@ -1,7 +1,7 @@
 [![License Apache 2.0](https://badgen.net/badge/license/apache2.0/blue)](https://github.com/snowflakedb/ArcticTraining/blob/main/LICENSE)
 
-<h3>
-<a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a>
+<h3 align="center">
+| <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="#"><b>Blog</b></a> | <a href="#"><b>Discource</b></a> |
 </h3>
 
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
