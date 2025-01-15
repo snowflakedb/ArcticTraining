@@ -22,6 +22,7 @@ from typing import Type
 from typing import Union
 
 from pydantic import field_serializer
+from pydantic import field_validator
 
 from arctic_training.registry.model import get_registered_model_factory
 
@@ -61,3 +62,16 @@ class ModelConfig(BaseConfig):
     @field_serializer("dtype")
     def serialize_dtype(self, value: DType) -> str:
         return value.value
+
+    @field_validator("attn_implementation", mode="after")
+    def validate_attn_implementation(cls, value: str) -> str:
+        if value == "flash_attention_2":
+            try:
+                import flash_attn  # noqa: F401
+            except (ImportError, ModuleNotFoundError):
+                raise ValueError(
+                    "flash_attention_2 requires the flash_attn package. Install with"
+                    " `pip install flash_attn`. Please refer to documentation at"
+                    " https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2"
+                )
+        return value
