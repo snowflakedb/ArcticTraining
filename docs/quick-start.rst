@@ -59,7 +59,8 @@ that uses a different loss function:
 
 .. code-block:: python
 
-   from arctic_training.trainers import SFTTrainer, register
+   from arctic_training import register
+   from arctic_training.trainer import SFTTrainer
 
    @register
    class CustomTrainer(SFTTrainer):

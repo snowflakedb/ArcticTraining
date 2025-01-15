@@ -27,11 +27,11 @@ from torch.nn import CrossEntropyLoss
 from transformers.cache_utils import DynamicCache
 from typing_extensions import Self
 
-from arctic_training import HFModelFactory
-from arctic_training import ModelConfig
-from arctic_training import SFTTrainer
-from arctic_training import TrainerConfig
 from arctic_training import register
+from arctic_training.config import ModelConfig
+from arctic_training.config import TrainerConfig
+from arctic_training.model import HFModelFactory
+from arctic_training.trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
 
