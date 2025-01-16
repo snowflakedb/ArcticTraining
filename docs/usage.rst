@@ -74,7 +74,9 @@ these steps:
 
    .. code-block:: python
 
-      from arctic_training.trainers import SFTTrainer, HFModelFactory, register
+      from arctic_training import register
+      from arctic_training.model import HFModelFactory
+      from arctic_training.trainer import SFTTrainer
 
       class CustomModelFactory(HFModelFactory):
           name = "my_custom_model_factory"
@@ -118,7 +120,9 @@ API:
 
 .. code-block:: python
 
-    from arctic_training.trainers import SFTTrainer, HFModelFactory, register
+    from arctic_training import register
+    from arctic_training.model import HFModelFactory
+    from arctic_training.trainer import SFTTrainer
 
     class CustomModelFactory(HFModelFactory):
         name = "my_custom_model_factory"

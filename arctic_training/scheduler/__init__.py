@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import hf_factory
 from .factory import SchedulerFactory
+from .hf_factory import HFSchedulerFactory
