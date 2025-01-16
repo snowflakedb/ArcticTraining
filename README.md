@@ -1,4 +1,5 @@
 [![License Apache 2.0](https://badgen.net/badge/license/apache2.0/blue)](https://github.com/snowflakedb/ArcticTraining/blob/main/LICENSE)
+[![PyPI version](https://badge.fury.io/py/arctic-training.svg)](https://pypi.org/project/arctic-training/)
 
 <h3 align="center">
   <img src="docs/images/arctic_training_logo.svg" width=500px><br>
@@ -15,20 +16,13 @@ ArcticTraining is a framework designed to simplify and accelerate the post-train
 
 To get started training a model with ArcticTraining, follow the steps below:
 
-1. Clone the ArcticTraining repository and navigate to the root directory:
+1. Install the ArcticTraining package and its dependencies:
 
 ```bash
-git clone https://github.com/snowflakedb/ArcticTraining.git
-cd ArcticTraining
+pip install arctic-training
 ```
 
-2. Install the ArcticTraining package and its dependencies:
-
-```bash
-pip install -e .
-```
-
-3. Create a training recipe YAML that uses the built-in Supervised Fine-Tuning (SFT) trainer:
+2. Create a training recipe YAML that uses the built-in Supervised Fine-Tuning (SFT) trainer:
 
 ```yaml
 type: sft
@@ -44,11 +38,18 @@ checkpoint:
     output_dir: ./fine-tuned-model
 ```
 
-4. Run the training recipe with the ArcticTraining CLI (see below). This will use the `DeepSpeed` launcher behind the scenes, you can pass any compatible DeepSpeed launcher arguments to the ArcticTraining CLI (e.g., --num_nodes, --num_gpus).
+3. Run the training recipe with the ArcticTraining CLI (see below). This will use the `DeepSpeed` launcher behind the scenes, you can pass any compatible DeepSpeed launcher arguments to the ArcticTraining CLI (e.g., --num_nodes, --num_gpus).
 
 ```bash
 arctic_training path/to/sft-recipe.yaml
 ```
+
+## Projects
+
+The projects folder contains all special projects we release that build on-top of ArcticTraining. For example yamls and to dive deeper into the training code please see the following projects:
+
+* [SwiftKV](projects/swiftkv)
+* [Speculative Decoding](projects/mlp_speculator)
 
 ## Customize Training
 
