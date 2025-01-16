@@ -18,7 +18,7 @@ data:
     - HuggingFaceH4/ultrachat_200k
   use_data_cache: true
   cache_processed_data: true
-  cache_dir: /data/data-cache
+  cache_dir: /data-fast/data-cache
   num_proc: 16
   max_length: 8192
 logger:

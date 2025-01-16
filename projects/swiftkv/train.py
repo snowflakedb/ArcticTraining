@@ -26,7 +26,7 @@ from arctic_training.checkpoint import HFCheckpointEngine
 from arctic_training.config import ModelConfig
 from arctic_training.config import TrainerConfig
 from arctic_training.model import HFModelFactory
-from arctic_training.trainer import SFTTrainer
+from arctic_training.trainer.sft_trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
 
