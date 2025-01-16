@@ -2,6 +2,10 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.urls]
+Homepage = "https://github.com/snowflakedb/ArcticTraining"
+Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
+
 [project]
 name = "arctic_training"
 version = "0.0.1"
@@ -19,11 +23,6 @@ license-files = ["LICENSE"]
 readme = "README.md"
 homepage = "https://github.com/snowflakedb/ArcticTraining"
 repository = "https://github.com/snowflakedb/ArcticTraining"
-
-[project.urls]
-Homepage = "https://github.com/snowflakedb/ArcticTraining"
-Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
-
 keywords = ["llm", "training"]
 
 # Dependencies for the project
@@ -41,6 +40,8 @@ dependencies = [
     "openai>=1.48.0",
     "jsonlines",
 ]
+
+
 
 # Optional development dependencies
 [project.optional-dependencies]
