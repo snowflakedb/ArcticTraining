@@ -2,8 +2,10 @@
 
 <h3 align="center">
   <img src="docs/images/arctic_training_logo.svg" width=500px><br>
-  | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="#"><b>Blog</b></a> | <a href="#"><b>Discourse</b></a> |
+  | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/"><b>Blog</b></a> |
 </h3>
+
+<!--| <a href="#"><b>Discourse</b></a> | -->
 
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
 
