@@ -65,6 +65,9 @@ autodoc_mock_imports = [
     "numpy",
     "devtools",
     "openai",
+    "safetensors",
+    "jsonlines",
+    "tabulate",
 ]
 
 
