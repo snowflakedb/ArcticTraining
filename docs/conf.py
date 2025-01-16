@@ -64,6 +64,7 @@ autodoc_mock_imports = [
     "datasets",
     "numpy",
     "devtools",
+    "openai",
 ]
 
 

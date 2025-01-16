@@ -46,6 +46,10 @@ class InMemoryBatchProcessor(BatchProcessor):
 
 
 class VllmSynth(InMemoryBatchProcessor):
+    """
+    vLLM Synthesizer. This class initializes a local vLLM instance for fast batch inference. Currently, multi-node inference is not supported.
+    """
+
     def __init__(
         self,
         model_params,
@@ -105,6 +109,10 @@ class VllmSynth(InMemoryBatchProcessor):
 
 
 class CortexSynth(InMemoryBatchProcessor):
+    """
+    Cortex Synthesizer. This class calls Snowflake Cortex complete service.
+    """
+
     def __init__(
         self,
         connection_params,

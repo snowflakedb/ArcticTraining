@@ -69,3 +69,4 @@ Contents
    tokenizer
    optimizer
    scheduler
+   synth
