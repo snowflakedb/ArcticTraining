@@ -81,7 +81,7 @@ class MLPSpeculatorModelConfig(ModelConfig):
 
 
 class MLPSpeculatorModelFactory(HFModelFactory):
-    name = "mlp"
+    name = "spec-decode"
     config_type = MLPSpeculatorModelConfig
 
     def post_create_model_callback(self, model):
@@ -171,7 +171,7 @@ class MLPSpeculatorModelFactory(HFModelFactory):
 
 @register
 class MLPSpeculatorTrainer(SFTTrainer):
-    name = "mlp"
+    name = "spec-decode"
     config_type = MLPSpeculatorTrainerConfig
     model_factory_type = [MLPSpeculatorModelFactory]
 

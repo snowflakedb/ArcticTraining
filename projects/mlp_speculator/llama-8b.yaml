@@ -1,4 +1,4 @@
-type: mlp
+type: spec-decode
 micro_batch_size: 12
 epochs: 5
 gen_train: true
