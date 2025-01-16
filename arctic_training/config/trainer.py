@@ -161,7 +161,7 @@ class TrainerConfig(BaseConfig):
 
     @field_validator("tokenizer", mode="after")
     def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
-        if not v.name_or_path:
+        if not v.name_or_path and "model" in info.data:
             v.name_or_path = info.data["model"].name_or_path
         return v
 
