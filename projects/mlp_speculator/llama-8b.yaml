@@ -7,10 +7,10 @@ gen_train_global_batch_size: 2048
 gen_train_micro_batch_size: 32
 train_iters: 3000
 model:
-  name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
+  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
   disable_activation_checkpoint: true
 tokenizer:
-  name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
+  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
 deepspeed:
   zero_optimization:
     stage: 3
@@ -24,9 +24,10 @@ data:
   sources:
     - HuggingFaceH4/ultrachat_200k
     - ise-uiuc/Magicoder-OSS-Instruct-75K
+  always_max_length: true
   use_data_cache: true
   cache_processed_data: true
-  cache_dir: /data-fast/st-data-redesign
+  cache_dir: /data/data-cache
   num_proc: 16
   max_length: 4096
 logger:
@@ -35,11 +36,12 @@ logger:
 scheduler:
   name: cosine
   warmup_ratio: 0.05
-optimizer:
   lr: 1e-3
+optimizer:
   betas: [0.9,0.999]
   weight_decay: 0.1
+exit_iteration: 11
 checkpoint:
   - type: deepspeed
-    save_every_n_steps: 1000
-    output_dir: /data-fast/checkpoint-redesign
+    save_every_n_steps: 10
+    output_dir: /data/spec-decode-llama-8b

@@ -26,7 +26,7 @@ To get started training a model with ArcticTraining, follow the steps below:
       type: sft
       micro_batch_size: 2
       model:
-        name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+        name_or_path: meta-llama/Meta-Llama-3.1-8B
       data:
         sources:
           - HuggingFaceH4/ultrachat_200k
@@ -60,7 +60,7 @@ that uses a different loss function:
 .. code-block:: python
 
    from arctic_training import register
-   from arctic_training.trainer import SFTTrainer
+   from arctic_training import SFTTrainer
 
    @register
    class CustomTrainer(SFTTrainer):
@@ -81,7 +81,7 @@ training recipe:
    type: my_custom_trainer
    code: path/to/custom_trainers.py
    model:
-     name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+     name_or_path: meta-llama/Meta-Llama-3.1-8B
    data:
      sources:
        - HuggingFaceH4/ultrachat_200k

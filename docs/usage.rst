@@ -18,15 +18,15 @@ these steps:
 
 1. Create a training recipe YAML file with the necessary configuration options.
    For example, you can create a recipe to train a model using the
-   `NousResearch/Meta-Llama-3.1-8B-Instruct
-   <https://huggingface.co/NousResearch/Meta-Llama-3.1-8B-Instruct>`_ model and
+   `meta-llama/Llama-3.1-8B-Instruct
+   <https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct>`_ model and
    the `HuggingFaceH4/ultrachat_200k
    <https://huggingface.co/HuggingFaceH4/ultrachat_200k>`_ dataset:
 
    .. code-block:: yaml
 
       model:
-        name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+        name_or_path: meta-llama/Llama-3.1-8B-Instruct
       data:
         sources:
           - HuggingFaceH4/ultrachat_200k
@@ -42,7 +42,7 @@ these steps:
 
    .. code-block:: python
 
-      from arctic_training.trainers import SFTTrainer, register
+      from arctic_training import SFTTrainer, register
 
       @register
       class CustomTrainer(SFTTrainer):
@@ -63,7 +63,7 @@ these steps:
       type: my_custom_trainer
       code: path/to/custom_trainers.py
       model:
-        name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+        name_or_path: meta-llama/Llama-3.1-8B-Instruct
       data:
         sources:
           - HuggingFaceH4/ultrachat_200k
@@ -76,7 +76,7 @@ these steps:
 
       from arctic_training import register
       from arctic_training.model import HFModelFactory
-      from arctic_training.trainer import SFTTrainer
+      from arctic_training import SFTTrainer
 
       class CustomModelFactory(HFModelFactory):
           name = "my_custom_model_factory"
@@ -122,7 +122,7 @@ API:
 
     from arctic_training import register
     from arctic_training.model import HFModelFactory
-    from arctic_training.trainer import SFTTrainer
+    from arctic_training import SFTTrainer
 
     class CustomModelFactory(HFModelFactory):
         name = "my_custom_model_factory"
@@ -144,7 +144,7 @@ API:
         config = {
             "type": "my_custom_trainer",
             "model": {
-                "name_or_path": "NousResearch/Meta-Llama-3.1-8B-Instruct"
+                "name_or_path": "meta-llama/Llama-3.1-8B-Instruct"
             },
             "data": {
                 "sources": ["HuggingFaceH4/ultrachat_200k"]

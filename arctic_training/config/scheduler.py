@@ -32,6 +32,9 @@ class SchedulerConfig(BaseConfig):
     warmup_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
     """ The fraction of total training steps used for linear learning rate warmup. """
 
+    learning_rate: float = Field(default=5e-4, ge=0.0, alias="lr")
+    """ The initial learning rate. """
+
     @property
     def factory(self) -> Type["SchedulerFactory"]:
         return get_registered_scheduler_factory(self.type)

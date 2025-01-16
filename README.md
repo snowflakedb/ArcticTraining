@@ -34,7 +34,7 @@ pip install -e .
 name: sft
 micro_batch_size: 2
 model:
-  name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
@@ -67,7 +67,7 @@ that uses a different loss function:
 
 ```python
 from arctic_training import register
-from arctic_training.trainer import SFTTrainer
+from arctic_training import SFTTrainer
 
 @register
 class CustomTrainer(SFTTrainer):

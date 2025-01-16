@@ -13,4 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .ds_engine import DSCheckpointEngine
 from .engine import CheckpointEngine
+from .hf_engine import HFCheckpointEngine
