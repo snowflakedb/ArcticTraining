@@ -31,13 +31,13 @@ from torch.nn import CrossEntropyLoss
 from transformers.cache_utils import DynamicCache
 from typing_extensions import Self
 
+from arctic_training import SFTTrainer
 from arctic_training import logger
 from arctic_training import register
 from arctic_training.checkpoint import CheckpointEngine
 from arctic_training.config import ModelConfig
 from arctic_training.config import TrainerConfig
 from arctic_training.model import HFModelFactory
-from arctic_training.trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
 
@@ -176,7 +176,7 @@ class MLPSpeculatorModelFactory(HFModelFactory):
 
 
 class MLPSpeculatorCheckpointEngine(CheckpointEngine):
-    checkpoint_type: str = "mlp_speculator"
+    name = "spec-decode"
 
     def load(self) -> None:
         raise NotImplementedError()
@@ -439,7 +439,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
         loss = sum(losses)
         return loss
 
-    def loss(self, batch):
+    def loss(self, batch) -> float:
         if self.config.gen_train and not self.config.gen_train_simple:
             return self._compute_loss3(batch)
         elif self.config.gen_train:

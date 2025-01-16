@@ -128,6 +128,12 @@ class TrainerConfig(BaseConfig):
         deepspeed.init_distributed()
         return self
 
+    # TODO deprecate scheduler LR and move to optimizer LR
+    @model_validator(mode="after")
+    def copy_lr(self) -> Self:
+        self.optimizer.learning_rate = self.scheduler.learning_rate
+        return self
+
     @property
     def trainer(self):
         return get_registered_trainer(self.type)(config=self)
