@@ -154,7 +154,11 @@ class DataCollatorForCausalLM:
 
 
 def packing_sft_dataset(
-    dataset: Dataset, seed: int, rank: int, max_length: int
+    dataset: Dataset,
+    seed: int,
+    rank: int,
+    max_length: int,
+    always_max_length: bool,
 ) -> Dataset:
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
@@ -186,8 +190,10 @@ def packing_sft_dataset(
         labels = data["labels"]
 
         # TODO: reconcile differences with `always_max_length` option Samyam added
-        # if len(example["input_ids"]) + len(input_ids) > max_length:
-        if len(example["input_ids"]) > max_length:
+        if (
+            not always_max_length
+            and len(example["input_ids"]) + len(input_ids) > max_length
+        ) or len(example["input_ids"]) > max_length:
             train_dataset["input_ids"].append(example["input_ids"])
             train_dataset["labels"].append(example["labels"])
             train_dataset["position_ids"].append(example["position_ids"])
@@ -335,6 +341,7 @@ class SFTDataFactory(DataFactory):
             seed=self.config.seed,
             rank=self.global_rank,
             max_length=self.config.max_length,
+            always_max_length=self.config.always_max_length,
         )
         return dataset
 

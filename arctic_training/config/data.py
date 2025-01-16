@@ -67,6 +67,13 @@ class DataConfig(BaseConfig):
     cache_dir: Path = Path("/tmp/")
     """ Directory to store cached data. """
 
+    always_max_length: bool = False
+    """
+    If this is turned on, each batch will be filled up to the max length by
+    appending samples until the total length matches the max length. It might
+    cause the last sample to be truncated.
+    """
+
     @property
     def cache_path_args(self) -> Dict[str, Any]:
         """Returns the fields that are used to generate the cache path."""

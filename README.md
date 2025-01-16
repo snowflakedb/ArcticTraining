@@ -2,8 +2,10 @@
 
 <h3 align="center">
   <img src="docs/images/arctic_training_logo.svg" width=500px><br>
-  | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="#"><b>Blog</b></a> | <a href="#"><b>Discourse</b></a> |
+  | <a href="https://arctictraining.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/"><b>Blog</b></a> |
 </h3>
+
+<!--| <a href="#"><b>Discourse</b></a> | -->
 
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
 
@@ -32,7 +34,7 @@ pip install -e .
 name: sft
 micro_batch_size: 2
 model:
-  name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
@@ -65,7 +67,7 @@ that uses a different loss function:
 
 ```python
 from arctic_training import register
-from arctic_training.trainer import SFTTrainer
+from arctic_training import SFTTrainer
 
 @register
 class CustomTrainer(SFTTrainer):
