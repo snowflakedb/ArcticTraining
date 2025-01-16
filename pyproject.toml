@@ -25,7 +25,7 @@ keywords = ["llm", "training"]
 dependencies = [
     "pydantic>=2.0",
     "datasets",
-    "transformers",
+    "transformers==4.47.0",
     "torch",
     "loguru",
     "peft",

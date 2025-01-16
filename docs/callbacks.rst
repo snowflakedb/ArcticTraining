@@ -96,7 +96,7 @@ attribute of the object. For example, to a pre-step callback to a custom Trainer
 
 .. code-block:: python
 
-    from arctic_training.trainer import Trainer
+    from arctic_training import Trainer
 
     def pre_step_callback(self, batch):
         print(f"Step callback triggered with batch {batch}")
