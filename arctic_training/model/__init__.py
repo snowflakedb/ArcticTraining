@@ -14,3 +14,5 @@
 # limitations under the License.
 
 from .factory import ModelFactory
+from .hf_factory import HFModelFactory
+from .liger_factory import LigerModelFactory

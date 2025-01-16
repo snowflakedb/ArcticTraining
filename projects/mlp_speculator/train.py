@@ -27,11 +27,11 @@ from torch.nn import CrossEntropyLoss
 from transformers.cache_utils import DynamicCache
 from typing_extensions import Self
 
-from arctic_training import HFModelFactory
-from arctic_training import ModelConfig
-from arctic_training import SFTTrainer
-from arctic_training import TrainerConfig
 from arctic_training import register
+from arctic_training.config import ModelConfig
+from arctic_training.config import TrainerConfig
+from arctic_training.model import HFModelFactory
+from arctic_training.trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
 
@@ -81,7 +81,7 @@ class MLPSpeculatorModelConfig(ModelConfig):
 
 
 class MLPSpeculatorModelFactory(HFModelFactory):
-    name = "mlp"
+    name = "spec-decode"
     config_type = MLPSpeculatorModelConfig
 
     def post_create_model_callback(self, model):
@@ -171,7 +171,7 @@ class MLPSpeculatorModelFactory(HFModelFactory):
 
 @register
 class MLPSpeculatorTrainer(SFTTrainer):
-    name = "mlp"
+    name = "spec-decode"
     config_type = MLPSpeculatorTrainerConfig
     model_factory_type = [MLPSpeculatorModelFactory]
 
