@@ -34,6 +34,7 @@ dependencies = [
     "devtools",
     "tabulate",
     "openai>=1.48.0",
+    "jsonlines",
 ]
 
 # Optional development dependencies

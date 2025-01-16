@@ -26,6 +26,10 @@ def load_credentials(credential_path):
 
 
 class OpenAIBatchProcessor(BatchProcessor):
+    """
+    OpenAI Batch Processor. This class is inherited by :class:`~.OpenAISynth` and :class:`~.AzureOpenAISynth`. This class defines methods used to manage batch tasks.
+    """
+
     def __init__(
         self,
         work_dir: str = "./batch_work_dir",
@@ -58,6 +62,9 @@ class OpenAIBatchProcessor(BatchProcessor):
             logging.info(f"Credential saved to: {credential_file}")
 
     def add_chat_to_batch_task(self, task_name, **kwargs):
+        """
+        Add a chat completion request to the batch task.
+        """
         request_id = f"{task_name}_{len(self.requests[task_name])}"
         self.requests[task_name].append(
             {
@@ -69,6 +76,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         )
 
     def save_batch_task(self, task_name):
+        """
+        Save batch task to the work directory.
+        """
         if len(self.requests[task_name]) == 0:
             logging.info(f"No requests found for task: {task_name}")
             return
@@ -93,6 +103,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         logging.info(f"Batch task saved to: {self.work_dir}/{task_name}")
 
     def upload_batch_task(self, task_name):
+        """
+        Upload batch task to (Azure) OpenAI Files API.
+        """
         # get all batch files
         batch_files = [
             os.path.join(self.work_dir, task_name, "requests", f)
@@ -116,6 +129,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         return openai_file_ids
 
     def retrieve_uploaded_files(self, task_name=None, file_ids=None, print_status=True):
+        """
+        Retrieve uploaded files from (Azure) OpenAI Files API.
+        """
         if file_ids is None:
             if not os.path.exists(
                 os.path.join(self.work_dir, task_name, "file_ids.txt")
@@ -145,6 +161,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         return file_responses
 
     def submit_batch_task(self, task_name, file_ids=None):
+        """
+        Submit batch task to (Azure) OpenAI Batch API.
+        """
         if file_ids is None:
             if not os.path.exists(
                 os.path.join(self.work_dir, task_name, "file_ids.txt")
@@ -173,6 +192,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         return batch_ids
 
     def retrieve_batch_task(self, task_name=None, batch_ids=None, print_status=True):
+        """
+        Retrieve batch task from (Azure) OpenAI Batch API.
+        """
         if batch_ids is None:
             if task_name is None:
                 raise ValueError("Either task_name or batch_ids must be provided.")
@@ -208,6 +230,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         return batch_responses
 
     def cancel_batch_task(self, task_name):
+        """
+        Cancel batch task from (Azure) OpenAI Batch API.
+        """
         if not os.path.exists(os.path.join(self.work_dir, task_name, "batch_ids.txt")):
             raise FileNotFoundError(
                 f"No batch ids are found on disk for task: {task_name}. Please submit"
@@ -221,6 +246,9 @@ class OpenAIBatchProcessor(BatchProcessor):
             logging.info(f"Batch task cancelled: {batch_id}")
 
     def download_batch_task(self, task_name):
+        """
+        Download batch task results from (Azure) OpenAI Files API.
+        """
         batch_responses = self.retrieve_batch_task(task_name=task_name)
 
         all_responses = ""
@@ -266,6 +294,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         return all_responses
 
     def execute_batch_task(self, task_name, print_status=False):
+        """
+        A synchronous method to execute the batch task. This method will block until the task is completed. The batch task is executed by sequentially saving, uploading, submitting, polling, and downloading.
+        """
         self.save_batch_task(task_name)
         file_ids = self.upload_batch_task(task_name)
 
@@ -312,6 +343,9 @@ class OpenAIBatchProcessor(BatchProcessor):
 
     @staticmethod
     def extract_messages_from_responses(responses):
+        """
+        Extract the response from the response object.
+        """
         extracted = []
         for response_str in responses:
             response = json.loads(response_str)
@@ -327,6 +361,10 @@ class OpenAIBatchProcessor(BatchProcessor):
 
 
 class OpenAISynth(OpenAI, OpenAIBatchProcessor):
+    """
+    OpenAI Synthesizer. This class is a wrapper around OpenAI Python SDK. It manages batch processing by maintaing a work directory to store batch tasks and results. This class works with OpenAI platform (https://platform.openai.com/). Please refer to :class:`~.OpenAIBatchProcessor` for methods.
+    """
+
     def __init__(
         self,
         work_dir: str = "./batch_work_dir",
@@ -355,6 +393,10 @@ class OpenAISynth(OpenAI, OpenAIBatchProcessor):
 
 
 class AzureOpenAISynth(AzureOpenAI, OpenAIBatchProcessor):
+    """
+    Azure OpenAI Synthesizer. This class is a wrapper around OpenAI Python SDK. It manages batch processing by maintaing a work directory to store batch tasks and results. This class works with Azure OpenAI (https://oai.azure.com/). Please refer to :class:`~.OpenAIBatchProcessor` for methods.
+    """
+
     def __init__(
         self,
         work_dir: str = "./batch_work_dir",
