@@ -9,7 +9,7 @@
 
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
 
-ArcticTraining is a framework designed to simplify and accelerate the post-training process for large language models (LLMs). It addresses challenges in current frameworks, such as limited support for rapid prototyping and the lack of native data generation tools, by offering modular trainer designs, simplified code structures, and integrated pipelines for creating and cleaning synthetic data. These features enable users to enhance LLM capabilities, like code generation and complex reasoning, with greater efficiency and flexibility.
+ArcticTraining is a framework designed to simplify and accelerate the post-training process for large language models (LLMs). It addresses challenges in current frameworks, such as limited support for rapid prototyping and the lack of native data generation tools, by offering modular trainer designs, simplified code structures, and integrated pipelines for creating and cleaning synthetic data. These features enable users to enhance LLM capabilities, like code generation and complex reasoning, with greater efficiency and flexibility. Read more about ArcticTraining [in our blog](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/).
 
 # Quickstart
 
@@ -88,7 +88,7 @@ training recipe:
 type: my_custom_trainer
 code: path/to/custom_trainers.py
 model:
- name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
+ name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
 data:
  sources:
    - HuggingFaceH4/ultrachat_200k
