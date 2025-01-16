@@ -14,10 +14,3 @@
 # limitations under the License.
 
 from .base import BaseConfig
-from .checkpoint import CheckpointConfig
-from .data import DataConfig
-from .model import ModelConfig
-from .optimizer import OptimizerConfig
-from .scheduler import SchedulerConfig
-from .tokenizer import TokenizerConfig
-from .trainer import TrainerConfig
