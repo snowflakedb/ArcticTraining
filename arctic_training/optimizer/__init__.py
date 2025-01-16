@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import adam_factory
+from .adam_factory import FusedAdamOptimizerFactory
 from .factory import OptimizerFactory

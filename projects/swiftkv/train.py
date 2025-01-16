@@ -20,12 +20,13 @@ import torch
 import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
 
-from arctic_training import HFModelFactory
-from arctic_training import ModelConfig
-from arctic_training import SFTTrainer
-from arctic_training import TrainerConfig
 from arctic_training import logger
 from arctic_training import register
+from arctic_training.checkpoint import HFCheckpointEngine
+from arctic_training.config import ModelConfig
+from arctic_training.config import TrainerConfig
+from arctic_training.model import HFModelFactory
+from arctic_training.trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
 
@@ -96,6 +97,7 @@ class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
     config_type = SwiftKVTrainerConfig
     model_factory_type = SwiftKVModelFactory
+    checkpoint_engine_type = HFCheckpointEngine
 
     def loss(self, batch: Any) -> torch.Tensor:
         batch = to_device(batch, self.device)
