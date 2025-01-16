@@ -370,8 +370,8 @@ class OpenAISynth(OpenAI, OpenAIBatchProcessor):
         work_dir: str = "./batch_work_dir",
         credential_path: str | None = None,
         save_to_credential_file: str = "~/.arctic_synth/credentials/default.yaml",
-        batch_size: int = 50_000,
-        polling_interval: int = 30,
+        batch_size: int = 50_000,  # default batch size for OpenAI is 50,000
+        polling_interval: int = 30,  # (in secs) default polling interval to check task status
         *args,
         **kwargs,
     ):
