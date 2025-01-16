@@ -15,9 +15,14 @@ authors = [
     {author = "Canwen Xu", email = "canwen.xu@snowflake.com"}
 ]
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 readme = "README.md"
 homepage = "https://github.com/snowflakedb/ArcticTraining"
 repository = "https://github.com/snowflakedb/ArcticTraining"
+
+[project.urls]
+Homepage = "https://github.com/snowflakedb/ArcticTraining"
+Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 keywords = ["llm", "training"]
 
