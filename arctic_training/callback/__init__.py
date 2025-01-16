@@ -14,4 +14,3 @@
 # limitations under the License.
 
 from .callback import Callback
-from .mixin import CallbackMixin
