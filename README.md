@@ -44,6 +44,13 @@ checkpoint:
 arctic_training path/to/sft-recipe.yaml
 ```
 
+## Projects
+
+The projects folder contains all special projects we release that build on-top of ArcticTraining. For example yamls and to dive deeper into the training code please see the following projects:
+
+* [SwiftKV](projects/swiftkv)
+* [Speculative Decoding](projects/mlp_speculator)
+
 ## Customize Training
 
 To customize the training workflow, you can modify the training recipe YAML we
