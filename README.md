@@ -31,7 +31,7 @@ pip install -e .
 3. Create a training recipe YAML that uses the built-in Supervised Fine-Tuning (SFT) trainer:
 
 ```yaml
-name: sft
+type: sft
 micro_batch_size: 2
 model:
   name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
@@ -85,7 +85,7 @@ also specify a custom path to the trainers with the ``code`` field in your
 training recipe:
 
 ```yaml
-name: my_custom_trainer
+type: my_custom_trainer
 code: path/to/custom_trainers.py
 model:
  name_or_path: NousResearch/Meta-Llama-3.1-8B-Instruct
