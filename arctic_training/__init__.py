@@ -17,7 +17,7 @@ from .logging import setup_init_logger
 
 setup_init_logger()
 
-from .callback.callback import Callback
+from .callback.callback import Callbacks
 from .callback.mixin import CallbackMixin
 from .checkpoint.ds_engine import DSCheckpointEngine
 from .checkpoint.engine import CheckpointEngine

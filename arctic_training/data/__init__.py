@@ -15,5 +15,4 @@
 
 from . import sft_source
 from .factory import DataFactory
-from .sft_factory import SFTDataFactory
 from .source import DataSource
