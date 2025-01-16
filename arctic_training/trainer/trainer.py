@@ -224,13 +224,16 @@ class Trainer(ABC, CallbackMixin):
         this method.
         """
 
-        # use deepspeed global step as golden truth
-        self.global_step = self.model.global_steps
-
         self.model.train()
         loss = self.loss(batch)
         self.model.backward(loss)
         self.model.step()
+
+        # use deepspeed global step as golden truth
+        self.global_step = self.model.global_steps
+        if self.global_step >= self.training_horizon:
+            self.early_stop = True
+
         self.checkpoint()
 
         if (
