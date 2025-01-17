@@ -27,35 +27,50 @@ keywords = ["llm", "training"]
 
 # Dependencies for the project
 dependencies = [
-    "pydantic>=2.0",
     "datasets",
-    "transformers==4.47.0",
-    "torch",
-    "loguru",
-    "peft",
     "deepspeed",
-    "tqdm",
     "devtools",
-    "tabulate",
-    "openai>=1.48.0",
     "jsonlines",
+    "loguru",
+    "openai>=1.48.0",
+    "peft",
+    "pydantic>=2.0",
+    "tabulate",
+    "torch",
+    "tqdm",
+    "transformers==4.47.0",
 ]
-
-
 
 # Optional development dependencies
 [project.optional-dependencies]
+all = [
+    "arctic_training[dev]",
+    "arctic_training[docs]",
+    "arctic_training[vllm]",
+    "arctic_training[cortex]",
+]
+
 dev = [
-    "pre-commit",
-    "pytest>=7.0",
+    "arctic_training[formatting]",
+    "arctic_training[docs]",
+]
+
+formatting = [
     "black>=23.1",
     "flake8>=5.0",
     "mypy>=1.1",
-    "sphinx>=8.1.3",
+    "pre-commit",
+    "pytest>=7.0",
+    "toml",
+]
+
+docs = [
     "autodoc_pydantic>=2.0.0",
+    "pydantic>=2.0",
+    "sphinx>=8.1.3",
     "sphinx-autodoc-typehints",
-    "sphinx-rtd-theme",
     "sphinx-copybutton",
+    "sphinx-rtd-theme",
 ]
 
 vllm = [
