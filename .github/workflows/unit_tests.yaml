@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install
-        run: pip install ".[dev]"
+        run: pip install ".[testing]"
       - name: Environment print
         run: pip list
       - name: Unit Tests

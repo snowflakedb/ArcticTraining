@@ -46,13 +46,19 @@ dependencies = [
 all = [
     "arctic_training[dev]",
     "arctic_training[docs]",
+    "arctic_training[testing]",
     "arctic_training[vllm]",
     "arctic_training[cortex]",
 ]
 
 dev = [
-    "arctic_training[formatting]",
     "arctic_training[docs]",
+    "arctic_training[formatting]",
+    "arctic_training[testing]",
+]
+
+testing = [
+    "pytest",
 ]
 
 formatting = [
