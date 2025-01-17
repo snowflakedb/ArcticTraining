@@ -18,8 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install
-        # TODO: Make this install only the necessary dependencies for formatting
-        run: pip install ".[dev]"
+        run: python scripts/install_deps.py formatting
       - name: Environment print
         run: pip list
       - name: Formatting checks
