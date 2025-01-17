@@ -56,12 +56,7 @@ dev = [
 ]
 
 formatting = [
-    "black>=23.1",
-    "flake8>=5.0",
-    "mypy>=1.1",
     "pre-commit",
-    "pytest>=7.0",
-    "toml",
 ]
 
 docs = [
@@ -85,28 +80,3 @@ cortex = [
 arctic_training = "arctic_training.cli:main"
 arctic_training_run = "arctic_training.cli:run_script"
 arctic_synth = "arctic_training.synth:main"
-
-# Configuration for Black (code formatter)
-[tool.black]
-line-length = 88
-target-version = ["py38"]
-include = '\.pyi?$'
-
-# Configuration for Flake8 (linter)
-[tool.flake8]
-max-line-length = 88
-ignore = ["E203", "E266", "E501", "W503"]
-exclude = ["tests/*"]
-
-# Configuration for Mypy (type checker)
-[tool.mypy]
-python_version = 3.8
-check_untyped_defs = true
-ignore_missing_imports = true
-
-# Optional configuration for isort (import sorting)
-[tool.isort]
-profile = "black"
-line_length = 88
-force_single_line = true
-filter_files = true
