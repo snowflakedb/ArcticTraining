@@ -26,6 +26,7 @@ from typing import Type
 import deepspeed
 import numpy as np
 import torch
+from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -188,7 +189,7 @@ class Trainer(ABC, CallbackMixin):
     @property
     def device(self) -> torch.device:
         """Current device."""
-        return torch.device(f"cuda:{self.global_rank}")
+        return get_accelerator().device(self.global_rank)
 
     @property
     def training_horizon(self) -> int:
