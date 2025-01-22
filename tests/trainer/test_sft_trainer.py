@@ -4,6 +4,7 @@ import pytest
 import yaml
 
 
+@pytest.mark.gpu
 def test_sft_trainer(tmp_path):
     config_dict = {
         "type": "sft",

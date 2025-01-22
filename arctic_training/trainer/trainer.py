@@ -189,7 +189,7 @@ class Trainer(ABC, CallbackMixin):
     @property
     def device(self) -> torch.device:
         """Current device."""
-        return get_accelerator().device(self.global_rank)
+        return torch.device(get_accelerator().device_name(self.global_rank))
 
     @property
     def training_horizon(self) -> int:

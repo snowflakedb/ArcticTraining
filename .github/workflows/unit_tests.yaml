@@ -26,4 +26,4 @@ jobs:
       - name: Unit Tests
         run: |
           cd tests
-          python -m pytest .
+          python -m pytest . -m "cpu" -s -v
