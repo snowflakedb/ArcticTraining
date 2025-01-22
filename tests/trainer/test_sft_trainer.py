@@ -1,16 +1,15 @@
 import os
 import subprocess
-from pathlib import Path
 
 import pytest
 import yaml
 
 
 @pytest.mark.gpu
-def test_sft_trainer(tmp_path):
+def test_sft_trainer(tmp_path, helper_code_path):
     config_dict = {
         "type": "sft",
-        "code": str(Path(__file__).parent / "trainer_test_helpers.py"),
+        "code": helper_code_path,
         "exit_iteration": 2,
         "micro_batch_size": 1,
         "model": {
@@ -37,10 +36,10 @@ def test_sft_trainer(tmp_path):
 
 
 @pytest.mark.cpu
-def test_sft_trainer_cpu(tmp_path):
+def test_sft_trainer_cpu(tmp_path, helper_code_path):
     config_dict = {
         "type": "sft",
-        "code": str(Path(__file__).parent / "trainer_test_helpers.py"),
+        "code": helper_code_path,
         "exit_iteration": 2,
         "micro_batch_size": 1,
         "model": {

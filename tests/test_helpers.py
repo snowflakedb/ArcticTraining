@@ -5,9 +5,12 @@ from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
 from arctic_training import register
+from arctic_training.data.factory import DataFactory
 from arctic_training.data.source import DataSource
 from arctic_training.model.hf_factory import HFModelFactory
-from arctic_training.optimizer import FusedAdamOptimizerFactory
+from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
+from arctic_training.optimizer.factory import OptimizerFactory
+from arctic_training.scheduler.factory import SchedulerFactory
 
 
 @register
@@ -52,3 +55,33 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
             lr=optimizer_config.learning_rate,
             betas=optimizer_config.betas,
         )
+
+
+@register
+class NoOpOptimizerFactory(OptimizerFactory):
+    name = "noop"
+
+    def create_optimizer(self, model, optimizer_config):
+        return None
+
+
+@register
+class NoOpDataFactory(DataFactory):
+    name = "noop"
+
+    def __call__(self):
+        return None, None
+
+    def tokenize_fn(self):
+        pass
+
+    def collate_fn(self):
+        pass
+
+
+@register
+class NoOpSchedulerFactory(SchedulerFactory):
+    name = "noop"
+
+    def create_scheduler(self, optimizer):
+        return None
