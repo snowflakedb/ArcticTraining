@@ -15,6 +15,8 @@
 
 from typing import Dict
 
+import torch
+
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
@@ -31,10 +33,7 @@ from arctic_training.trainer import Trainer
 def to_device(batch: Dict, device: str) -> Dict:
     output = {}
     for k, v in batch.items():
-        try:
-            output[k] = v.to(device)
-        except Exception:
-            output[k] = v
+        output[k] = v.to(device)
     return output
 
 
@@ -49,7 +48,7 @@ class SFTTrainer(Trainer):
     scheduler_factory_type = [HFSchedulerFactory]
     tokenizer_factory_type = [HFTokenizerFactory]
 
-    def loss(self, batch):
+    def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
         outputs = self.model(**batch, use_cache=False)
         loss = outputs.loss

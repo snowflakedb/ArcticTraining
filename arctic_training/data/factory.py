@@ -176,13 +176,12 @@ class DataFactory(ABC, CallbackMixin):
 
     def _get_shortest_data_length(self, dataset: Dataset) -> int:
         local_length = len(dataset)
+        if self.world_size == 1:
+            return local_length
+
         data_length = torch.zeros(self.world_size).cuda()
         data_length[self.global_rank] = local_length
-        try:
-            torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
-        except Exception:
-            # single GPU quick test
-            pass
+        torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
         shortest_length = data_length.min().cpu().item()
         del data_length  # clean the memory
         return int(shortest_length)

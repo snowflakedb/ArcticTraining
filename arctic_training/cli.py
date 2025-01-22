@@ -41,6 +41,7 @@ def main():
             str(args.config),
         ],
         env=env,
+        check=True,
     )
 
 
