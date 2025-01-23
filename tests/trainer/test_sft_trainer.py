@@ -1,15 +1,13 @@
-import os
-import subprocess
-
 import pytest
 import yaml
 
+from arctic_training.config.trainer import get_config
+
 
 @pytest.mark.gpu
-def test_sft_trainer(tmp_path, helper_code_path):
+def test_sft_trainer(tmp_path):
     config_dict = {
         "type": "sft",
-        "code": helper_code_path,
         "exit_iteration": 2,
         "micro_batch_size": 1,
         "model": {
@@ -26,20 +24,16 @@ def test_sft_trainer(tmp_path, helper_code_path):
     with open(config_path, "w") as f:
         f.write(yaml.dump(config_dict))
 
-    result = subprocess.run(
-        f"arctic_training {config_path}", shell=True, text=True, capture_output=True
-    )
-
-    if result.returncode != 0:
-        print(result.stderr)
-        pytest.fail("Training failed")
+    config = get_config(config_path)
+    trainer = config.trainer
+    trainer.train()
+    assert trainer.global_step > 0, "Training did not run"
 
 
 @pytest.mark.cpu
-def test_sft_trainer_cpu(tmp_path, helper_code_path):
+def test_sft_trainer_cpu(tmp_path):
     config_dict = {
         "type": "sft",
-        "code": helper_code_path,
         "exit_iteration": 2,
         "micro_batch_size": 1,
         "model": {
@@ -65,17 +59,7 @@ def test_sft_trainer_cpu(tmp_path, helper_code_path):
     with open(config_path, "w") as f:
         f.write(yaml.dump(config_dict))
 
-    env = os.environ.copy()
-    env["DS_ACCELERATOR"] = "cpu"
-
-    result = subprocess.run(
-        f"arctic_training {config_path}",
-        shell=True,
-        text=True,
-        capture_output=True,
-        env=env,
-    )
-
-    if result.returncode != 0:
-        print(result.stderr)
-        pytest.fail("Training failed")
+    config = get_config(config_path)
+    trainer = config.trainer
+    trainer.train()
+    assert trainer.global_step > 0, "Training did not run"

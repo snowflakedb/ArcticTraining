@@ -225,8 +225,10 @@ class Trainer(ABC, CallbackMixin):
         this method.
         """
 
+        print("RUNNING STEP")
         self.model.train()
         loss = self.loss(batch)
+        print("LOSS RUN")
         self.model.backward(loss)
         self.model.step()
 
@@ -241,10 +243,11 @@ class Trainer(ABC, CallbackMixin):
             self.config.exit_iteration > 0
             and self.config.exit_iteration == self.global_step
         ):
-            logger.info(f"Hit exit iteration of {self.global_step}, forcing exit")
-            torch.distributed.barrier()
-            torch.distributed.destroy_process_group()
-            exit()
+            self.early_stop = True
+            # logger.info(f"Hit exit iteration of {self.global_step}, forcing exit")
+            # torch.distributed.barrier()
+            # torch.distributed.destroy_process_group()
+            # exit()
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
