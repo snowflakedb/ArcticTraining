@@ -225,10 +225,8 @@ class Trainer(ABC, CallbackMixin):
         this method.
         """
 
-        print("RUNNING STEP")
         self.model.train()
         loss = self.loss(batch)
-        print("LOSS RUN")
         self.model.backward(loss)
         self.model.step()
 

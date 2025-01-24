@@ -14,21 +14,24 @@
 # limitations under the License.
 
 import os
-from pathlib import Path
 
 import pytest
 
-# Track which dist environment (cpu or gpu) is currently setup so we can avoid
-# re-initializing.
-pytest.current_dist_env = ""
-
 
 def pytest_configure(config):
-    # Assume cpu dist by default, but this will be torn down if only running gpu tests
-    _setup_cpu_dist()
+    # TODO: Make it so that cpu and gpu tests can be run with a single command.
+    # This requires some work with tearing down/setting up dist environments
+    # that have not been worked out yet.
+    if not config.option.markexpr:
+        config.option.markexpr = "cpu"
+    if "gpu" in config.option.markexpr and "cpu" in config.option.markexpr:
+        pytest.fail("Cannot run tests with both 'gpu' and 'cpu' marks")
+    if "cpu" in config.option.markexpr:
+        _setup_cpu_dist()
+    if "gpu" in config.option.markexpr:
+        _setup_gpu_dist()
 
 
-# Helper function because we can't directly call a fixture in pytest_configure
 def _setup_cpu_dist():
     print("\n[Fixture] Setting up for 'cpu' tests")
     os.environ["DS_ACCELERATOR"] = "cpu"
@@ -42,21 +45,6 @@ def _setup_cpu_dist():
     from deepspeed.comm import init_distributed
 
     init_distributed(auto_mpi_discovery=False)
-    pytest.current_dist_env = "cpu"
-
-
-@pytest.fixture(scope="function")
-def setup_cpu_dist():
-    if pytest.current_dist_env and pytest.current_dist_env != "cpu":
-        print("\n[Fixture] Tearing down for current env (in cpu)")
-        import deepspeed.comm as dist
-
-        dist.barrier()
-        dist.destroy_process_group()
-        print("\n[Fixture] Tear down complete")
-    elif pytest.current_dist_env == "cpu":
-        return
-    _setup_cpu_dist()
 
 
 def _setup_gpu_dist():
@@ -72,23 +60,11 @@ def _setup_gpu_dist():
     from deepspeed.comm import init_distributed
 
     init_distributed(auto_mpi_discovery=False)
-    pytest.current_dist_env = "gpu"
 
 
-@pytest.fixture(scope="function")
-def setup_gpu_dist():
-    if pytest.current_dist_env and pytest.current_dist_env != "gpu":
-        print("\n[Fixture] Tearing down for current env (in gpu)")
-        import deepspeed.comm as dist
-
-        dist.barrier()
-        dist.destroy_process_group()
-        print("\n[Fixture] Tear down complete")
-    elif pytest.current_dist_env == "gpu":
-        return
-    _setup_gpu_dist()
-
-
+# Eventually when we can run cpu + gpu tests, we will want to order the tests to
+# avoid thrashing back and forth between the distirbuted environments.
+"""
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
     # Group tests by 'cpu' and 'gpu' markers
@@ -97,10 +73,10 @@ def pytest_collection_modifyitems(config, items):
 
     # Reorder tests: all 'cpu' tests first, then 'gpu' tests
     items[:] = cpu_tests + gpu_tests
+"""
 
 
-@pytest.fixture(scope="session")
-def helpers_code_path() -> str:
+# Load helper functions automatically for all tests
+@pytest.fixture(scope="session", autouse=True)
+def helpers_code_path() -> None:
     from . import test_helpers  # noqa: F401
-
-    return str(Path(__file__).parent / "test_helpers.py")
