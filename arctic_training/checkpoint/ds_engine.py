@@ -39,13 +39,15 @@ class DSCheckpointEngine(CheckpointEngine):
 
     @property
     def client_state(self) -> Dict[str, Any]:
-        return {
+        state = {
             "end_of_epoch": self.trainer.epoch_idx,
             "torch_random_state": torch.get_rng_state(),
-            "torch_cuda_random_state": torch.cuda.get_rng_state(),
             "np_random_state": np.random.get_state(),
             "python_random_state": random.getstate(),
         }
+        if self.device != torch.device("cpu"):
+            state["torch_cuda_random_state"] = torch.cuda.get_rng_state()
+        return state
 
     def save(self, model) -> None:
         model.save_checkpoint(
