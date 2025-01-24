@@ -246,10 +246,7 @@ class Trainer(ABC, CallbackMixin):
             and self.config.exit_iteration == self.global_step
         ):
             self.early_stop = True
-            # logger.info(f"Hit exit iteration of {self.global_step}, forcing exit")
-            # torch.distributed.barrier()
-            # torch.distributed.destroy_process_group()
-            # exit()
+            logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
