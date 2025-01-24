@@ -33,7 +33,6 @@ def pytest_configure(config):
 
 
 def _setup_cpu_dist():
-    print("\n[Fixture] Setting up for 'cpu' tests")
     os.environ["DS_ACCELERATOR"] = "cpu"
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
@@ -48,7 +47,6 @@ def _setup_cpu_dist():
 
 
 def _setup_gpu_dist():
-    print("\n[Fixture] Setting up for 'gpu' tests")
     os.environ["DS_ACCELERATOR"] = "cuda"
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
@@ -67,8 +65,7 @@ def _setup_gpu_dist():
 """
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
-    # Group tests by 'cpu' and 'gpu' markers
-    cpu_tests = [item for item in items if "cpu" in item.keywords]
+    t scpu_tests = [item for item in items if "cpu" in item.keywords]
     gpu_tests = [item for item in items if "gpu" in item.keywords]
 
     # Reorder tests: all 'cpu' tests first, then 'gpu' tests
