@@ -16,8 +16,8 @@
 import subprocess
 import sys
 from pathlib import Path
+from typing import List
 
-# Define the license text
 LICENSE_TEXT = """\
 # Copyright 2025 Snowflake Inc.
 # SPDX-License-Identifier: Apache-2.0
@@ -36,23 +36,20 @@ LICENSE_TEXT = """\
 """
 
 
-# Check if a file starts with the license text
-def file_has_license(file_path):
+def file_has_license(file_path: Path) -> bool:
     with open(file_path, "r") as f:
         content = f.read()
         return content.startswith(LICENSE_TEXT)
 
 
-# Add the license text to a file
-def add_license_to_file(file_path):
+def add_license_to_file(file_path: Path) -> None:
     with open(file_path, "r+") as f:
         content = f.read()
         f.seek(0)
         f.write(LICENSE_TEXT + "\n" + content)
 
 
-# Get the list of tracked Python files from Git
-def get_tracked_python_files():
+def get_tracked_python_files() -> List[Path]:
     try:
         result = subprocess.run(
             ["git", "ls-files", "--", "*.py"],
@@ -66,8 +63,7 @@ def get_tracked_python_files():
         sys.exit(1)
 
 
-# Main function to check and update files
-def main():
+def main() -> None:
     tracked_files = get_tracked_python_files()
     modified_files = []
 
