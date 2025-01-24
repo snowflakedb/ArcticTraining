@@ -159,6 +159,10 @@ class Trainer(ABC, CallbackMixin):
             engine(self) for engine in self.config.checkpoint_engines
         ]
 
+        for engine in self.checkpoint_engines:
+            if engine.config.auto_resume:
+                engine.load(self.model)
+
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
         torch.manual_seed(seed)
