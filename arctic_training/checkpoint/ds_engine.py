@@ -62,6 +62,7 @@ class DSCheckpointEngine(CheckpointEngine):
         self.trainer.global_step = model.global_steps
         self.trainer.epoch_idx = client_states["end_of_epoch"] + 1
         torch.set_rng_state(client_states["torch_random_state"])
-        torch.cuda.set_rng_state(client_states["torch_cuda_random_state"])
         np.random.set_state(client_states["np_random_state"])
         random.setstate(client_states["python_random_state"])
+        if self.device != torch.device("cpu"):
+            torch.cuda.set_rng_state(client_states["torch_cuda_random_state"])
