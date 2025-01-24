@@ -143,6 +143,7 @@ class Trainer(ABC):
         )
 
         self.checkpoint_engines = self.checkpoint_engine()
+        self._load_checkpoint()
 
         self._run_callbacks("post-init")
 
@@ -225,6 +226,12 @@ class Trainer(ABC):
             if self.global_step_idx >= self.training_horizon:
                 self.early_stop = True
                 break
+            
+            #Fast forward to the right batch
+            # if hasattr(self, 'train_batch_idx') and self.train_batch_idx > train_batch_idx:
+            #     if torch.distributed.get_rank() == 0:
+            #         logger.info(f"Fast forward Train batch {train_batch_idx} to {self.train_batch_idx} in checkpoint")
+            #     continue
             
             self.train_batch_idx = train_batch_idx
             self.train_batch_data = train_batch_data

@@ -453,11 +453,12 @@ class MLPSpeculatorTrainer(SFTTrainer):
         # When this runs, we are using compute_loss3
         multi_step_with_generation()
 
-    def checkpoint_engine(self):
-        ckpt_engine = MLPSpeculatorCheckpointEngine(
-            trainer=self, config=self.config.checkpoint[0]
-        )
-        return [ckpt_engine]
+    # def checkpoint_engine(self):
+        
+    #     ckpt_engine = MLPSpeculatorCheckpointEngine(
+    #         trainer=self, config=self.config.checkpoint[0]
+    #     )
+    #     return [ckpt_engine]
 
     # WIP
     # def get_average_accepted_tokens(config, sft_trainer, inputs):

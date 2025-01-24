@@ -31,6 +31,12 @@ def MLPSpeculatorParser():
     
     group.add_argument("--model_path", type=str, default="NousResearch/Meta-Llama-3-8B-Instruct")
     group.add_argument("--output_path", type=str, default="")
+    group.add_argument("--checkpoint_path", type=str, default=None)
+    
+    group.add_argument("--datasets", 
+                       type=str, 
+                       nargs="+", 
+                       default=["HuggingFaceH4/ultrachat_200k","ise-uiuc/Magicoder-OSS-Instruct-75K"])
     
     # DataLoader micro batch size
     group.add_argument("--global_batch_size", type=int, default=48)
@@ -69,10 +75,11 @@ if __name__ == "__main__":
     
     data_config = DataConfig(
         tokenizer=model_path,
-        datasets=[
-            "HuggingFaceH4/ultrachat_200k",
-            "ise-uiuc/Magicoder-OSS-Instruct-75K",
-        ],
+        datasets=args.datasets,
+        #datasets=[
+        #    "HuggingFaceH4/ultrachat_200k",
+        #    "ise-uiuc/Magicoder-OSS-Instruct-75K",
+        #],
         use_data_cache=True,
         always_max_length=True,
         cache_processed_data=True,
@@ -128,13 +135,21 @@ if __name__ == "__main__":
         train_iters=args.train_iters,
         data=data_config,
         model=model_config,
-        checkpoint={
+        checkpoint=[{
             "type": "mlp_speculator",
             "output_dir": args.output_path,
             "save_every_n_steps": args.checkpoint_interval,
             "save_every_n_epochs": 1,
             "save_end_of_training": True,
-        },
+            "auto_resume": False
+        },{
+            "type": "deepspeed",
+            "output_dir": args.checkpoint_path,
+            "save_every_n_steps": args.checkpoint_interval,
+            "save_every_n_epochs": 1,
+            "save_end_of_training": True,
+            "auto_resume": True
+        }]
     )
     
     logger.info(f"Config: {pprint.pformat(config,indent=1)}")

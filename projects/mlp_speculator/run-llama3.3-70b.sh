@@ -1,5 +1,5 @@
-MODEL_PATH="/checkpoint/huggingface/hub/models--meta-llama--Llama-3.1-70B-Instruct/snapshots/945c8663693130f8be2ee66210e062158b2a9693/"
-OUTPUT_PATH="/checkpoint/speculator/llama-3.1-70b/5-heads/Jan-14"
+MODEL_PATH="/checkpoint/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots/38ff4e01a70559264c95945aa04b900a11e68422/"
+OUTPUT_PATH="/checkpoint/speculator/llama-3.3-70b/5-heads/Jan-14"
 CHECKPOINT_PATH=$OUTPUT_PATH/checkpoint
 mkdir -p $OUTPUT_PATH
 mkdir -p $CHECKPOINT_PATH

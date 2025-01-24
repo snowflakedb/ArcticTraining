@@ -19,7 +19,22 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
     checkpoint_type: str = "mlp_speculator"
 
     def load(self) -> None:
-        raise NotImplementedError()
+        if dist.get_rank() == 0:
+            load_path = os.path.join(self.config.checkpoint_dir, "pytorch_model.bin")
+            state_dict = torch.load(load_path)
+            
+        is_z3 = self.trainer.model.zero_optimization_stage() == 3
+        dist.barrier()
+        
+        assert len(state_dict.keys()) == len(self.model.speculator.named_paramters().keys()), \
+            "Checkpoint has different parameters than the module"
+        
+        for name, param in self.model.speculator.named_parameters():
+            if is_z3 and hasattr(param,'ds_id'):
+                with GatheredParameters([param],modifier_rank=0):
+                    if dist.get_rank() == 0:
+                        param.copy_(state_dict[name])
+                    
 
     def save(self) -> None:
         if dist.get_rank() == 0:
