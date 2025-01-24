@@ -68,6 +68,16 @@ class LlamaSwiftKVAttention(LlamaAttention):
                     self.num_key_value_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
+                self.k_proj_swiftkv_2 = nn.Linear(
+                    self.hidden_size,
+                    self.num_key_value_heads * self.head_dim,
+                    bias=config.attention_bias,
+                )
+                self.v_proj_swiftkv_2 = nn.Linear(
+                    self.hidden_size,
+                    self.num_key_value_heads * self.head_dim,
+                    bias=config.attention_bias,
+                )
 
     def forward(
         self,
@@ -203,8 +213,8 @@ class LlamaSwiftKVFlashAttention2(LlamaSwiftKVAttention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        swiftkv_key_states: Optional[torch.Tensor] = None,
-        swiftkv_value_states: Optional[torch.Tensor] = None,
+        swiftkv_hidden_states: Optional[torch.Tensor] = None,
+        gate_routes: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.LongTensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Cache] = None,
@@ -227,11 +237,12 @@ class LlamaSwiftKVFlashAttention2(LlamaSwiftKVAttention):
 
         bsz, q_len, _ = hidden_states.size()
 
-        if swiftkv_key_states is not None or swiftkv_value_states is not None:
-            assert swiftkv_key_states is not None and swiftkv_value_states is not None
+        if swiftkv_hidden_states is not None:
             query_states = self.q_proj_swiftkv(hidden_states)
-            key_states = swiftkv_key_states
-            value_states = swiftkv_value_states
+            key_states = ((1 - gate_routes) * self.k_proj_swiftkv(swiftkv_hidden_states)
+                          + gate_routes * self.k_proj(hidden_states))
+            value_states = ((1 - gate_routes) * self.v_proj_swiftkv(swiftkv_hidden_states)
+                            + gate_routes * self.v_proj(hidden_states))
         else:
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
@@ -484,8 +495,10 @@ class LlamaSwiftKVDecoderLayer(LlamaDecoderLayer):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        swiftkv_key_states: Optional[torch.Tensor] = None,
-        swiftkv_value_states: Optional[torch.Tensor] = None,
+        swiftkv_hidden_states: Optional[torch.Tensor] = None,
+        #swiftkv_key_states: Optional[torch.Tensor] = None,
+        #swiftkv_value_states: Optional[torch.Tensor] = None,
+        gate_routes: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Cache] = None,
@@ -528,8 +541,8 @@ class LlamaSwiftKVDecoderLayer(LlamaDecoderLayer):
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
             hidden_states=hidden_states,
-            swiftkv_key_states=swiftkv_key_states,
-            swiftkv_value_states=swiftkv_value_states,
+            swiftkv_hidden_states=swiftkv_hidden_states,
+            gate_routes=gate_routes,
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
@@ -558,6 +571,27 @@ class LlamaSwiftKVDecoderLayer(LlamaDecoderLayer):
         return outputs
 
 
+class SwiftKVGate(nn.Module):
+
+    def __init__(self, hidden_size: int, rms_norm_eps: float):
+        super().__init__()
+        self.norm = LlamaRMSNorm(hidden_size, eps=rms_norm_eps)
+        #self.proj = nn.Linear(hidden_size, 1, False)
+        self.proj = nn.Linear(hidden_size, 2, False)
+        self.temperature = 1.0
+
+    def set_temperature(self, temperature: float):
+        self.temperature = temperature
+
+    def forward(self, hidden_states: torch.FloatTensor):
+        norm_hidden_states = self.norm(hidden_states)
+        logits = self.proj(norm_hidden_states)
+        #mask = (torch.sigmoid(logits / self.temperature) if self.temperature > 0
+        #        else (logits.detach() > 0).to(logits.dtype))
+        mask = F.gumbel_softmax(logits, hard=True, tau=self.temperature)[:, :, 1].unsqueeze(2)
+        return mask, norm_hidden_states
+
+
 class LlamaSwiftKVModel(LlamaModel):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers.
@@ -584,12 +618,27 @@ class LlamaSwiftKVModel(LlamaModel):
             ]
         )
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.norm_swiftkv = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        #self.norm_swiftkv = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
+        self.gate_indices = [4, 8, 16]
+        self.gates = nn.ModuleList([
+            SwiftKVGate(config.hidden_size, config.rms_norm_eps)
+            for layer_idx in range(config.num_hidden_layers)
+        ])
+        #self.gate_proj = nn.Linear(config.hidden_size, 2, False)
+        #self.gate_proj = nn.ModuleList([
+        #    nn.Linear(config.hidden_size, 1, False),
+        #    nn.Linear(config.hidden_size, 1, False),
+        #    nn.Linear(config.hidden_size, 1, False),
+        #])
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def set_gate_temperature(self, temperature: float):
+        for gate in self.gates:
+            gate.set_temperature(temperature)
 
     def forward(
         self,
@@ -677,8 +726,8 @@ class LlamaSwiftKVModel(LlamaModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
-        swiftkv_key_states = {}
-        swiftkv_value_states = {}
+        swiftkv_hidden_states = gate_routes = None
+        cost = torch.tensor(0.0, device=hidden_states.device, dtype=hidden_states.dtype)
         num_key_value_layers = (
             self.config.num_key_value_layers or self.config.num_hidden_layers
         )
@@ -686,23 +735,23 @@ class LlamaSwiftKVModel(LlamaModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            if self.config.swiftkv and layer_idx == num_key_value_layers:
-                swiftkv_hidden_states = self.norm_swiftkv(hidden_states)
+            if self.config.swiftkv and layer_idx == self.gate_indices[0]:
+                swiftkv_hidden_states = hidden_states
+                gate_routes = 1.0
+
+            if self.config.swiftkv and layer_idx in self.gate_indices:
+                mask, norm_hidden_states = self.gates[layer_idx](hidden_states)
+                gate_routes = gate_routes * mask
+                swiftkv_hidden_states = ((1 - gate_routes) * swiftkv_hidden_states +
+                                         gate_routes * norm_hidden_states)
                 if self.gradient_checkpointing and self.training:
                     swiftkv_hidden_states.requires_grad_(True)
-                for i, layer in enumerate(self.layers[num_key_value_layers:]):
-                    swiftkv_key_states[layer_idx + i] = (
-                        layer.self_attn.k_proj_swiftkv(swiftkv_hidden_states)
-                        if i % self.config.key_value_group_size == 0
-                        else swiftkv_key_states[layer_idx + i - 1]
-                    )
-                    swiftkv_value_states[layer_idx + i] = (
-                        layer.self_attn.v_proj_swiftkv(swiftkv_hidden_states)
-                        if i % self.config.key_value_group_size == 0
-                        else swiftkv_value_states[layer_idx + i - 1]
-                    )
+                print(layer_idx, (gate_routes < 0.5).sum(), (gate_routes > 0.5).sum())
 
-            if (
+            if self.config.swiftkv:
+                cost = cost + (gate_routes.mean() if gate_routes is not None else 1.0)
+
+            if (False and
                 self.gradient_checkpointing
                 and self.training
                 and layer_idx >= num_key_value_layers
@@ -711,8 +760,8 @@ class LlamaSwiftKVModel(LlamaModel):
                 layer_outputs = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,
-                    swiftkv_key_states.get(layer_idx, None),
-                    swiftkv_value_states.get(layer_idx, None),
+                    swiftkv_hidden_states,
+                    gate_routes,
                     causal_mask,
                     position_ids,
                     past_key_values,
@@ -724,8 +773,8 @@ class LlamaSwiftKVModel(LlamaModel):
             else:
                 layer_outputs = decoder_layer(
                     hidden_states,
-                    swiftkv_key_states.get(layer_idx, None),
-                    swiftkv_value_states.get(layer_idx, None),
+                    swiftkv_hidden_states,
+                    gate_routes,
                     attention_mask=causal_mask,
                     position_ids=position_ids,
                     past_key_value=past_key_values,
@@ -742,6 +791,9 @@ class LlamaSwiftKVModel(LlamaModel):
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
+
+        if self.config.swiftkv:
+            self.aux_loss = F.relu(cost / self.config.num_hidden_layers - 0.333)
 
         hidden_states = self.norm(hidden_states)
 

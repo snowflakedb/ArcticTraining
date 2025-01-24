@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from typing import Any
 
 import llama_swiftkv
@@ -55,8 +56,12 @@ class SwiftKVModelFactory(HFModelFactory):
         for param in model.parameters():
             param.requires_grad = False
 
+        for gate in model.model.gates:
+            gate.proj.weight.requires_grad = True
+            gate.norm.weight.requires_grad = True
+
         # Initialize student layers
-        model.model.norm_swiftkv.weight.requires_grad = True
+        #model.model.norm_swiftkv.weight.requires_grad = True
         for layer in model.model.layers[model.config.num_key_value_layers :]:
             # Initialize q_proj_swiftkv
             with GatheredParameters(layer.parameters(), modifier_rank=0):
@@ -83,6 +88,14 @@ class SwiftKVModelFactory(HFModelFactory):
                         sum(weights[1:]) / model.config.key_value_group_size
                     )
                 getattr(this_attn, f"{param}_swiftkv").weight.requires_grad = True
+                weights = [getattr(this_attn, f"{param}_swiftkv_2").weight] + [
+                    getattr(attn, f"{param}").weight for attn in next_attn
+                ]
+                with GatheredParameters(weights, modifier_rank=0):
+                    weights[0].data.copy_(
+                        sum(weights[1:]) / model.config.key_value_group_size
+                    )
+                getattr(this_attn, f"{param}_swiftkv_2").weight.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
 
@@ -98,9 +111,17 @@ class SwiftKVTrainer(SFTTrainer):
     config_type = SwiftKVTrainerConfig
     model_factory_type = SwiftKVModelFactory
     checkpoint_engine_type = HFCheckpointEngine
+    count = 0
 
     def loss(self, batch: Any) -> torch.Tensor:
         batch = to_device(batch, self.device)
+        self.count += 1
+        temp = 0.1
+        #temp = 0.0
+        if self.count < 8000:
+            temp += (10 - temp) * 0.5 * (1 + math.cos(self.count / 8000 * math.pi))
+        self.model.model.set_gate_temperature(temp)
+        print("step", self.count, "temp", temp)
 
         with torch.no_grad():
             self.model.swiftkv(False)
@@ -136,16 +157,17 @@ class SwiftKVTrainer(SFTTrainer):
                 decoder_loss_count += 1
             decoder_loss *= self.config.decoder_loss_mult / decoder_loss_count
 
-        logger.info(
-            f"student loss: {student_outputs.loss.item()}, teacher loss:"
-            f" {teacher_outputs.loss.item()}, distill loss: {distill_loss.item()}"
-        )
+        # logger.info(
+        #     f"student loss: {student_outputs.loss.item()}, teacher loss:"
+        #     f" {teacher_outputs.loss.item()}, distill loss: {distill_loss.item()}"
+        # )
 
         loss = distill_loss + decoder_loss
 
         torch.cuda.synchronize()
+        print("aux_loss", self.model.model.aux_loss)
 
-        return loss
+        return loss + 1.0 * self.model.model.aux_loss
 
     def distillation_loss(
         self, student_output, teacher_output, temperature=1.0, dim=-1
