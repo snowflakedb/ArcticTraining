@@ -1,4 +1,10 @@
 repos:
+  - repo: local
+    hooks:
+      - id: check-license
+        name: check-license
+        entry: python ./scripts/check_license.py
+        language: python
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
