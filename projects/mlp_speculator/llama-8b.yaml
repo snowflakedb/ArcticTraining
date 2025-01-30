@@ -7,10 +7,10 @@ gen_train_global_batch_size: 2048
 gen_train_micro_batch_size: 32
 train_iters: 3000
 model:
-  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+  name_or_path: meta-llama/Llama-3.1-8B-Instruct
   disable_activation_checkpoint: true
 tokenizer:
-  name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+  name_or_path: meta-llama/Llama-3.1-8B-Instruct
 deepspeed:
   zero_optimization:
     stage: 3
