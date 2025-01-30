@@ -52,7 +52,7 @@ class DataFactory(ABC, CallbackMixin):
     specify the DataFactory to use.
     """
 
-    config_type: Type[DataConfig]
+    config_type: Type[DataConfig] = DataConfig
     """
     The type of the DataConfig object that this DataFactory uses. Any
     DataFactory-specific options should be specified in this class.
