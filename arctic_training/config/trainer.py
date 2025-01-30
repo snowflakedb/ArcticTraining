@@ -281,11 +281,14 @@ class TrainerConfig(BaseConfig):
         return self
 
 
-def get_config(config_file: Path) -> BaseConfig:
-    with open(config_file, "r") as f:
-        config_dict = yaml.safe_load(f)
-
-    config_dir = config_file.parent
+def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
+    if isinstance(config_file_or_dict, dict):
+        config_dict = config_file_or_dict
+        config_dir = Path.cwd()
+    else:
+        with open(config_file_or_dict, "r") as f:
+            config_dict = yaml.safe_load(f)
+        config_dir = config_file_or_dict.parent
 
     trainer_type = config_dict.get("type", TRAINER_DEFAULT)
     config_dict["type"] = trainer_type

@@ -46,6 +46,8 @@ def main():
 
 
 def run_script():
+    import deepspeed.comm as dist
+
     from arctic_training.config.trainer import get_config
 
     parser = argparse.ArgumentParser()
@@ -69,3 +71,6 @@ def run_script():
     config = get_config(args.config)
     trainer = config.trainer
     trainer.train()
+    if dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
