@@ -19,6 +19,7 @@ class MLPSpeculatorTrainConfig(Config):
     gen_train_micro_batch: int = 32
     gen_prompt_length: int = 64
     gen_seq_length: int = 256
+    weighted_sum: bool = False
 
 
 # Configs used for savings model checkpoint for inference
@@ -54,7 +55,7 @@ class MLPSpeculatorConfig:
         tie_weights=False,
         scale_input=False,
     ):
-        self.architectures = "MLPSpeculatorPreTrainedModel"
+        self.architectures = ["MLPSpeculatorPreTrainedModel"]
         self.base_model_name_or_path = base_model_name_or_path
 
         self.emb_dim = emb_dim

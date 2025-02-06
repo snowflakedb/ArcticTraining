@@ -1,11 +1,14 @@
 LOCAL_HOSTFILE='/data-fast/hostfile'
-HOSTFILE_TEMP='/code/users/samyam/hostfile_temp'
-cp ${LOCAL_HOSTFILE} ${HOSTFILE_TEMP}
-HOSTFILE=${HOSTFILE_TEMP}
+
+if [ -e ${HOSTFILE} ]; then
+    HOSTFILE_TEMP='/code/users/samyam/hostfile_temp'
+    cp ${LOCAL_HOSTFILE} ${HOSTFILE_TEMP}
+    HOSTFILE=${HOSTFILE_TEMP}
+fi
 
 MODEL='neuralmagic/Meta-Llama-3.1-70B-Instruct-FP8'
 DATASET='magicoder'
-OUTPUT_PATH="/checkpoint/users/samyam/datasets/synth/${MODEL}/${DATASET}"
+OUTPUT_PATH="/checkpoint/users/samyam/datasets/synth/Feb-2/${MODEL}/${DATASET}/1K-gen"
 TENSOR_PARALLEL=2
 BATCH_SIZE=2000
 
@@ -16,6 +19,7 @@ COMMAND="python /code/users/samyam/ArcticTraining/projects/mlp_speculator/mlp_sp
         --batch_size ${BATCH_SIZE}
         --hf_dataset ${DATASET}
         --output_dataset_path ${OUTPUT_PATH}
+        --max_tokens 1024
         --skip_launch
         "
 SET_ENV="source /code/users/samyam/snowflakedb-vllm/vllm/venv/bin/activate"
@@ -25,7 +29,7 @@ COMMAND_DIST="${COMMAND} --hostfile ${HOSTFILE}"
 if [ -e ${HOSTFILE} ]; then
 	ds_ssh	-f ${HOSTFILE} 'mkdir -p /data-fast/hf-hub'
 	ds_ssh	-f ${HOSTFILE} 'mkdir -p /data-fast/temp'
-    echo "Testing: ${COMMAND_DIST}"
+    echo "Running: ${COMMAND_DIST}"
 	ds_ssh -f ${HOSTFILE} "${SET_ENV}; HF_HOME=/data-fast/hf-hub ${COMMAND_DIST}"
 else
 	mkdir -p /data-fast/hf-hub

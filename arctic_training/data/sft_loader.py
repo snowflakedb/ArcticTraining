@@ -6,7 +6,7 @@ from typing import List
 from typing import Tuple
 
 from datasets import Dataset
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
@@ -123,6 +123,34 @@ class SFTDataSetLoader(DataSetLoader):
                     pre_output = IGNORE_INDEX
                     output.append(IGNORE_INDEX)
         return output
+
+@register_dataset
+class PromptResponsePairs(SFTDataSetLoader):
+    dataset_name = "PromptResponsePairs"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_from_disk(self.location)
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="prompt",
+                response_key="response",
+                source_name="SyntheticPromptResponsePairs",
+            )
+        )
+        return formatted_dataset.select_columns(["messages"])
+    
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
 
 
 @register_dataset

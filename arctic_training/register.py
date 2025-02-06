@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Type
-from typing import Union
+from typing import Union, Tuple
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint import CheckpointEngine
@@ -31,8 +31,10 @@ def get_dataset_type_registry(dataset_type: str) -> Dict[str, Type["DataSetLoade
     return _supported_dataset_registry[dataset_type]
 
 
-def get_dataset_class(dataset_type: str, dataset_name: str) -> Type["DataSetLoader"]:
+def get_dataset_class(dataset_type: str, dataset_name: Union[str,Tuple[str,str]]) -> Type["DataSetLoader"]:
     global _supported_dataset_registry
+    if isinstance(dataset_name, tuple):
+        dataset_name=dataset_name[0]        
     if dataset_name not in _supported_dataset_registry[dataset_type]:
         raise ValueError(
             f"Dataset {dataset_name} with type {dataset_type} is not supported."

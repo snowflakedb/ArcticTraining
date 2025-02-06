@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Union
 from typing import Optional
 from typing import Tuple
 
@@ -14,7 +14,7 @@ from .base import BaseConfig
 
 
 class DataConfig(BaseConfig):
-    datasets: List[str]
+    datasets: List[Union[str,Tuple[str,str]]]
     eval_datasets: List[str] = []
     train_eval_split: Tuple[float, float] = (1.0, 0.0)
     tokenizer_name_or_path: Optional[str] = Field(None, alias="tokenizer")

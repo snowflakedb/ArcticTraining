@@ -27,7 +27,7 @@ import argparse
 # TENSOR_PARALLEL = 2
 # OUTPUT_DATASET_PATH = f"/checkpoint/users/samyam/datasets/synth/{MODEL}/ultrachat"  # Replace with the desired output path for the Hugging Face dataset
 # MODEL = 'neuralmagic/Meta-Llama-3.1-70B-Instruct-FP8'
-# VLLM_SERVER_URL = "http://127.0.0.1:8000/v1/completions"  # Replace with the VLLM server URL
+# VLLM_SERVER_URL = "http://127.0.0.1:8000/v1/chat/completions"  # Replace with the VLLM server URL
 # BATCH_SIZE = 20  # Number of prompts to process in each batch
 # HOSTFILE = 'hostfile.txt'
 
@@ -46,6 +46,8 @@ def parse_arguments():
                         help="Output path for the Hugging Face dataset")
     parser.add_argument("--batch_size", type=int, default=20, 
                         help="Number of prompts to process in each batch per node")
+    parser.add_argument("--max_tokens", type=int, default=512, 
+                        help="Max tokens to generate")
     parser.add_argument("--hostfile", type=str, default=None, 
                         help="Path to the hostfile")
     parser.add_argument("--skip_launch", 
@@ -128,7 +130,7 @@ def launch_vllm_servers(model_name, tensor_parallelism, gpu_ids=[0, 1, 2, 3, 4, 
     
     #Just return the urls, the assumption is that launch as happened already
     if skip_launch:
-        urls = [f"http://localhost:{base_port + i}/v1/completions" for i in range(num_services)]
+        urls = [f"http://localhost:{base_port + i}/v1/chat/completions" for i in range(num_services)]
         return processes, urls
         
     # Loading the model in CPU. This will download the model if it has not been already.
@@ -159,7 +161,7 @@ def launch_vllm_servers(model_name, tensor_parallelism, gpu_ids=[0, 1, 2, 3, 4, 
         # Start the VLLM service
         process = subprocess.Popen(command)
         processes.append(process.pid)
-        urls.append(f"http://localhost:{base_port + i}/v1/completions")
+        urls.append(f"http://localhost:{base_port + i}/v1/chat/completions")
         
     check_health(base_port, num_services)
     print(f"Created Processs: {processes}")
@@ -204,9 +206,12 @@ def remove_prefix(text: str, prefix: str) -> str:
 async def generate_response(args, session, prompt, vllm_url):
     payload = {
         "model": args.model,
-        "prompt": prompt,
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ],
         "temperature": 0.0,
-        "max_tokens": 512,
+        "max_tokens": args.max_tokens,
     }
     
     async with session.post(vllm_url, json=payload) as response:
@@ -221,8 +226,8 @@ async def generate_response(args, session, prompt, vllm_url):
                                         "data: ")
                 if not chunk == "[DONE]":
                     data = json.loads(chunk)
-                    if data["choices"][0]["text"]:                       
-                        generated_text += data["choices"][0]["text"]
+                    if data["choices"][0]["message"]["content"]:                       
+                        generated_text += data["choices"][0]["message"]["content"]
                         
             result = generated_text                    
             return result
@@ -338,6 +343,13 @@ def create_prompt(args, dataset):
     else:
         assert False, "In correct dataset argument."
     return prompts
+
+def create_chats(prompts):
+    chats = [[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ] for prompt in prompts]
+    return chats
         
         
 def generate(args, process_ids, vllm_urls):
@@ -357,19 +369,16 @@ def generate(args, process_ids, vllm_urls):
     start = node_id * split_size
     end = start + split_size
     
-    all_responses = []
-
     for i in tqdm(range(start, end, args.batch_size), desc="Batch"):
-        output_path = f"{args.output_dataset_path}/{node_id}/{i}_{split_size}"
+        output_path = f"{args.output_dataset_path}/{node_id}/{i}_{total_prompts}"
         if not os.path.exists(output_path):
             batch_prompts = prompts[i:min(i + args.batch_size, total_prompts)]
             print(f"Processing Samples {i} ... batch {i // args.batch_size + 1} ({len(batch_prompts)} prompts)...", flush=True)
             batch_responses = process_prompts(args, batch_prompts, vllm_urls)
-            all_responses.extend(batch_responses)
             
             # Save responses as a Hugging Face dataset storing each batch
             # Saving in batches allows for checkpointing
-            save_as_huggingface_dataset(prompts, all_responses, output_path)
+            save_as_huggingface_dataset(batch_prompts, batch_responses, output_path)
         
             
     if len(process_ids) > 0:
@@ -399,11 +408,6 @@ def main():
     
     #parse arguments from command line
     args = parse_arguments()
-    
-    # Use combine_datasets to combine all the datasets into a single one
-    if args.combine_datasets:
-        combine_datasets(args)
-        exit(0)
     
     #launch vllm servers or get the urls from a previous launch
     process_ids, vllm_urls = launch_vllm_servers(args.model, args.tensor_parallel, skip_launch=args.skip_launch)

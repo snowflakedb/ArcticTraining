@@ -4,7 +4,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import List
+from typing import List, Union, Tuple
 
 import torch
 from datasets import Dataset
@@ -51,12 +51,19 @@ class DataSetLoader(DataLoaderBase):
 
     def __init__(
         self,
-        dataset: str,
+        dataset: Union[str,Tuple[str,str]],
         tokenizer: PreTrainedTokenizerBase,
         eval: bool,
         config: "DataConfig",
     ) -> None:
-        self.dataset = dataset
+        
+        if isinstance(dataset,tuple):
+            self.dataset= dataset[0]
+            self.location = dataset[1]
+        else:
+            self.dataset = dataset
+            self.location = None
+            
         self.tokenizer = tokenizer
         self.eval = eval
         self.config = config

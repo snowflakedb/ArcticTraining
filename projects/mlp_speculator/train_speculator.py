@@ -24,6 +24,17 @@ os.makedirs(tempfile.tempdir, exist_ok=True)
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
 def MLPSpeculatorParser():
+    def parse_tuple_or_string(arg):
+        try:
+            # Convert a string like "(1,2)" to a tuple
+            arg = arg.strip("()")
+            return tuple(map(str.strip, arg.split(",")))
+        except Exception as e:
+            try:
+                return str(arg)
+            except Exception as ee:
+                raise argparse.ArgumentTypeError(f"Invalid format: {arg}")    
+            
     parser = argparse.ArgumentParser(description="MLP Speculator Configurations")
     group = parser.add_argument_group(description="MLP Speculator Configs")
     
@@ -34,7 +45,7 @@ def MLPSpeculatorParser():
     group.add_argument("--checkpoint_path", type=str, default=None)
     
     group.add_argument("--datasets", 
-                       type=str, 
+                       type=parse_tuple_or_string, 
                        nargs="+", 
                        default=["HuggingFaceH4/ultrachat_200k","ise-uiuc/Magicoder-OSS-Instruct-75K"])
     
@@ -54,11 +65,13 @@ def MLPSpeculatorParser():
     group.add_argument("--speculator_tie_weights", action="store_true", default=False)
     group.add_argument("--speculator_scale_input", action="store_true", default=False)
     group.add_argument("--speculator_path", type=str, default=None)
+    group.add_argument("--weighted_sum", action="store_true", default=False)
 
     ################### Arguments for generative training ###################
 
     # if true, the training will generate data for training the speculator
     group.add_argument("--gen_train", action="store_true", default=False)
+    group.add_argument("--mask_inputs", action="store_true", default=False)
     group.add_argument("--gen_train_global_batch", type=int, default=2048)
     group.add_argument("--gen_train_micro_batch", type=int, default=32)
     group.add_argument("--gen_micro_batch", type=int, default=384)
@@ -76,16 +89,13 @@ if __name__ == "__main__":
     data_config = DataConfig(
         tokenizer=model_path,
         datasets=args.datasets,
-        #datasets=[
-        #    "HuggingFaceH4/ultrachat_200k",
-        #    "ise-uiuc/Magicoder-OSS-Instruct-75K",
-        #],
         use_data_cache=True,
         always_max_length=True,
         cache_processed_data=True,
         data_cache_dir="/data-fast/st-data-new",
         num_proc=16,
         max_length=4096,
+        mask_inputs=args.mask_inputs
     )
 
     model_config = ModelConfig(
@@ -108,6 +118,7 @@ if __name__ == "__main__":
         n_speculator_heads=args.n_speculator_heads,
         speculator_tie_weights=args.speculator_tie_weights,
         speculator_scale_input=args.speculator_scale_input,
+        weighted_sum=args.weighted_sum,
         gen_train=args.gen_train,
         gen_micro_batch=args.gen_micro_batch,
         gen_seq_length=256,
@@ -130,7 +141,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=gradient_accumulation_steps,
         betas=(0.9, 0.999),
         seed=42,
-        epochs=5,
+        epochs=10,
         micro_batch_size=args.micro_batch_size,
         train_iters=args.train_iters,
         data=data_config,

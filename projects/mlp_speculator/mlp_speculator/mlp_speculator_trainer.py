@@ -232,11 +232,16 @@ class MLPSpeculatorTrainer(SFTTrainer):
         loss_fn = CrossEntropyLoss()
 
         labels = inputs["labels"]
+        weighted_sum = self.config.weighted_sum
+        
         for i in range(preds.size(0)):
             targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
             loss = loss_fn(preds[i].reshape(-1, preds.size(3)), targ.long().reshape(-1))
-            losses.append(loss)
-
+            if weighted_sum:
+                weight = 1.0/float(1.0+i)
+                losses.append(weight * loss)
+            else:
+                losses.append(loss)
         loss = sum(losses)
         return loss
 
