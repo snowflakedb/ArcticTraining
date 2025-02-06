@@ -178,9 +178,7 @@ class TrainerConfig(BaseConfig):
     )
     @classmethod
     def parse_sub_config(
-        cls,
-        v: Any,
-        info: ValidationInfo,
+        cls, v: Any, info: ValidationInfo
     ) -> Union[BaseConfig, List[BaseConfig]]:
         trainer_attr_map = {
             "checkpoint": "checkpoint_engine_type",
@@ -192,7 +190,14 @@ class TrainerConfig(BaseConfig):
         }
         field_name: str = info.field_name  # type: ignore
         trainer_type: str = info.data["type"]
-        trainer_cls = get_registered_trainer(trainer_type)
+        try:
+            trainer_cls = get_registered_trainer(trainer_type)
+        except KeyError as e:
+            raise KeyError(
+                f"Unable to validate {info.field_name=} because trainer type "
+                f"'{trainer_type}' is not registered. Please register the "
+                "trainer and try again."
+            ) from e
         trainer_field_default = getattr(trainer_cls, trainer_attr_map[field_name])[0]
 
         if isinstance(v, tuple) or isinstance(v, list):
