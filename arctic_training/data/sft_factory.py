@@ -264,6 +264,7 @@ class SFTDataFactory(DataFactory):
             raise ValueError(
                 "Dataset must have 'messages' column to tokenize for SFTDataFactory."
             )
+        dataset = dataset.select_columns(["messages"])
         # sft based tokenization,
         # we assume the messages are in the format of:
         # {'role': '...', 'content': '...'}

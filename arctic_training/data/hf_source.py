@@ -13,14 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from functools import partial
 from typing import Any
 from typing import Dict
 
-from datasets import Dataset
 from datasets import load_dataset
 
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
+from arctic_training.data.utils import DatasetType
 from arctic_training.registry import register
 
 
@@ -51,7 +52,7 @@ class HFDataSource(DataSource):
     config_type = HFDataSourceConfig
     callbacks = [("pre-init", set_dataset_name)]
 
-    def load(self, config: HFDataSourceConfig, split: str) -> Dataset:
+    def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
         return load_dataset(config.dataset_name, split=split, **config.kwargs)
 
 
@@ -63,5 +64,106 @@ class UltraChat200K(HFDataSource):
         split_map = {"train": "train_sft", "test": "test_sft"}
         return split_map.get(split, split)
 
-    def post_load_callback(self, dataset: Dataset) -> Dataset:
-        return dataset.select_columns(["messages"])
+
+@register
+class SlimOrca(HFDataSource):
+    name = "Open-Orca/SlimOrca"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        def process_example(example):
+            return {
+                "messages": [
+                    {
+                        "content": message["value"],
+                        "role": {
+                            "system": "system",
+                            "human": "user",
+                            "gpt": "assistant",
+                        }[message["from"]],
+                    }
+                    for message in example["conversations"]
+                ]
+            }
+
+        return dataset.map(
+            process_example, num_proc=self.config.num_proc, desc="Loading slim orca"
+        )
+
+
+@register
+class MetaMathQA(HFDataSource):
+    name = "meta-math/MetaMathQA"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="query",
+                response_key="response",
+                source_name="MetaMathQA",
+            ),
+            desc="Loading meta-math",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
+
+
+@register
+class MagicoderOSSInstruct75k(DataSource):
+    name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="problem",
+                response_key="solution",
+                source_name="Magicoder",
+            ),
+            desc="Loading magicoder",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
+
+
+@register
+class LMSysChat1M(DataSource):
+    name = "lmsys/lmsys-chat-1m"
+    data_factory_type = "sft"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(self.vicuna_format_conversation, source_name="LMSYS-CHAT-1M"),
+            desc="Loading lmsys",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def vicuna_format_conversation(example, source_name):
+        messages = []
+        for conv in example["conversation"]:
+            messages.append({"role": conv["role"], "content": conv["content"]})
+        return {
+            "source": source_name,
+            "messages": messages,
+        }

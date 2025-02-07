@@ -19,10 +19,7 @@ from pathlib import Path
 from typing import Dict
 from typing import Generic
 from typing import Optional
-from typing import Union
 
-from datasets import Dataset
-from datasets import IterableDataset
 from datasets import disable_caching
 from datasets import load_from_disk
 
@@ -30,6 +27,7 @@ from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import TDataSourceConfig
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.utils import DatasetType
 
 
 class DataSource(ABC, CallbackMixin, Generic[TDataSourceConfig]):
@@ -48,7 +46,7 @@ class DataSource(ABC, CallbackMixin, Generic[TDataSourceConfig]):
         self._data_factory = data_factory
         self.config = config
 
-    def __call__(self, split: str, cache_path: Optional[Path] = None) -> Dataset:
+    def __call__(self, split: str, cache_path: Optional[Path] = None) -> DatasetType:
         disable_caching()
         if cache_path is not None and cache_path.exists():
             return load_from_disk(cache_path.as_posix())
@@ -82,8 +80,6 @@ class DataSource(ABC, CallbackMixin, Generic[TDataSourceConfig]):
 
     @callback_wrapper("load")
     @abstractmethod
-    def load(
-        self, config: TDataSourceConfig, split: str
-    ) -> Union[Dataset, IterableDataset]:
+    def load(self, config: TDataSourceConfig, split: str) -> DatasetType:
         """Method to load the data. It should return a tokenized HuggingFace Dataset or IterableDataset."""
         raise NotImplementedError("load must be implemented in subclass")
