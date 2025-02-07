@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Type
+from typing import Callable
+from typing import Optional
 from typing import Union
 
 from .checkpoint import register_checkpoint_engine
@@ -27,7 +28,7 @@ from .trainer import register_trainer
 from .utils import RegistryClassTypes
 
 
-def register(cls: RegistryClassTypes, force: bool = False) -> RegistryClassTypes:
+def _register_class(cls: RegistryClassTypes, force: bool) -> RegistryClassTypes:
     from arctic_training.checkpoint.engine import CheckpointEngine
     from arctic_training.data.factory import DataFactory
     from arctic_training.data.source import DataSource
@@ -55,3 +56,17 @@ def register(cls: RegistryClassTypes, force: bool = False) -> RegistryClassTypes
         return register_trainer(cls, force)
     else:
         raise ValueError(f"Unsupported class type for registration: {cls.__name__}")
+
+
+def register(
+    cls: Optional[RegistryClassTypes] = None, force: bool = False
+) -> Union[Callable, RegistryClassTypes]:
+    # If called without parentheses, cls will be the class itself
+    if cls and isinstance(cls, type):
+        return _register_class(cls, force)
+
+    # Otherwise, return a decorator that takes cls later
+    def decorator(cls):
+        return _register_class(cls, force)
+
+    return decorator

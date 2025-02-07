@@ -59,9 +59,14 @@ class ModelConfig(BaseConfig):
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(self.type)
 
+    @field_validator("dtype", mode="before")
+    def validate_dtype(cls, value: Union[str, DType]) -> DType:
+        # Pydantic doesnt like the custom enum class, so we have to do this for
+        return DType(value)
+
     @field_serializer("dtype")
     def serialize_dtype(self, value: DType) -> str:
-        return value.value
+        return str(value)
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:

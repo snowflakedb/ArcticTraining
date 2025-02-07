@@ -223,23 +223,21 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
         field_cls = get_class_fn_map[field_name](field_type)
         return field_cls
 
-    @field_validator("tokenizer", mode="after")
-    def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
-        if not v.name_or_path and "model" in info.data:
-            v.name_or_path = info.data["model"].name_or_path
-        return v
+    @model_validator(mode="after")
+    def set_tokenizer(self) -> Self:
+        if not self.tokenizer.name_or_path:
+            self.tokenizer.name_or_path = self.model.name_or_path
+        return self
 
-    @field_validator("eval_frequency", mode="after")
-    def validate_eval_frequency(cls, v: int, info: ValidationInfo) -> int:
-        from arctic_training.logging import logger
-
-        logger.info(info.data.keys())
+    @model_validator(mode="after")
+    def validate_eval_frequency(self) -> Self:
         if (
-            info.data["data"].eval_sources
-            or info.data["data"].train_eval_split[1] > 0.0
+            self.data.eval_sources
+            or self.data.train_eval_split[1] > 0.0
+            and self.eval_frequency < 1
         ):
-            assert v > 0, "eval_frequency must be set if eval dataset is provided."
-        return v
+            raise ValueError("eval_frequency must be set if eval dataset is provided.")
+        return self
 
     @model_validator(mode="after")
     def build_deepspeed_config(self) -> Self:
@@ -260,10 +258,10 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
             },
         )
         if "bfloat16" not in ds_config:
-            if self.model.dtype == DType.BF16:
+            if self.model.dtype == DType.BF16.value:
                 ds_config["bfloat16"] = {"enabled": True}
         if "fp16" not in ds_config:
-            if self.model.dtype == DType.FP16:
+            if self.model.dtype == DType.FP16.value:
                 ds_config["fp16"] = {"enabled": True}
         ds_config["gradient_clipping"] = ds_config.get("gradient_clipping", 1.0)
         ds_config["prescale_gradients"] = ds_config.get("prescale_gradients", False)

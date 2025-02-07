@@ -260,7 +260,7 @@ class SFTDataFactory(DataFactory):
         tokenizer: PreTrainedTokenizerBase,
         dataset: Dataset,
     ) -> Dataset:
-        if "messages" not in dataset.columns:
+        if "messages" not in dataset.column_names:
             raise ValueError(
                 "Dataset must have 'messages' column to tokenize for SFTDataFactory."
             )
