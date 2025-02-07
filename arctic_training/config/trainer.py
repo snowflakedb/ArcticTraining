@@ -147,6 +147,20 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
     def zero_3_enabled(self) -> bool:
         return self.deepspeed.get("zero_optimization", {}).get("stage", 0) == 3
 
+    @field_validator("checkpoint", mode="before")
+    def checkpoint_to_list(cls, v: Union[Dict, List[Dict]]) -> List[Dict]:
+        if not isinstance(v, list):
+            return [v]
+        return v
+
+    @field_validator("logger", mode="after")
+    @classmethod
+    def initialize_logger(cls, v: LoggerConfig) -> LoggerConfig:
+        from arctic_training.logging import setup_logger
+
+        setup_logger(v)
+        return v
+
     @field_validator(
         "checkpoint",
         "data",
@@ -209,9 +223,14 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
         field_cls = get_class_fn_map[field_name](field_type)
         return field_cls
 
+    @field_validator("tokenizer", mode="after")
+    def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
+        if not v.name_or_path and "model" in info.data:
+            v.name_or_path = info.data["model"].name_or_path
+        return v
+
     @field_validator("eval_frequency", mode="after")
     def validate_eval_frequency(cls, v: int, info: ValidationInfo) -> int:
-        return v
         from arctic_training.logging import logger
 
         logger.info(info.data.keys())
@@ -220,26 +239,6 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
             or info.data["data"].train_eval_split[1] > 0.0
         ):
             assert v > 0, "eval_frequency must be set if eval dataset is provided."
-        return v
-
-    @field_validator("tokenizer", mode="after")
-    def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
-        if not v.name_or_path and "model" in info.data:
-            v.name_or_path = info.data["model"].name_or_path
-        return v
-
-    @field_validator("logger", mode="after")
-    @classmethod
-    def initialize_logger(cls, v: LoggerConfig) -> LoggerConfig:
-        from arctic_training.logging import setup_logger
-
-        setup_logger(v)
-        return v
-
-    @field_validator("checkpoint", mode="before")
-    def checkpoint_to_list(cls, v: Union[Dict, List[Dict]]) -> List[Dict]:
-        if not isinstance(v, list):
-            return [v]
         return v
 
     @model_validator(mode="after")

@@ -42,6 +42,12 @@ class DataSourceConfig(BaseConfig):
     type: str = ""
     """ Data source type. """
 
+    tokenize: bool = True
+    """ Whether to tokenize the data. """
+
+    shard: bool = True
+    """ Whether to shard the data. """
+
 
 TDataSourceConfig = TypeVar("TDataSourceConfig", bound=DataSourceConfig)
 
