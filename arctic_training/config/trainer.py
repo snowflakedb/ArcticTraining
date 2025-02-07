@@ -20,25 +20,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
+from typing import Generic
 from typing import List
 from typing import Union
 
+import deepspeed
 import yaml
+from deepspeed.accelerator import get_accelerator
 from pydantic import Field
+from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
-from arctic_training.config.enums import DType
-
-if TYPE_CHECKING:
-    from arctic_training.checkpoint.engine import CheckpointEngine
-
-import deepspeed
-from deepspeed.accelerator import get_accelerator
-from pydantic import ValidationInfo
-
 from arctic_training.config import BaseConfig
+from arctic_training.config.data import TDataConfig
+from arctic_training.config.enums import DType
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.model import get_registered_model_factory
@@ -46,11 +43,8 @@ from arctic_training.registry.optimizer import get_registered_optimizer_factory
 from arctic_training.registry.scheduler import get_registered_scheduler_factory
 from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
 from arctic_training.registry.trainer import get_registered_trainer
-from arctic_training.utils import get_local_rank
-from arctic_training.utils import get_world_size
 
 from .checkpoint import CheckpointConfig
-from .data import DataConfig
 from .logger import LoggerConfig
 from .model import ModelConfig
 from .optimizer import OptimizerConfig
@@ -58,11 +52,15 @@ from .scheduler import SchedulerConfig
 from .tokenizer import TokenizerConfig
 from .wandb import WandBConfig
 
+if TYPE_CHECKING:
+    from arctic_training.checkpoint.engine import CheckpointEngine
+
+
 TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
-class TrainerConfig(BaseConfig):
+class TrainerConfig(BaseConfig, Generic[TDataConfig]):
     """Base Trainer Configuration."""
 
     type: str = TRAINER_DEFAULT
@@ -77,7 +75,7 @@ class TrainerConfig(BaseConfig):
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
     """ Tokenizer configuration. """
 
-    data: DataConfig
+    data: TDataConfig
     """ Train and eval data configuration. """
 
     logger: LoggerConfig = Field(default_factory=LoggerConfig)
@@ -118,9 +116,6 @@ class TrainerConfig(BaseConfig):
 
     eval_frequency: int = Field(default=0, ge=0)
 
-    global_rank: int = Field(default_factory=get_local_rank, exclude=True)
-    world_size: int = Field(default_factory=get_world_size, exclude=True)
-
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
 
@@ -151,21 +146,6 @@ class TrainerConfig(BaseConfig):
     @property
     def zero_3_enabled(self) -> bool:
         return self.deepspeed.get("zero_optimization", {}).get("stage", 0) == 3
-
-    @field_validator("eval_frequency", mode="after")
-    def validate_eval_frequency(cls, v: int, info: ValidationInfo) -> int:
-        if (
-            info.data["data"].eval_sources
-            or info.data["data"].train_eval_split[1] > 0.0
-        ):
-            assert v > 0, "eval_frequency must be set if eval dataset is provided."
-        return v
-
-    @field_validator("tokenizer", mode="after")
-    def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
-        if not v.name_or_path and "model" in info.data:
-            v.name_or_path = info.data["model"].name_or_path
-        return v
 
     @field_validator(
         "checkpoint",
@@ -228,6 +208,25 @@ class TrainerConfig(BaseConfig):
             field_type = default_cls
         field_cls = get_class_fn_map[field_name](field_type)
         return field_cls
+
+    @field_validator("eval_frequency", mode="after")
+    def validate_eval_frequency(cls, v: int, info: ValidationInfo) -> int:
+        return v
+        from arctic_training.logging import logger
+
+        logger.info(info.data.keys())
+        if (
+            info.data["data"].eval_sources
+            or info.data["data"].train_eval_split[1] > 0.0
+        ):
+            assert v > 0, "eval_frequency must be set if eval dataset is provided."
+        return v
+
+    @field_validator("tokenizer", mode="after")
+    def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
+        if not v.name_or_path and "model" in info.data:
+            v.name_or_path = info.data["model"].name_or_path
+        return v
 
     @field_validator("logger", mode="after")
     @classmethod
