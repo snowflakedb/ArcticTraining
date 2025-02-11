@@ -18,6 +18,7 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
+from arctic_training.config.model import ModelConfig
 from arctic_training.model.factory import ModelFactory
 from arctic_training.registry import register
 
@@ -25,6 +26,7 @@ from arctic_training.registry import register
 @register
 class HFModelFactory(ModelFactory):
     name = "huggingface"
+    config_type = ModelConfig
 
     def create_config(self):
         return AutoConfig.from_pretrained(self.config.name_or_path)

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from arctic_training.config.model import ModelConfig
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.registry import register
 
@@ -20,6 +21,7 @@ from arctic_training.registry import register
 @register
 class LigerModelFactory(HFModelFactory):
     name = "liger"
+    config_type = ModelConfig
 
     def create_model(self, model_config):
         try:

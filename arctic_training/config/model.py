@@ -19,17 +19,17 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 from typing import Type
+from typing import TypeVar
 from typing import Union
 
 from pydantic import field_validator
 
+from arctic_training.config.base import BaseConfig
+from arctic_training.config.enums import DType
 from arctic_training.registry.model import get_registered_model_factory
 
 if TYPE_CHECKING:
     from arctic_training.model.factory import ModelFactory
-
-from .base import BaseConfig
-from .enums import DType
 
 
 class ModelConfig(BaseConfig):
@@ -70,3 +70,6 @@ class ModelConfig(BaseConfig):
                     " https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2"
                 )
         return value
+
+
+TModelConfig = TypeVar("TModelConfig", bound=ModelConfig)

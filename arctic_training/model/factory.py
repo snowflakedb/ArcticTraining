@@ -17,6 +17,7 @@ from abc import ABC
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Generic
 from typing import Optional
 from typing import Type
 
@@ -24,13 +25,13 @@ from transformers import PreTrainedModel
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.config.model import ModelConfig
+from arctic_training.config.model import TModelConfig
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class ModelFactory(ABC, CallbackMixin):
+class ModelFactory(ABC, CallbackMixin, Generic[TModelConfig]):
     """Base class for model creation."""
 
     name: str
@@ -40,14 +41,14 @@ class ModelFactory(ABC, CallbackMixin):
     model factory to be used.
     """
 
-    config_type: Type[ModelConfig] = ModelConfig
+    config_type: Type[TModelConfig]
     """
     The type of config class that the model factory uses. This should contain
     all model-specific parameters.
     """
 
     def __init__(
-        self, trainer: "Trainer", model_config: Optional["ModelConfig"] = None
+        self, trainer: "Trainer", model_config: Optional[TModelConfig] = None
     ) -> None:
         if model_config is None:
             model_config = trainer.config.model

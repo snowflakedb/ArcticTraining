@@ -37,6 +37,7 @@ from arctic_training.config import BaseConfig
 from arctic_training.config.checkpoint import TCheckpointConfig
 from arctic_training.config.data import TDataConfig
 from arctic_training.config.enums import DType
+from arctic_training.config.model import TModelConfig
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.model import get_registered_model_factory
@@ -48,7 +49,6 @@ from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
 
 from .logger import LoggerConfig
-from .model import ModelConfig
 from .optimizer import OptimizerConfig
 from .scheduler import SchedulerConfig
 from .tokenizer import TokenizerConfig
@@ -61,7 +61,7 @@ TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
-class TrainerConfig(BaseConfig, Generic[TDataConfig, TCheckpointConfig]):
+class TrainerConfig(BaseConfig, Generic[TCheckpointConfig, TDataConfig, TModelConfig]):
     """Base Trainer Configuration."""
 
     type: str = TRAINER_DEFAULT
@@ -70,7 +70,7 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig, TCheckpointConfig]):
     code: Path = CUSTOM_CODE_DEFAULT
     """ Path to the python script containing custom trainer implementation. """
 
-    model: ModelConfig
+    model: TModelConfig
     """ Model configuration. """
 
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
