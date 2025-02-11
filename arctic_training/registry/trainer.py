@@ -54,16 +54,8 @@ def register_trainer(cls: Type["Trainer"], force: bool = False) -> Type["Trainer
     _validate_class_attribute_set(cls, "config_type")
 
     trainer_attributes = [
-        (
-            "data_factory_type",
-            get_registered_data_factory,
-            register_data_factory,
-        ),
-        (
-            "model_factory_type",
-            get_registered_model_factory,
-            register_model_factory,
-        ),
+        ("data_factory_type", get_registered_data_factory, register_data_factory),
+        ("model_factory_type", get_registered_model_factory, register_model_factory),
         (
             "checkpoint_engine_type",
             get_registered_checkpoint_engine,
@@ -130,6 +122,6 @@ def get_registered_trainer(
         trainer_name = name_or_class.name
 
     if trainer_name not in _supported_trainer_registry:
-        raise ValueError(f"{trainer_name} is not a registered Trainer.")
+        raise KeyError(f"{trainer_name} is not a registered Trainer.")
 
     return _supported_trainer_registry[trainer_name]
