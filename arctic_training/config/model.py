@@ -21,7 +21,6 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
-from pydantic import field_serializer
 from pydantic import field_validator
 
 from arctic_training.registry.model import get_registered_model_factory
@@ -46,7 +45,7 @@ class ModelConfig(BaseConfig):
     save_name: Optional[str] = None
     """ Name to use when saving the model. """
 
-    attn_implementation: str = "flash_attention_2"
+    attn_implementation: str = "sdpa"
     """ Attention implementation to use. """
 
     disable_activation_checkpoint: bool = False
@@ -58,15 +57,6 @@ class ModelConfig(BaseConfig):
     @property
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(self.type)
-
-    @field_validator("dtype", mode="before")
-    def validate_dtype(cls, value: Union[str, DType]) -> DType:
-        # Pydantic doesnt like the custom enum class, so we have to do this for
-        return DType(value)
-
-    @field_serializer("dtype")
-    def serialize_dtype(self, value: DType) -> str:
-        return str(value)
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:
