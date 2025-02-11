@@ -14,37 +14,62 @@
 # limitations under the License.
 
 from functools import partial
+from typing import Any
+from typing import Dict
 
-from datasets import Dataset
 from datasets import load_dataset
 
+from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
+from arctic_training.data.utils import DatasetType
 from arctic_training.registry import register
 
 
+class HFDataSourceConfig(DataSourceConfig):
+    dataset_name: str = ""
+    """ Name of the dataset to load. """
+
+    kwargs: Dict[str, Any] = {}
+    """ Keyword arguments to pass to the datasets.load_dataset function. """
+
+
+def set_dataset_name(self, config: HFDataSourceConfig) -> HFDataSourceConfig:
+    """Set the dataset name from the config. This is a helper function for the dataset-specific classes we define below."""
+    if not config.dataset_name:
+        if self.name == "huggingface":
+            raise ValueError(
+                "Must provide a dataset name for HuggingFace data sources."
+            )
+        config.dataset_name = self.name
+    return config
+
+
 @register
-class UltraChat200K(DataSource):
+class HFDataSource(DataSource):
+    """Base DataSource class for loading data with HuggingFace datasets library."""
+
+    name = "huggingface"
+    config_type = HFDataSourceConfig
+    callbacks = [("pre-init", set_dataset_name)]
+
+    def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
+        return load_dataset(config.dataset_name, split=split, **config.kwargs)
+
+
+@register
+class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        return load_dataset(
-            "HuggingFaceH4/ultrachat_200k",
-            split="test_sft" if eval else "train_sft",
-            num_proc=num_proc,
-        ).select_columns(["messages"])
+    def pre_load_callback(self, split: str) -> str:
+        split_map = {"train": "train_sft", "test": "test_sft"}
+        return split_map.get(split, split)
 
 
 @register
-class SlimOrca(DataSource):
+class SlimOrca(HFDataSource):
     name = "Open-Orca/SlimOrca"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset("Open-Orca/SlimOrca", split="train", num_proc=num_proc)
-
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         def process_example(example):
             return {
                 "messages": [
@@ -60,18 +85,16 @@ class SlimOrca(DataSource):
                 ]
             }
 
-        return dataset.map(process_example, num_proc=num_proc, desc="Loading slim orca")
+        return dataset.map(
+            process_example, num_proc=self.config.num_proc, desc="Loading slim orca"
+        )
 
 
 @register
-class MetaMathQA(DataSource):
+class MetaMathQA(HFDataSource):
     name = "meta-math/MetaMathQA"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset("meta-math/MetaMathQA", split="train", num_proc=num_proc)
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(
                 self.instruct_format_conversation,
@@ -81,7 +104,7 @@ class MetaMathQA(DataSource):
             ),
             desc="Loading meta-math",
         )
-        return formatted_dataset.select_columns(["messages"])
+        return formatted_dataset
 
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
@@ -98,17 +121,8 @@ class MetaMathQA(DataSource):
 @register
 class MagicoderOSSInstruct75k(DataSource):
     name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset(
-            "ise-uiuc/Magicoder-OSS-Instruct-75K",
-            split="train",
-            num_proc=num_proc,
-        )
-
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(
                 self.instruct_format_conversation,
@@ -118,7 +132,7 @@ class MagicoderOSSInstruct75k(DataSource):
             ),
             desc="Loading magicoder",
         )
-        return formatted_dataset.select_columns(["messages"])
+        return formatted_dataset
 
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
@@ -137,15 +151,12 @@ class LMSysChat1M(DataSource):
     name = "lmsys/lmsys-chat-1m"
     data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", num_proc=num_proc)
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(self.vicuna_format_conversation, source_name="LMSYS-CHAT-1M"),
             desc="Loading lmsys",
         )
-        return formatted_dataset.select_columns(["messages"])
+        return formatted_dataset
 
     @staticmethod
     def vicuna_format_conversation(example, source_name):

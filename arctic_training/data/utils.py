@@ -13,7 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import hf_source
-from .factory import DataFactory
-from .sft_factory import SFTDataFactory
-from .source import DataSource
+import hashlib
+from typing import Any
+from typing import Union
+
+from datasets import Dataset
+from datasets import IterableDataset
+
+DatasetType = Union[Dataset, IterableDataset]
+
+
+def calculate_hash_from_args(*args: Any) -> str:
+    hash_str = ""
+    for arg in args:
+        try:
+            hash_str += str(arg)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to convert {arg} to string when calculating cache path."
+                f" Error: {e}"
+            )
+    return hashlib.md5(hash_str.encode()).hexdigest()

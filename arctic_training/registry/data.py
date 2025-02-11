@@ -13,10 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections import defaultdict
 from typing import TYPE_CHECKING
 from typing import Dict
-from typing import Optional
 from typing import Type
 from typing import Union
 
@@ -29,9 +27,7 @@ from arctic_training.registry.utils import AlreadyRegisteredError
 from arctic_training.registry.utils import _validate_class_attribute_set
 from arctic_training.registry.utils import _validate_method_definition
 
-_supported_data_source_registry: Dict[str, Dict[str, Type["DataSource"]]] = defaultdict(
-    dict
-)
+_supported_data_source_registry: Dict[str, Type["DataSource"]] = {}
 _supported_data_factory_registry: Dict[str, Type["DataFactory"]] = {}
 
 
@@ -41,22 +37,17 @@ def register_data_source(
     global _supported_data_source_registry
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "data_factory_type")
-    _validate_method_definition(cls, "load_fn", ["self", "num_proc", "eval"])
+    _validate_class_attribute_set(cls, "config_type")
+    _validate_method_definition(cls, "load", ["self", "config", "split"])
 
-    if isinstance(cls.data_factory_type, str):
-        data_factory_type = cls.data_factory_type
-    else:
-        data_factory_type = cls.data_factory_type.name
-
-    if cls.name in _supported_data_source_registry[data_factory_type] and not force:
+    if cls.name in _supported_data_source_registry and not force:
         raise AlreadyRegisteredError(
-            f"DataSource {cls.name} with type {data_factory_type} is already"
-            " registered. If you want to overwrite, set force=True."
+            f"DataSource {cls.name} with type is already registered. If you want to"
+            " overwrite, set force=True."
         )
 
-    _supported_data_source_registry[data_factory_type][cls.name] = cls
-    logger.info(f"Registered DataSource {cls.name} for {data_factory_type}.")
+    _supported_data_source_registry[cls.name] = cls
+    logger.info(f"Registered DataSource {cls.name}.")
 
     return cls
 
@@ -68,7 +59,10 @@ def register_data_factory(
 
     _validate_class_attribute_set(cls, "name")
     _validate_class_attribute_set(cls, "config_type")
-    _validate_method_definition(cls, "load", ["self", "num_proc", "eval"])
+    _validate_method_definition(cls, "load", ["self", "data_sources", "split"])
+    _validate_method_definition(cls, "tokenize", ["self", "tokenizer", "dataset"])
+    _validate_method_definition(cls, "split_data", ["self", "training_data"])
+    _validate_method_definition(cls, "create_dataloader", ["self", "dataset"])
 
     if cls.name in _supported_data_factory_registry:
         if cls == _supported_data_factory_registry[cls.name]:
@@ -86,35 +80,18 @@ def register_data_factory(
 
 def get_registered_data_source(
     name_or_class: Union[str, Type["DataSource"]],
-    data_factory_type: Optional[str],
 ) -> Type["DataSource"]:
     global _supported_data_source_registry
 
     if isinstance(name_or_class, str):
-        if not data_factory_type:
-            raise ValueError(
-                f"Must provide data_factory_type for data source {name_or_class}."
-            )
         data_source_name = name_or_class
     else:
         data_source_name = name_or_class.name
-        if (
-            data_factory_type is not None
-            and data_factory_type != name_or_class.data_factory_type
-        ):
-            raise ValueError(
-                f"Provided data_factory_type ({data_factory_type}) does not match the"
-                f" data source type ({name_or_class.data_factory_type})."
-            )
-        data_factory_type = name_or_class.data_factory_type
 
-    if data_source_name not in _supported_data_source_registry[data_factory_type]:
-        raise ValueError(
-            f"Data source {data_source_name} for data factory type"
-            f" {data_factory_type} is not registered."
-        )
+    if data_source_name not in _supported_data_source_registry:
+        raise ValueError(f"Data source {data_source_name} is not registered.")
 
-    return _supported_data_source_registry[data_factory_type][data_source_name]
+    return _supported_data_source_registry[data_source_name]
 
 
 def get_registered_data_factory(

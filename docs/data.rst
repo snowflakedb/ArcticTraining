@@ -10,7 +10,7 @@ Data Source
 The Data Source is responsible for loading the raw data used in the training
 pipeline. A Data Source can be created by inheriting from the
 :class:`~arctic_training.data.source.DataSource` class and implementing the
-:meth:`~arctic_training.data.source.DataSource.load_fn` method.
+:meth:`~arctic_training.data.source.DataSource.load` method.
 
 .. autoclass:: arctic_training.data.source.DataSource
 
@@ -19,7 +19,7 @@ Attributes
 
 To define a custom data source, you must subclass the DataSource and define the
 following attributes: :attr:`~.DataSource.name` and
-:attr:`~.DataSource.data_factory_type`.
+:attr:`~.DataSource.config_type`.
 
 Methods
 ^^^^^^^
@@ -56,9 +56,9 @@ Methods
 ^^^^^^^
 
 To define a custom data factory, you must implement the
-:meth:`~.DataFactory.tokenizer_fn` and :meth:`~.DataFactory.collate_fn` methods.
-Additionally, you can override the :meth:`~.DataFactory.modify_dataset` method
-to apply any transformations to the dataset before it is returned.
+:meth:`~.DataFactory.tokenize` method.  Additionally, you can override the
+:meth:`~.DataFactory.load`, :meth:`~.DataFactory.split_data`, and
+:meth:`~.DataFactory.create_dataloader` methods to change default behaviors.
 
 SFTDataFactory
 --------------
@@ -71,24 +71,36 @@ can be used with the SFTTrainer or your own custom trainer. It can also be
 extended to fit other use cases.
 
 To create the SFTDataFactory, we subclass the DataFactory and first define the
-:meth:`~.DataFactory.tokenizer_fn` method:
+:meth:`~.DataFactory.tokenize` method:
 
 .. literalinclude:: ../arctic_training/data/sft_factory.py
-   :pyobject: SFTDataFactory.tokenize_fn
+   :pyobject: SFTDataFactory.tokenize
 
-Next we define a Data Collator class for the torch DataLoader:
-
-.. literalinclude:: ../arctic_training/data/sft_factory.py
-   :pyobject: DataCollatorForCausalLM
-
-And we return define the :meth:`~.DataFactory.collate_fn` method where we return this object:
+Next we override the :meth:`~.DataFactory.create_dataloader` method to add a custom Data Collator:
 
 .. literalinclude:: ../arctic_training/data/sft_factory.py
-   :pyobject: SFTDataFactory.collate_fn
+   :pyobject: SFTDataFactory.create_dataloader
 
-Finally, we define a DataSource object that can be used with the SFTDataFactory.
-Several data source examples are included in ArcticTraining. Here we define one
-to load the HuggingFaceH4/ultrachat_200k dataset:
+Finally, we define two post-load callbacks that filter the any data source datasets
+based on a maximum desired length and then pack the data:
 
-.. literalinclude:: ../arctic_training/data/sft_source.py
-   :pyobject: UltraChat200K
+.. literalinclude:: ../arctic_training/data/sft_factory.py
+   :pyobject: filter_dataset_length
+
+.. literalinclude:: ../arctic_training/data/sft_factory.py
+   :pyobject: pack_dataset
+
+These callback functions are added to SFTDataFactory by adding to the `callback`
+attribute and they are run on the concatenated datasets returned from the
+:meth:`~.DataFactory.load` method.
+
+.. code-block:: python
+
+    from arctic_training import logger
+    class SFTDataFactory(DataFactory):
+        name = "sft"
+        config_type = SFTDataConfig
+        callbacks = [
+            ("post-load", filter_dataset_length),
+            ("post-load", pack_dataset)
+        ]
