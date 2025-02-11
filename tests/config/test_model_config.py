@@ -31,6 +31,8 @@ from arctic_training.config.model import ModelConfig
 )
 def test_dtype_field(dtype_list):
     for dtype in dtype_list:
-        config = ModelConfig(type="sft", name_or_path="model-name", dtype=dtype)
+        config = ModelConfig(
+            type="sft", name_or_path="model-name", attn_implementation="", dtype=dtype
+        )
         assert config.dtype == dtype_list[0]
         assert config.model_dump()["dtype"] == str(dtype_list[0])
