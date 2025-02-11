@@ -23,13 +23,12 @@ from typing import Dict
 from typing import List
 from typing import Union
 
+import torch
 import yaml
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
-
-from arctic_training.config.enums import DType
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -262,10 +261,10 @@ class TrainerConfig(BaseConfig):
             },
         )
         if "bfloat16" not in ds_config:
-            if self.model.dtype == DType.BF16:
+            if self.model.dtype == torch.bfloat16:
                 ds_config["bfloat16"] = {"enabled": True}
         if "fp16" not in ds_config:
-            if self.model.dtype == DType.FP16:
+            if self.model.dtype == torch.float16:
                 ds_config["fp16"] = {"enabled": True}
         ds_config["gradient_clipping"] = ds_config.get("gradient_clipping", 1.0)
         ds_config["prescale_gradients"] = ds_config.get("prescale_gradients", False)

@@ -20,8 +20,8 @@ from typing import Dict
 from typing import Optional
 from typing import Type
 from typing import Union
-import torch
 
+import torch
 from pydantic import field_serializer
 from pydantic import field_validator
 
