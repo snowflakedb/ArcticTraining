@@ -22,12 +22,14 @@ import numpy as np
 import torch
 
 from arctic_training.checkpoint.engine import CheckpointEngine
+from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.registry import register
 
 
 @register
 class DSCheckpointEngine(CheckpointEngine):
     name = "deepspeed"
+    config_type = CheckpointConfig
 
     @property
     def latest_checkpoint(self) -> Path:

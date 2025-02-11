@@ -18,19 +18,20 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Generic
 from typing import Type
 
 import torch
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.config.checkpoint import CheckpointConfig
+from arctic_training.config.checkpoint import TCheckpointConfig
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class CheckpointEngine(ABC, CallbackMixin):
+class CheckpointEngine(ABC, CallbackMixin, Generic[TCheckpointConfig]):
     """Base class for all checkpoint engines."""
 
     name: str
@@ -39,13 +40,13 @@ class CheckpointEngine(ABC, CallbackMixin):
     engine in the registry.
     """
 
-    config_type: Type[CheckpointConfig] = CheckpointConfig
+    config_type: Type[TCheckpointConfig]
     """
     The configuration class for the checkpoint engine. This is used to validate
     the configuration passed to the engine.
     """
 
-    def __init__(self, trainer: "Trainer", config: "CheckpointConfig") -> None:
+    def __init__(self, trainer: "Trainer", config: TCheckpointConfig) -> None:
         self._trainer = trainer
         self.config = config
 

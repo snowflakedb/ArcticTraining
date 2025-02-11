@@ -34,6 +34,7 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config import BaseConfig
+from arctic_training.config.checkpoint import TCheckpointConfig
 from arctic_training.config.data import TDataConfig
 from arctic_training.config.enums import DType
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
@@ -46,7 +47,6 @@ from arctic_training.registry.trainer import get_registered_trainer
 from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
 
-from .checkpoint import CheckpointConfig
 from .logger import LoggerConfig
 from .model import ModelConfig
 from .optimizer import OptimizerConfig
@@ -61,7 +61,7 @@ TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
-class TrainerConfig(BaseConfig, Generic[TDataConfig]):
+class TrainerConfig(BaseConfig, Generic[TDataConfig, TCheckpointConfig]):
     """Base Trainer Configuration."""
 
     type: str = TRAINER_DEFAULT
@@ -109,7 +109,7 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
 
-    checkpoint: List[CheckpointConfig] = []
+    checkpoint: List[TCheckpointConfig] = []
     """ Checkpoint configurations. Multiple checkpoint engines may be used together. """
 
     train_iters: int = Field(default=0, ge=0)

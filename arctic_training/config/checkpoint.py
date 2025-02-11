@@ -16,6 +16,7 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Type
+from typing import TypeVar
 
 from pydantic import Field
 
@@ -51,3 +52,6 @@ class CheckpointConfig(BaseConfig):
     @property
     def engine(self) -> Type["CheckpointEngine"]:
         return get_registered_checkpoint_engine(self.type)
+
+
+TCheckpointConfig = TypeVar("TCheckpointConfig", bound=CheckpointConfig)
