@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
+from typing import Generic
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -35,14 +36,14 @@ from torch.utils.data import RandomSampler
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.callback.mixin import CallbackMixin
-from arctic_training.config.data import DataConfig
+from arctic_training.config.data import TDataConfig
 from arctic_training.registry.data import get_registered_data_source
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class DataFactory(ABC, CallbackMixin):
+class DataFactory(ABC, CallbackMixin, Generic[TDataConfig]):
     """Base DataFactory class for loading training and evaluation data."""
 
     name: str
@@ -52,14 +53,14 @@ class DataFactory(ABC, CallbackMixin):
     specify the DataFactory to use.
     """
 
-    config_type: Type[DataConfig] = DataConfig
+    config_type: Type[TDataConfig]
     """
     The type of the DataConfig object that this DataFactory uses. Any
     DataFactory-specific options should be specified in this class.
     """
 
     def __init__(
-        self, trainer: "Trainer", data_config: Optional["DataConfig"] = None
+        self, trainer: "Trainer", data_config: Optional[TDataConfig] = None
     ) -> None:
         if data_config is None:
             data_config = trainer.config.data

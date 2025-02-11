@@ -20,6 +20,7 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Type
+from typing import TypeVar
 
 from pydantic import model_validator
 from typing_extensions import Self
@@ -113,3 +114,6 @@ class DataConfig(BaseConfig):
             )
         assert sum(self.train_eval_split) == 1.0, "train_eval_split should sum to 1.0."
         return self
+
+
+TDataConfig = TypeVar("TDataConfig", bound=DataConfig)

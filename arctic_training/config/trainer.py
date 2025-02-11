@@ -20,23 +20,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
+from typing import Generic
 from typing import List
 from typing import Union
 
+import deepspeed
 import yaml
+from deepspeed.accelerator import get_accelerator
 from pydantic import Field
+from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
-if TYPE_CHECKING:
-    from arctic_training.checkpoint.engine import CheckpointEngine
-
-import deepspeed
-from deepspeed.accelerator import get_accelerator
-from pydantic import ValidationInfo
-
 from arctic_training.config import BaseConfig
+from arctic_training.config.data import TDataConfig
 from arctic_training.config.enums import DType
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
@@ -49,7 +47,6 @@ from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
 
 from .checkpoint import CheckpointConfig
-from .data import DataConfig
 from .logger import LoggerConfig
 from .model import ModelConfig
 from .optimizer import OptimizerConfig
@@ -57,11 +54,14 @@ from .scheduler import SchedulerConfig
 from .tokenizer import TokenizerConfig
 from .wandb import WandBConfig
 
+if TYPE_CHECKING:
+    from arctic_training.checkpoint.engine import CheckpointEngine
+
 TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
-class TrainerConfig(BaseConfig):
+class TrainerConfig(BaseConfig, Generic[TDataConfig]):
     """Base Trainer Configuration."""
 
     type: str = TRAINER_DEFAULT
@@ -76,7 +76,7 @@ class TrainerConfig(BaseConfig):
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
     """ Tokenizer configuration. """
 
-    data: DataConfig
+    data: TDataConfig
     """ Train and eval data configuration. """
 
     logger: LoggerConfig = Field(default_factory=LoggerConfig)
