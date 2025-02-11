@@ -46,7 +46,7 @@ class ModelConfig(BaseConfig):
     save_name: Optional[str] = None
     """ Name to use when saving the model. """
 
-    attn_implementation: str = "flash_attention_2"
+    attn_implementation: str = "sdpa"
     """ Attention implementation to use. """
 
     disable_activation_checkpoint: bool = False
