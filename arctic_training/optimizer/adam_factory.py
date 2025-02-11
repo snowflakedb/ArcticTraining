@@ -13,19 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING
 from typing import Any
-
-from deepspeed.ops.adam import FusedAdam
-
-if TYPE_CHECKING:
-    from arctic_training.config.optimizer import OptimizerConfig
-
 from typing import Dict
 from typing import List
 
+from deepspeed.ops.adam import FusedAdam
 from transformers import PreTrainedModel
 
+from arctic_training.config.optimizer import OptimizerConfig
+from arctic_training.config.optimizer import TOptimizerConfig
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import register
 
@@ -33,6 +29,7 @@ from arctic_training.registry import register
 @register
 class FusedAdamOptimizerFactory(OptimizerFactory):
     name = "fusedadam"
+    config_type = OptimizerConfig
 
     @staticmethod
     def get_optimizer_grouped_params(
@@ -77,7 +74,7 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
                 non_empty_groups.append(group)
         return non_empty_groups
 
-    def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
+    def create_optimizer(self, model: Any, optimizer_config: TOptimizerConfig) -> Any:
         optimizer_grouped_params = self.get_optimizer_grouped_params(
             model, optimizer_config.weight_decay
         )

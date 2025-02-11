@@ -16,16 +16,15 @@
 from typing import TYPE_CHECKING
 from typing import Tuple
 from typing import Type
+from typing import TypeVar
 
 from pydantic import Field
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.registry.optimizer import get_registered_optimizer_factory
 
 if TYPE_CHECKING:
     from arctic_training.optimizer.factory import OptimizerFactory
-
-
-from arctic_training.registry.optimizer import get_registered_optimizer_factory
 
 
 class OptimizerConfig(BaseConfig):
@@ -44,3 +43,6 @@ class OptimizerConfig(BaseConfig):
     @property
     def factory(self) -> Type["OptimizerFactory"]:
         return get_registered_optimizer_factory(self.type)
+
+
+TOptimizerConfig = TypeVar("TOptimizerConfig", bound=OptimizerConfig)

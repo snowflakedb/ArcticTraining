@@ -17,18 +17,19 @@ from abc import ABC
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Generic
 from typing import Optional
 from typing import Type
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.config.optimizer import OptimizerConfig
+from arctic_training.config.optimizer import TOptimizerConfig
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class OptimizerFactory(ABC, CallbackMixin):
+class OptimizerFactory(ABC, CallbackMixin, Generic[TOptimizerConfig]):
     """Base class for optimizer creation."""
 
     name: str
@@ -38,7 +39,7 @@ class OptimizerFactory(ABC, CallbackMixin):
     to identify which optimizer factory to be used.
     """
 
-    config_type: Type[OptimizerConfig] = OptimizerConfig
+    config_type: Type[TOptimizerConfig]
     """
     The type of config class that the optimizer factory uses. This should
     contain all optimizer-specific parameters.
@@ -47,7 +48,7 @@ class OptimizerFactory(ABC, CallbackMixin):
     def __init__(
         self,
         trainer: "Trainer",
-        optimizer_config: Optional["OptimizerConfig"] = None,
+        optimizer_config: Optional[TOptimizerConfig] = None,
     ) -> None:
         if optimizer_config is None:
             optimizer_config = trainer.config.optimizer
@@ -81,6 +82,6 @@ class OptimizerFactory(ABC, CallbackMixin):
 
     @abstractmethod
     @callback_wrapper("create-optimizer")
-    def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
+    def create_optimizer(self, model: Any, optimizer_config: TOptimizerConfig) -> Any:
         """Creates the optimizer given a model and an optimizer config."""
         pass

@@ -20,6 +20,9 @@ from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
 from arctic_training import register
+from arctic_training.config.data import DataConfig
+from arctic_training.config.optimizer import OptimizerConfig
+from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.source import DataSource
 from arctic_training.model.hf_factory import HFModelFactory
@@ -75,6 +78,7 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
 @register
 class NoOpOptimizerFactory(OptimizerFactory):
     name = "noop"
+    config_type = OptimizerConfig
 
     def create_optimizer(self, model, optimizer_config):
         return None
@@ -83,6 +87,7 @@ class NoOpOptimizerFactory(OptimizerFactory):
 @register
 class NoOpDataFactory(DataFactory):
     name = "noop"
+    config_type = DataConfig
 
     def __call__(self):
         return None, None
@@ -97,6 +102,7 @@ class NoOpDataFactory(DataFactory):
 @register
 class NoOpSchedulerFactory(SchedulerFactory):
     name = "noop"
+    config_type = SchedulerConfig
 
     def create_scheduler(self, optimizer):
         return None

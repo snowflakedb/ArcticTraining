@@ -38,6 +38,7 @@ from arctic_training.config.checkpoint import TCheckpointConfig
 from arctic_training.config.data import TDataConfig
 from arctic_training.config.enums import DType
 from arctic_training.config.model import TModelConfig
+from arctic_training.config.optimizer import TOptimizerConfig
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.model import get_registered_model_factory
@@ -49,7 +50,6 @@ from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
 
 from .logger import LoggerConfig
-from .optimizer import OptimizerConfig
 from .scheduler import SchedulerConfig
 from .tokenizer import TokenizerConfig
 from .wandb import WandBConfig
@@ -61,7 +61,9 @@ TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
-class TrainerConfig(BaseConfig, Generic[TCheckpointConfig, TDataConfig, TModelConfig]):
+class TrainerConfig(
+    BaseConfig, Generic[TCheckpointConfig, TDataConfig, TModelConfig, TOptimizerConfig]
+):
     """Base Trainer Configuration."""
 
     type: str = TRAINER_DEFAULT
@@ -88,7 +90,7 @@ class TrainerConfig(BaseConfig, Generic[TCheckpointConfig, TDataConfig, TModelCo
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     """ Scheduler configuration. """
 
-    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
+    optimizer: TOptimizerConfig = Field(init=False)
     """ Optimizer configuration. """
 
     deepspeed: Dict[str, Any] = {}
