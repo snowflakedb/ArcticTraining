@@ -29,8 +29,6 @@ from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
-from arctic_training.config.enums import DType
-
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
 
@@ -39,6 +37,7 @@ from deepspeed.accelerator import get_accelerator
 from pydantic import ValidationInfo
 
 from arctic_training.config import BaseConfig
+from arctic_training.config.enums import DType
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.model import get_registered_model_factory

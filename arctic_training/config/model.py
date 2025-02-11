@@ -21,7 +21,6 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
-from pydantic import field_serializer
 from pydantic import field_validator
 
 from arctic_training.registry.model import get_registered_model_factory
@@ -58,10 +57,6 @@ class ModelConfig(BaseConfig):
     @property
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(self.type)
-
-    @field_serializer("dtype")
-    def serialize_dtype(self, value: DType) -> str:
-        return value.value
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:
