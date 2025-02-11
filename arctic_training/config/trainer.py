@@ -23,7 +23,6 @@ from typing import Dict
 from typing import List
 from typing import Union
 
-import torch
 import yaml
 from pydantic import Field
 from pydantic import field_validator
@@ -38,6 +37,7 @@ from deepspeed.accelerator import get_accelerator
 from pydantic import ValidationInfo
 
 from arctic_training.config import BaseConfig
+from arctic_training.config.enums import DType
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.model import get_registered_model_factory
@@ -261,10 +261,10 @@ class TrainerConfig(BaseConfig):
             },
         )
         if "bfloat16" not in ds_config:
-            if self.model.dtype == torch.bfloat16:
+            if self.model.dtype == DType.BF16:
                 ds_config["bfloat16"] = {"enabled": True}
         if "fp16" not in ds_config:
-            if self.model.dtype == torch.float16:
+            if self.model.dtype == DType.FP16:
                 ds_config["fp16"] = {"enabled": True}
         ds_config["gradient_clipping"] = ds_config.get("gradient_clipping", 1.0)
         ds_config["prescale_gradients"] = ds_config.get("prescale_gradients", False)

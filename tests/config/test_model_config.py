@@ -26,7 +26,6 @@ from arctic_training.config.model import ModelConfig
         (torch.float16, "torch.float16", "fp16", "float16", "half"),
         (torch.float32, "torch.float32", "fp32", "float32", "float"),
         (torch.bfloat16, "torch.bfloat16", "bf16", "bfloat16", "bfloat"),
-        (torch.int8, "torch.int8", "int8"),
     ],
 )
 def test_dtype_field(dtype_list):
@@ -35,4 +34,4 @@ def test_dtype_field(dtype_list):
             type="sft", name_or_path="model-name", attn_implementation="", dtype=dtype
         )
         assert config.dtype == dtype_list[0]
-        assert config.model_dump()["dtype"] == str(dtype_list[0])
+        assert config.model_dump()["dtype"] == dtype_list[0]
