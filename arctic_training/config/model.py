@@ -66,7 +66,7 @@ class ModelConfig(BaseConfig):
 
     @field_validator("dtype", mode="before")
     def validate_dtype(cls, value: Union[str, DType]) -> DType:
-        # Pydantic doesnt like the custom enum class, so we have to do this for
+        # Pydantic doesn't like the custom enum class, so we have to do this
         return DType(value)
 
     @field_validator("attn_implementation", mode="after")
