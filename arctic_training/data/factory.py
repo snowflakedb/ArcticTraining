@@ -23,7 +23,6 @@ from typing import Callable
 from typing import List
 from typing import Optional
 from typing import Tuple
-from typing import Type
 
 import torch
 from datasets import Dataset
@@ -52,20 +51,18 @@ class DataFactory(ABC, CallbackMixin):
     specify the DataFactory to use.
     """
 
-    config_type: Type[DataConfig] = DataConfig
+    config: DataConfig
     """
     The type of the DataConfig object that this DataFactory uses. Any
     DataFactory-specific options should be specified in this class.
     """
 
-    def __init__(
-        self, trainer: "Trainer", data_config: Optional["DataConfig"] = None
-    ) -> None:
-        if data_config is None:
-            data_config = trainer.config.data
+    def __init__(self, trainer: "Trainer", config=None) -> None:
+        if config is None:
+            config = trainer.config.data
 
         self._trainer = trainer
-        self.config = data_config
+        self.config = config
 
     def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
         train_dataset = self._load_data(

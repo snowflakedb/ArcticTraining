@@ -17,7 +17,6 @@ from abc import ABC
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Optional
-from typing import Type
 
 from transformers import PreTrainedTokenizer
 
@@ -38,7 +37,7 @@ class TokenizerFactory(ABC, CallbackMixin):
     factory in the registry.
     """
 
-    config_type: Type[TokenizerConfig] = TokenizerConfig
+    config: TokenizerConfig
     """
     The configuration class for the tokenizer factory. This is used to validate
     the configuration passed to the factory.

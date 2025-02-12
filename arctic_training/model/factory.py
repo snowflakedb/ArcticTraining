@@ -18,7 +18,6 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Optional
-from typing import Type
 
 from transformers import PreTrainedModel
 
@@ -40,7 +39,7 @@ class ModelFactory(ABC, CallbackMixin):
     model factory to be used.
     """
 
-    config_type: Type[ModelConfig] = ModelConfig
+    config: ModelConfig
     """
     The type of config class that the model factory uses. This should contain
     all model-specific parameters.

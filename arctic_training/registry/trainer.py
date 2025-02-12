@@ -15,25 +15,20 @@
 
 from typing import TYPE_CHECKING
 from typing import Dict
-from typing import Iterable
 from typing import Type
 from typing import Union
 
 from arctic_training.logging import logger
-from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.checkpoint import register_checkpoint_engine
-from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.data import register_data_factory
-from arctic_training.registry.model import get_registered_model_factory
 from arctic_training.registry.model import register_model_factory
-from arctic_training.registry.optimizer import get_registered_optimizer_factory
 from arctic_training.registry.optimizer import register_optimizer_factory
-from arctic_training.registry.scheduler import get_registered_scheduler_factory
 from arctic_training.registry.scheduler import register_scheduler_factory
-from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
 from arctic_training.registry.tokenizer import register_tokenizer_factory
 from arctic_training.registry.utils import AlreadyRegisteredError
+from arctic_training.registry.utils import _get_attr_type_hints
 from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -43,6 +38,13 @@ _supported_trainer_registry: Dict[str, Type["Trainer"]] = {}
 
 def register_trainer(cls: Type["Trainer"], force: bool = False) -> Type["Trainer"]:
     global _supported_trainer_registry
+    from arctic_training.checkpoint.engine import CheckpointEngine
+    from arctic_training.config.trainer import TrainerConfig
+    from arctic_training.data.factory import DataFactory
+    from arctic_training.model.factory import ModelFactory
+    from arctic_training.optimizer.factory import OptimizerFactory
+    from arctic_training.scheduler.factory import SchedulerFactory
+    from arctic_training.tokenizer.factory import TokenizerFactory
     from arctic_training.trainer.trainer import Trainer
 
     if not issubclass(cls, Trainer):
@@ -51,59 +53,49 @@ def register_trainer(cls: Type["Trainer"], force: bool = False) -> Type["Trainer
         )
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", TrainerConfig)
 
     trainer_attributes = [
         (
-            "data_factory_type",
-            get_registered_data_factory,
+            "data_factory",
+            DataFactory,
             register_data_factory,
         ),
         (
-            "model_factory_type",
-            get_registered_model_factory,
+            "model_factory",
+            ModelFactory,
             register_model_factory,
         ),
         (
-            "checkpoint_engine_type",
-            get_registered_checkpoint_engine,
+            "checkpoint_engine",
+            CheckpointEngine,
             register_checkpoint_engine,
         ),
         (
-            "optimizer_factory_type",
-            get_registered_optimizer_factory,
+            "optimizer_factory",
+            OptimizerFactory,
             register_optimizer_factory,
         ),
         (
-            "scheduler_factory_type",
-            get_registered_scheduler_factory,
+            "scheduler_factory",
+            SchedulerFactory,
             register_scheduler_factory,
         ),
         (
-            "tokenizer_factory_type",
-            get_registered_tokenizer_factory,
+            "tokenizer_factory",
+            TokenizerFactory,
             register_tokenizer_factory,
         ),
     ]
-    for attr, get_class, register_class in trainer_attributes:
-        _validate_class_attribute_set(cls, attr)
+    for attr, type_, register_class in trainer_attributes:
+        _validate_class_attribute_type(cls, attr, type_)
 
-        # Coerce to list if not already
-        if not isinstance(getattr(cls, attr), Iterable) or isinstance(
-            getattr(cls, attr), str
-        ):
-            setattr(cls, attr, [getattr(cls, attr)])
-
-        for class_type in getattr(cls, attr):
-            # Try to register the class, skip if already registered
-            if not issubclass(class_type, str):
-                try:
-                    _ = register_class(class_type)
-                except AlreadyRegisteredError:
-                    pass
-
-            # Verify that the class is registered
-            _ = get_class(class_type)
+        # Try to register the class, skip if already registered
+        for attr_type_hint in _get_attr_type_hints(cls, attr):
+            try:
+                _ = register_class(attr_type_hint)
+            except AlreadyRegisteredError:
+                pass
 
     if cls.name in _supported_trainer_registry:
         if not force:

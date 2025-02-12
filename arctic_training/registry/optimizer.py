@@ -19,13 +19,13 @@ from typing import Type
 from typing import Union
 
 from arctic_training.logging import logger
+from arctic_training.registry.utils import AlreadyRegisteredError
+from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
+from arctic_training.registry.utils import _validate_method_definition
 
 if TYPE_CHECKING:
     from arctic_training.optimizer.factory import OptimizerFactory
-
-from arctic_training.registry.utils import AlreadyRegisteredError
-from arctic_training.registry.utils import _validate_class_attribute_set
-from arctic_training.registry.utils import _validate_method_definition
 
 _supported_optimizer_factory_registry: Dict[str, Type["OptimizerFactory"]] = {}
 
@@ -34,6 +34,7 @@ def register_optimizer_factory(
     cls: Type["OptimizerFactory"], force: bool = False
 ) -> Type["OptimizerFactory"]:
     global _supported_optimizer_factory_registry
+    from arctic_training.config.optimizer import OptimizerConfig
     from arctic_training.optimizer.factory import OptimizerFactory
 
     if not issubclass(cls, OptimizerFactory):
@@ -43,7 +44,7 @@ def register_optimizer_factory(
         )
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", OptimizerConfig)
     _validate_method_definition(
         cls, "create_optimizer", ["self", "model", "optimizer_config"]
     )

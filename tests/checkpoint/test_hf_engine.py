@@ -23,6 +23,7 @@ from arctic_training.config.trainer import get_config
 def test_hf_engine(tmp_path):
     config_dict = {
         "type": "sft",
+        "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",

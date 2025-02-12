@@ -17,7 +17,6 @@ from abc import ABC
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Type
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
@@ -36,7 +35,7 @@ class SchedulerFactory(ABC, CallbackMixin):
     factory in the registry.
     """
 
-    config_type: Type[SchedulerConfig] = SchedulerConfig
+    config: SchedulerConfig
     """
     The configuration class for the scheduler factory. This is used to validate
     the configuration passed to the factory.

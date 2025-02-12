@@ -23,6 +23,7 @@ from arctic_training.config.trainer import get_config
 def test_sft_trainer(tmp_path):
     config_dict = {
         "type": "sft",
+        "skip_validation": True,
         "exit_iteration": 2,
         "micro_batch_size": 1,
         "model": {
@@ -49,6 +50,7 @@ def test_sft_trainer(tmp_path):
 def test_sft_trainer_cpu(tmp_path):
     config_dict = {
         "type": "sft",
+        "skip_validation": True,
         "exit_iteration": 2,
         "micro_batch_size": 1,
         "model": {

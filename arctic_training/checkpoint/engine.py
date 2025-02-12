@@ -18,7 +18,6 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Type
 
 import torch
 
@@ -39,13 +38,13 @@ class CheckpointEngine(ABC, CallbackMixin):
     engine in the registry.
     """
 
-    config_type: Type[CheckpointConfig] = CheckpointConfig
+    config: CheckpointConfig
     """
     The configuration class for the checkpoint engine. This is used to validate
     the configuration passed to the engine.
     """
 
-    def __init__(self, trainer: "Trainer", config: "CheckpointConfig") -> None:
+    def __init__(self, trainer: "Trainer", config) -> None:
         self._trainer = trainer
         self.config = config
 

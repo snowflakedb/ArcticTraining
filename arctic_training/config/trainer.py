@@ -19,22 +19,20 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Union
+from typing import cast
 
+import deepspeed
 import yaml
+from deepspeed.accelerator import get_accelerator
 from pydantic import Field
+from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
-
-if TYPE_CHECKING:
-    from arctic_training.checkpoint.engine import CheckpointEngine
-
-import deepspeed
-from deepspeed.accelerator import get_accelerator
-from pydantic import ValidationInfo
 
 from arctic_training.config import BaseConfig
 from arctic_training.config.enums import DType
@@ -45,6 +43,7 @@ from arctic_training.registry.optimizer import get_registered_optimizer_factory
 from arctic_training.registry.scheduler import get_registered_scheduler_factory
 from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
 from arctic_training.registry.trainer import get_registered_trainer
+from arctic_training.registry.utils import _get_attr_type_hints
 from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
 
@@ -56,6 +55,10 @@ from .optimizer import OptimizerConfig
 from .scheduler import SchedulerConfig
 from .tokenizer import TokenizerConfig
 from .wandb import WandBConfig
+
+if TYPE_CHECKING:
+    from arctic_training.checkpoint.engine import CheckpointEngine
+
 
 TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
@@ -69,30 +72,6 @@ class TrainerConfig(BaseConfig):
 
     code: Path = CUSTOM_CODE_DEFAULT
     """ Path to the python script containing custom trainer implementation. """
-
-    model: ModelConfig
-    """ Model configuration. """
-
-    tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
-    """ Tokenizer configuration. """
-
-    data: DataConfig
-    """ Train and eval data configuration. """
-
-    logger: LoggerConfig = Field(default_factory=LoggerConfig)
-    """ Logger configuration. """
-
-    wandb: WandBConfig = Field(default_factory=WandBConfig)
-    """ Weights and Biases configuration. """
-
-    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
-    """ Scheduler configuration. """
-
-    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
-    """ Optimizer configuration. """
-
-    deepspeed: Dict[str, Any] = {}
-    """ DeepSpeed config dict. Will be automatically filled if not provided by the user. """
 
     epochs: int = Field(default=1, ge=0)
     """ Number of epochs to train. """
@@ -109,19 +88,47 @@ class TrainerConfig(BaseConfig):
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
 
-    checkpoint: List[CheckpointConfig] = []
-    """ Checkpoint configurations. Multiple checkpoint engines may be used together. """
-
     train_iters: int = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
     eval_frequency: int = Field(default=0, ge=0)
 
     global_rank: int = Field(default_factory=get_local_rank, exclude=True)
+
     world_size: int = Field(default_factory=get_world_size, exclude=True)
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
+
+    skip_validation: bool = False
+    """ Skips validation of types for subconfigs and registered classes. """
+
+    deepspeed: Dict[str, Any] = {}
+    """ DeepSpeed config dict. Will be automatically filled if not provided by the user. """
+
+    model: ModelConfig
+    """ Model configuration. """
+
+    data: DataConfig
+    """ Train and eval data configuration. """
+
+    checkpoint: List[CheckpointConfig] = []
+    """ Checkpoint configurations. Multiple checkpoint engines may be used together. """
+
+    tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
+    """ Tokenizer configuration. """
+
+    logger: LoggerConfig = Field(default_factory=LoggerConfig)
+    """ Logger configuration. """
+
+    wandb: WandBConfig = Field(default_factory=WandBConfig)
+    """ Weights and Biases configuration. """
+
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    """ Scheduler configuration. """
+
+    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
+    """ Optimizer configuration. """
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
@@ -151,82 +158,169 @@ class TrainerConfig(BaseConfig):
     def zero_3_enabled(self) -> bool:
         return self.deepspeed.get("zero_optimization", {}).get("stage", 0) == 3
 
-    @field_validator("eval_frequency", mode="after")
-    def validate_eval_frequency(cls, v: int, info: ValidationInfo) -> int:
-        if (
-            info.data["data"].eval_sources
-            or info.data["data"].train_eval_split[1] > 0.0
-        ):
-            assert v > 0, "eval_frequency must be set if eval dataset is provided."
-        return v
-
-    @field_validator("tokenizer", mode="after")
-    def set_tokenizer(cls, v: TokenizerConfig, info: ValidationInfo) -> TokenizerConfig:
-        if not v.name_or_path and "model" in info.data:
-            v.name_or_path = info.data["model"].name_or_path
-        return v
-
-    @field_validator(
-        "checkpoint",
-        "data",
-        "model",
-        "optimizer",
-        "scheduler",
-        "tokenizer",
-        mode="before",
-    )
-    @classmethod
-    def parse_sub_config(
-        cls,
-        v: Any,
-        info: ValidationInfo,
-    ) -> Union[BaseConfig, List[BaseConfig]]:
-        trainer_attr_map = {
-            "checkpoint": "checkpoint_engine_type",
-            "data": "data_factory_type",
-            "model": "model_factory_type",
-            "optimizer": "optimizer_factory_type",
-            "scheduler": "scheduler_factory_type",
-            "tokenizer": "tokenizer_factory_type",
-        }
-        field_name: str = info.field_name  # type: ignore
-        trainer_type: str = info.data["type"]
+    @staticmethod
+    def _get_subconfig_object(
+        v: Union[Dict, BaseConfig],
+        trainer_type: str,
+        get_class_fn: Callable,
+        attr_name: str,
+        skip_validation: bool = False,
+    ) -> BaseConfig:
         trainer_cls = get_registered_trainer(trainer_type)
-        trainer_field_default = getattr(trainer_cls, trainer_attr_map[field_name])[0]
+        attribute_type_hints = _get_attr_type_hints(trainer_cls, attr_name)
 
-        if isinstance(v, tuple) or isinstance(v, list):
-            return_list = []
-            for sub_v in v:
-                if isinstance(sub_v, BaseConfig):
-                    sub_v = sub_v.model_dump()
-                field_cls = cls._get_config_cls(
-                    sub_v, field_name, trainer_field_default
-                )
-                sub_v["type"] = field_cls.name
-                return_list.append(field_cls.config_type(**sub_v))
-            return return_list
+        # If the config is a dict, we need to determine the class to instantiate
+        if isinstance(v, dict):
+            if v.get("type", ""):
+                # User explicitly specified the type
+                attr_cls = _get_attr_type_hints(get_class_fn(v["type"]), "config")[0]
+            else:
+                # User did not specify the type, use the first hint as default type
+                attr_cls = _get_attr_type_hints(attribute_type_hints[0], "config")[0]
+                v["type"] = attribute_type_hints[0].name
+            subconfig = attr_cls(**v)
+        else:
+            subconfig = v
 
-        if isinstance(v, BaseConfig):
-            v = v.model_dump()
-        field_cls = cls._get_config_cls(v, field_name, trainer_field_default)
-        v["type"] = field_cls.name
-        return field_cls.config_type(**v)
+        if not subconfig.type:
+            raise ValueError(
+                f"Missing 'type' field in {attr_name} config for {trainer_type}. This"
+                " is required as it cannot be inferred because multiple classes may"
+                " use the same config."
+            )
 
+        attr_cls = get_class_fn(subconfig.type)
+        if not skip_validation and attr_cls not in attribute_type_hints:
+            raise ValueError(
+                f"{attr_cls.__name__} is not supported for {attr_name} in"
+                f" {trainer_cls.__name__}. Supported types are"
+                f" {[cls.__name__ for cls in attribute_type_hints]}."
+            )
+
+        return subconfig
+
+    @staticmethod
+    def _to_list(v: Union[Any, List[Any]]) -> List[Any]:
+        if not isinstance(v, list):
+            return [v]
+        return v
+
+    @field_validator("checkpoint", mode="before")
     @classmethod
-    def _get_config_cls(cls, config_dict, field_name, default_cls):
-        get_class_fn_map = {
-            "checkpoint": get_registered_checkpoint_engine,
-            "data": get_registered_data_factory,
-            "model": get_registered_model_factory,
-            "optimizer": get_registered_optimizer_factory,
-            "scheduler": get_registered_scheduler_factory,
-            "tokenizer": get_registered_tokenizer_factory,
-        }
-        field_type = config_dict.get("type", "")
-        if field_type == "":
-            field_type = default_cls
-        field_cls = get_class_fn_map[field_name](field_type)
-        return field_cls
+    def init_checkpoint_configs(
+        cls,
+        v: Union[Union[Dict, CheckpointConfig], List[Union[Dict, CheckpointConfig]]],
+        info: ValidationInfo,
+    ) -> List[CheckpointConfig]:
+        v = cls._to_list(v)
+        trainer_type = info.data["type"]
+        skip_validation = info.data.get("skip_validation", False)
+        return_list = []
+        for sub_v in v:
+            return_list.append(
+                cls._get_subconfig_object(
+                    v=sub_v,
+                    trainer_type=trainer_type,
+                    get_class_fn=get_registered_checkpoint_engine,
+                    attr_name="checkpoint_engine",
+                    skip_validation=skip_validation,
+                )
+            )
+        return [cast(CheckpointConfig, subconfig) for subconfig in return_list]
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def init_data_config(
+        cls, v: Union[Dict, DataConfig], info: ValidationInfo
+    ) -> DataConfig:
+        trainer_type = info.data["type"]
+        skip_validation = info.data.get("skip_validation", False)
+        subconfig = cls._get_subconfig_object(
+            v=v,
+            trainer_type=trainer_type,
+            get_class_fn=get_registered_data_factory,
+            attr_name="data_factory",
+            skip_validation=skip_validation,
+        )
+        return cast(DataConfig, subconfig)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def init_model_config(
+        cls, v: Union[Dict, ModelConfig], info: ValidationInfo
+    ) -> ModelConfig:
+        trainer_type = info.data["type"]
+        skip_validation = info.data.get("skip_validation", False)
+        subconfig = cls._get_subconfig_object(
+            v=v,
+            trainer_type=trainer_type,
+            get_class_fn=get_registered_model_factory,
+            attr_name="model_factory",
+            skip_validation=skip_validation,
+        )
+        return cast(ModelConfig, subconfig)
+
+    @field_validator("optimizer", mode="before")
+    @classmethod
+    def init_optimizer_config(
+        cls, v: Union[Dict, OptimizerConfig], info: ValidationInfo
+    ) -> OptimizerConfig:
+        trainer_type = info.data["type"]
+        skip_validation = info.data.get("skip_validation", False)
+        subconfig = cls._get_subconfig_object(
+            v=v,
+            trainer_type=trainer_type,
+            get_class_fn=get_registered_optimizer_factory,
+            attr_name="optimizer_factory",
+            skip_validation=skip_validation,
+        )
+        return cast(OptimizerConfig, subconfig)
+
+    @field_validator("scheduler", mode="before")
+    @classmethod
+    def init_scheduler_config(
+        cls, v: Union[Dict, SchedulerConfig], info: ValidationInfo
+    ) -> SchedulerConfig:
+        trainer_type = info.data["type"]
+        skip_validation = info.data.get("skip_validation", False)
+        subconfig = cls._get_subconfig_object(
+            v=v,
+            trainer_type=trainer_type,
+            get_class_fn=get_registered_scheduler_factory,
+            attr_name="scheduler_factory",
+            skip_validation=skip_validation,
+        )
+        return cast(SchedulerConfig, subconfig)
+
+    @field_validator("tokenizer", mode="before")
+    @classmethod
+    def init_tokenizer_config(
+        cls, v: Union[Dict, TokenizerConfig], info: ValidationInfo
+    ) -> TokenizerConfig:
+        trainer_type = info.data["type"]
+        skip_validation = info.data.get("skip_validation", False)
+        subconfig = cls._get_subconfig_object(
+            v=v,
+            trainer_type=trainer_type,
+            get_class_fn=get_registered_tokenizer_factory,
+            attr_name="tokenizer_factory",
+            skip_validation=skip_validation,
+        )
+        return cast(TokenizerConfig, subconfig)
+
+    @model_validator(mode="after")
+    def validate_eval_frequency(self) -> Self:
+        if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
+            assert (
+                self.eval_frequency > 0
+            ), "eval_frequency must be set if eval dataset is provided."
+        return self
+
+    @model_validator(mode="after")
+    def set_tokenizer(self) -> Self:
+        if not self.tokenizer.name_or_path:
+            self.tokenizer.name_or_path = self.model.name_or_path
+        return self
 
     @field_validator("logger", mode="after")
     @classmethod
@@ -234,12 +328,6 @@ class TrainerConfig(BaseConfig):
         from arctic_training.logging import setup_logger
 
         setup_logger(v)
-        return v
-
-    @field_validator("checkpoint", mode="before")
-    def checkpoint_to_list(cls, v: Union[Dict, List[Dict]]) -> List[Dict]:
-        if not isinstance(v, list):
-            return [v]
         return v
 
     @model_validator(mode="after")
@@ -316,7 +404,7 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
             sys.path = original_sys_path
 
     trainer_cls = get_registered_trainer(trainer_type)
-    config_cls = trainer_cls.config_type
+    config_cls = _get_attr_type_hints(trainer_cls, "config")[0]
 
     config = config_cls(**config_dict)
 
