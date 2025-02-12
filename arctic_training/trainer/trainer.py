@@ -50,6 +50,7 @@ try:
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
+import arctic_training.trainer.parallel_state as mpu
 
 class Trainer(ABC, CallbackMixin):
     """Base Trainer class."""
@@ -147,12 +148,17 @@ class Trainer(ABC, CallbackMixin):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
+        # XXX: fixme
+        import torch
+        print(f"MPU INIT on rank {torch.distributed.get_rank()}")
+        mpu.initialize_model_parallel(sequence_parallel_size=4)
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
             args=self.config,
             lr_scheduler=self.scheduler,
             config=self.config.deepspeed,
+            mpu=mpu,
         )
 
         self.checkpoint_engines = [
@@ -228,6 +234,18 @@ class Trainer(ABC, CallbackMixin):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
+        
+        import deepspeed.comm as dist   
+        import q
+        from deepspeed.utils import groups
+        q(self.global_rank)
+        print(f"{groups._get_sequence_parallel_group()=}")
+        print(f"{groups._get_sequence_parallel_rank()=}")
+        print(f"{groups._get_sequence_parallel_world_size()=}")
+        dist.barrier()
+        #import time
+        #time.sleep(5)
+        die
 
         self.model.train()
         loss = self.loss(batch)
