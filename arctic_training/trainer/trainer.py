@@ -151,7 +151,7 @@ class Trainer(ABC, CallbackMixin):
         # XXX: fixme
         import torch
         print(f"MPU INIT on rank {torch.distributed.get_rank()}")
-        mpu.initialize_model_parallel(sequence_parallel_size=4)
+        mpu.initialize_model_parallel(sequence_parallel_size=self.config.sequence_parallel_size)
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
