@@ -26,7 +26,6 @@ from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
-from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.registry import register
 
@@ -223,7 +222,6 @@ def packing_sft_dataset(
 @register
 class SFTDataFactory(DataFactory):
     name = "sft"
-    config_type = DataConfig
 
     def tokenize_fn(
         self,

@@ -15,10 +15,10 @@ Attributes
 ----------
 
 Similar to the ``*Factory`` classes of ArcticTraining, the CheckpointEngine
-class requires only the :attr:`~.CheckpointEngine.name` and
-:attr:`~.CheckpointEngine.config_type` attributes to be defined. The name
-attribute is used to identify the engine when registering it with ArcticTraining
-and the config_type attribute is used to validate the config object passed to
+class requires only the :attr:`~.CheckpointEngine.name` be defined and the
+:attr:`~.CheckpointEngine.config` attribute type hint. The ``name`` attribute is
+used to identify the engine when registering it with ArcticTraining and the
+``config`` attribute type hint is used to validate the config object passed to
 the engine.
 
 Properties

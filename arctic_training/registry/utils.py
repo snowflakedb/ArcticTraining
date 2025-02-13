@@ -16,8 +16,12 @@
 import inspect
 from typing import TYPE_CHECKING
 from typing import List
+from typing import Tuple
 from typing import Type
 from typing import Union
+from typing import get_args
+from typing import get_origin
+from typing import get_type_hints
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -99,3 +103,23 @@ def _validate_method_definition(
 def _validate_class_attribute_set(cls: RegistryClassTypes, attribute: str) -> None:
     if not getattr(cls, attribute, None):
         raise ValueError(f"{cls.__name__} must define {attribute} attribute.")
+
+
+def _validate_class_attribute_type(
+    cls: RegistryClassTypes, attribute: str, type_: Type
+) -> None:
+    for attr_type_hint in _get_class_attr_type_hints(cls, attribute):
+        if not issubclass(attr_type_hint, type_):
+            raise TypeError(
+                f"{cls.__name__}.{attribute} must be an instance of {type_.__name__}."
+                f" But got {attr_type_hint.__name__}."
+            )
+
+
+def _get_class_attr_type_hints(cls: RegistryClassTypes, attribute: str) -> Tuple[Type]:
+    cls_type_hints = get_type_hints(cls)
+    if get_origin(cls_type_hints[attribute]) is Union:
+        attribute_type_hints = get_args(cls_type_hints[attribute])
+    else:
+        attribute_type_hints = (cls_type_hints[attribute],)
+    return attribute_type_hints

@@ -21,6 +21,7 @@ from typing import Union
 from arctic_training.logging import logger
 from arctic_training.registry.utils import AlreadyRegisteredError
 from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
 from arctic_training.registry.utils import _validate_method_definition
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ def register_scheduler_factory(
     cls: Type["SchedulerFactory"], force: bool = False
 ) -> Type["SchedulerFactory"]:
     global _supported_scheduler_factory_registry
+    from arctic_training.config.scheduler import SchedulerConfig
     from arctic_training.scheduler.factory import SchedulerFactory
 
     if not issubclass(cls, SchedulerFactory):
@@ -42,7 +44,7 @@ def register_scheduler_factory(
         )
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", SchedulerConfig)
     _validate_method_definition(cls, "create_scheduler", ["self", "optimizer"])
 
     if cls.name in _supported_scheduler_factory_registry:

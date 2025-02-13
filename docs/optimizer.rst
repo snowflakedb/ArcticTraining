@@ -18,8 +18,8 @@ Attributes
 Similar to other Factory classes in ArcticTraining, the
 :class:`~.OptimizerFactory` class must have a :attr:`~.OptimizerFactory.name`
 attribute that is used to identify the factory when registering it with
-ArcticTraining and a :attr:`~.OptimizerFactory.config_type` attribute that is
-used to validate the config object passed to the factory.
+ArcticTraining and a :attr:`~.OptimizerFactory.config` attribute type hint that
+is used to validate the config object passed to the factory.
 
 Properties
 ----------

@@ -19,13 +19,13 @@ from typing import Type
 from typing import Union
 
 from arctic_training.logging import logger
+from arctic_training.registry.utils import AlreadyRegisteredError
+from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
+from arctic_training.registry.utils import _validate_method_definition
 
 if TYPE_CHECKING:
     from arctic_training.tokenizer.factory import TokenizerFactory
-
-from arctic_training.registry.utils import AlreadyRegisteredError
-from arctic_training.registry.utils import _validate_class_attribute_set
-from arctic_training.registry.utils import _validate_method_definition
 
 _supported_tokenizer_factory_registry: Dict[str, Type["TokenizerFactory"]] = {}
 
@@ -34,6 +34,7 @@ def register_tokenizer_factory(
     cls: Type["TokenizerFactory"], force: bool = False
 ) -> Type["TokenizerFactory"]:
     global _supported_tokenizer_factory_registry
+    from arctic_training.config.tokenizer import TokenizerConfig
     from arctic_training.tokenizer.factory import TokenizerFactory
 
     if not issubclass(cls, TokenizerFactory):
@@ -43,7 +44,7 @@ def register_tokenizer_factory(
         )
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", TokenizerConfig)
     _validate_method_definition(cls, "create_tokenizer", ["self"])
 
     if cls.name in _supported_tokenizer_factory_registry:

@@ -88,7 +88,7 @@ these steps:
       @register
       class CustomTrainer(SFTTrainer):
           name = "my_custom_trainer"
-          model_factory_type = CustomModelFactory
+          model_factory: CustomModelFactory
 
           def loss(self, batch):
               # Custom loss function implementation
@@ -123,6 +123,7 @@ API:
     from arctic_training import register
     from arctic_training.model import HFModelFactory
     from arctic_training import SFTTrainer
+    from arctic_training import get_config
 
     class CustomModelFactory(HFModelFactory):
         name = "my_custom_model_factory"
@@ -134,14 +135,14 @@ API:
     @register
     class CustomTrainer(SFTTrainer):
         name = "my_custom_trainer"
-        model_factory_type = CustomModelFactory
+        model_factory: CustomModelFactory
 
         def loss(self, batch):
             # Custom loss function implementation
             return loss
 
     if __name__ == "__main__":
-        config = {
+        config_dict = {
             "type": "my_custom_trainer",
             "model": {
                 "name_or_path": "meta-llama/Llama-3.1-8B-Instruct"
@@ -158,6 +159,6 @@ API:
             ]
         }
 
-        config = CustomTrainer.config_type(**config)
+        config = get_config(config_dict)
         trainer = CustomTrainer(config)
         trainer.train()

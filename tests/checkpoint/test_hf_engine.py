@@ -24,6 +24,7 @@ from arctic_training.registry.trainer import get_registered_trainer
 def test_hf_engine(tmp_path):
     config_dict = {
         "type": "sft",
+        "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
