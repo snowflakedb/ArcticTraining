@@ -13,7 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Any
+from typing import Union
 
 import llama_swiftkv
 import torch
@@ -29,6 +45,21 @@ from arctic_training.model import HFModelFactory
 from arctic_training.trainer.sft_trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 class SwiftKVModelConfig(ModelConfig):
     num_key_value_layers: int
@@ -37,7 +68,7 @@ class SwiftKVModelConfig(ModelConfig):
 
 class SwiftKVModelFactory(HFModelFactory):
     name = "swiftkv"
-    config_type = SwiftKVModelConfig
+    config: SwiftKVModelConfig
 
     def post_create_config_callback(self, hf_config):
         llama_swiftkv.register_auto()
@@ -95,9 +126,9 @@ class SwiftKVTrainerConfig(TrainerConfig):
 @register
 class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
-    config_type = SwiftKVTrainerConfig
-    model_factory_type = SwiftKVModelFactory
-    checkpoint_engine_type = HFCheckpointEngine
+    config: SwiftKVTrainerConfig
+    model_factory: SwiftKVModelFactory
+    checkpoint_engine: Union[HFCheckpointEngine]
 
     def loss(self, batch: Any) -> torch.Tensor:
         batch = to_device(batch, self.device)
