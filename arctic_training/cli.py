@@ -49,6 +49,7 @@ def run_script():
     import deepspeed.comm as dist
 
     from arctic_training.config.trainer import get_config
+    from arctic_training.registry.trainer import get_registered_trainer
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -69,7 +70,8 @@ def run_script():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
     config = get_config(args.config)
-    trainer = config.trainer
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
     trainer.train()
     if dist.is_initialized():
         dist.barrier()
