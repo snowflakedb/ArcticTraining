@@ -17,6 +17,7 @@ import pytest
 from utils import models_are_equal
 
 from arctic_training.config.trainer import get_config
+from arctic_training.registry.trainer import get_registered_trainer
 
 
 @pytest.mark.cpu
@@ -48,7 +49,8 @@ def test_hf_engine(tmp_path):
     }
 
     config = get_config(config_dict)
-    trainer = config.trainer
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
 
     # Force checkpoint to be saved despite no training happening
     trainer.training_finished = True
@@ -61,7 +63,8 @@ def test_hf_engine(tmp_path):
         trainer.checkpoint_engines[0].checkpoint_dir
     )
     config = get_config(config_dict)
-    trainer = config.trainer
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
 
     loaded_model = trainer.model
     assert models_are_equal(original_model, loaded_model), "Models are not equal"

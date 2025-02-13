@@ -141,10 +141,6 @@ class TrainerConfig(BaseConfig):
         return self
 
     @property
-    def trainer(self):
-        return get_registered_trainer(self.type)(config=self)
-
-    @property
     def checkpoint_engines(self) -> List[partial["CheckpointEngine"]]:
         checkpoint_engines = []
         for checkpoint in self.checkpoint:
