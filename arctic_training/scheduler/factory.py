@@ -17,6 +17,7 @@ from abc import ABC
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Optional
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
@@ -44,7 +45,7 @@ class SchedulerFactory(ABC, CallbackMixin):
     def __init__(
         self,
         trainer: "Trainer",
-        scheduler_config=None,
+        scheduler_config: Optional[SchedulerConfig] = None,
     ) -> None:
         if scheduler_config is None:
             scheduler_config = trainer.config.scheduler

@@ -46,7 +46,7 @@ class ModelFactory(ABC, CallbackMixin):
     """
 
     def __init__(
-        self, trainer: "Trainer", model_config: Optional["ModelConfig"] = None
+        self, trainer: "Trainer", model_config: Optional[ModelConfig] = None
     ) -> None:
         if model_config is None:
             model_config = trainer.config.model

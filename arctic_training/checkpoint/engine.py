@@ -44,7 +44,7 @@ class CheckpointEngine(ABC, CallbackMixin):
     the configuration passed to the engine.
     """
 
-    def __init__(self, trainer: "Trainer", config) -> None:
+    def __init__(self, trainer: "Trainer", config: CheckpointConfig) -> None:
         self._trainer = trainer
         self.config = config
 

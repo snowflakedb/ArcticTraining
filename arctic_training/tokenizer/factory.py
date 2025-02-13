@@ -44,7 +44,7 @@ class TokenizerFactory(ABC, CallbackMixin):
     """
 
     def __init__(
-        self, trainer: "Trainer", tokenizer_config: Optional["TokenizerConfig"] = None
+        self, trainer: "Trainer", tokenizer_config: Optional[TokenizerConfig] = None
     ) -> None:
         if tokenizer_config is None:
             tokenizer_config = trainer.config.tokenizer

@@ -57,7 +57,7 @@ class DataFactory(ABC, CallbackMixin):
     DataFactory-specific options should be specified in this class.
     """
 
-    def __init__(self, trainer: "Trainer", config=None) -> None:
+    def __init__(self, trainer: "Trainer", config: Optional[DataConfig] = None) -> None:
         if config is None:
             config = trainer.config.data
 

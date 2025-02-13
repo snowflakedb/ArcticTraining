@@ -46,7 +46,7 @@ class OptimizerFactory(ABC, CallbackMixin):
     def __init__(
         self,
         trainer: "Trainer",
-        optimizer_config: Optional["OptimizerConfig"] = None,
+        optimizer_config: Optional[OptimizerConfig] = None,
     ) -> None:
         if optimizer_config is None:
             optimizer_config = trainer.config.optimizer

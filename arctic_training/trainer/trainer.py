@@ -113,7 +113,7 @@ class Trainer(ABC, CallbackMixin):
     `post-` for `init`, `train`, `epoch`, `step`, and `checkpoint`.
     """
 
-    def __init__(self, config) -> None:
+    def __init__(self, config: TrainerConfig) -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
         self.epoch_idx = 0
