@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from arctic_training.config.trainer import get_config
+from arctic_training.registry.trainer import get_registered_trainer
 
 
 @pytest.mark.gpu
@@ -75,6 +76,7 @@ def test_sft_trainer_cpu(tmp_path):
         f.write(yaml.dump(config_dict))
 
     config = get_config(config_path)
-    trainer = config.trainer
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
     trainer.train()
     assert trainer.global_step > 0, "Training did not run"
