@@ -35,7 +35,15 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config import BaseConfig
+from arctic_training.config.checkpoint import CheckpointConfig
+from arctic_training.config.data import DataConfig
 from arctic_training.config.enums import DType
+from arctic_training.config.logger import LoggerConfig
+from arctic_training.config.model import ModelConfig
+from arctic_training.config.optimizer import OptimizerConfig
+from arctic_training.config.scheduler import SchedulerConfig
+from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.config.wandb import WandBConfig
 from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.model import get_registered_model_factory
@@ -43,18 +51,9 @@ from arctic_training.registry.optimizer import get_registered_optimizer_factory
 from arctic_training.registry.scheduler import get_registered_scheduler_factory
 from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
 from arctic_training.registry.trainer import get_registered_trainer
-from arctic_training.registry.utils import _get_attr_type_hints
+from arctic_training.registry.utils import _get_class_attr_type_hints
 from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
-
-from .checkpoint import CheckpointConfig
-from .data import DataConfig
-from .logger import LoggerConfig
-from .model import ModelConfig
-from .optimizer import OptimizerConfig
-from .scheduler import SchedulerConfig
-from .tokenizer import TokenizerConfig
-from .wandb import WandBConfig
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -73,6 +72,33 @@ class TrainerConfig(BaseConfig):
     code: Path = CUSTOM_CODE_DEFAULT
     """ Path to the python script containing custom trainer implementation. """
 
+    skip_validation: bool = False
+    """ Skips validation of types for subconfigs and registered classes. """
+
+    model: ModelConfig
+    """ Model configuration. """
+
+    tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
+    """ Tokenizer configuration. """
+
+    data: DataConfig
+    """ Train and eval data configuration. """
+
+    logger: LoggerConfig = Field(default_factory=LoggerConfig)
+    """ Logger configuration. """
+
+    wandb: WandBConfig = Field(default_factory=WandBConfig)
+    """ Weights and Biases configuration. """
+
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    """ Scheduler configuration. """
+
+    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
+    """ Optimizer configuration. """
+
+    deepspeed: Dict[str, Any] = {}
+    """ DeepSpeed config dict. Will be automatically filled if not provided by the user. """
+
     epochs: int = Field(default=1, ge=0)
     """ Number of epochs to train. """
 
@@ -88,47 +114,19 @@ class TrainerConfig(BaseConfig):
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
 
+    checkpoint: List[CheckpointConfig] = []
+    """ Checkpoint configurations. Multiple checkpoint engines may be used together. """
+
     train_iters: int = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
     eval_frequency: int = Field(default=0, ge=0)
 
     global_rank: int = Field(default_factory=get_local_rank, exclude=True)
-
     world_size: int = Field(default_factory=get_world_size, exclude=True)
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
-
-    skip_validation: bool = False
-    """ Skips validation of types for subconfigs and registered classes. """
-
-    deepspeed: Dict[str, Any] = {}
-    """ DeepSpeed config dict. Will be automatically filled if not provided by the user. """
-
-    model: ModelConfig
-    """ Model configuration. """
-
-    data: DataConfig
-    """ Train and eval data configuration. """
-
-    checkpoint: List[CheckpointConfig] = []
-    """ Checkpoint configurations. Multiple checkpoint engines may be used together. """
-
-    tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
-    """ Tokenizer configuration. """
-
-    logger: LoggerConfig = Field(default_factory=LoggerConfig)
-    """ Logger configuration. """
-
-    wandb: WandBConfig = Field(default_factory=WandBConfig)
-    """ Weights and Biases configuration. """
-
-    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
-    """ Scheduler configuration. """
-
-    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
-    """ Optimizer configuration. """
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
@@ -172,7 +170,7 @@ class TrainerConfig(BaseConfig):
 
         # Get type hints for this factory class. This is a list of compatible
         # classes for the given attribute field.
-        attribute_type_hints = _get_attr_type_hints(trainer_cls, attr_name)
+        attribute_type_hints = _get_class_attr_type_hints(trainer_cls, attr_name)
 
         # Convert to a dictionary as default values are the base config classes
         # and we likely need to use a different class based on the trainer type
@@ -206,7 +204,7 @@ class TrainerConfig(BaseConfig):
         config_dict["type"] = attr_cls.name
 
         # Get the config class for the factory class and creat the config
-        config_cls = _get_attr_type_hints(attr_cls, "config")[0]
+        config_cls = _get_class_attr_type_hints(attr_cls, "config")[0]
         return config_cls(**config_dict)
 
     @staticmethod
@@ -396,7 +394,7 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
             sys.path = original_sys_path
 
     trainer_cls = get_registered_trainer(trainer_type)
-    config_cls = _get_attr_type_hints(trainer_cls, "config")[0]
+    config_cls = _get_class_attr_type_hints(trainer_cls, "config")[0]
 
     config = config_cls(**config_dict)
 

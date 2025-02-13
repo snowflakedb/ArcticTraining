@@ -26,7 +26,7 @@ from arctic_training.registry.optimizer import register_optimizer_factory
 from arctic_training.registry.scheduler import register_scheduler_factory
 from arctic_training.registry.tokenizer import register_tokenizer_factory
 from arctic_training.registry.utils import AlreadyRegisteredError
-from arctic_training.registry.utils import _get_attr_type_hints
+from arctic_training.registry.utils import _get_class_attr_type_hints
 from arctic_training.registry.utils import _validate_class_attribute_set
 from arctic_training.registry.utils import _validate_class_attribute_type
 
@@ -91,7 +91,7 @@ def register_trainer(cls: Type["Trainer"], force: bool = False) -> Type["Trainer
         _validate_class_attribute_type(cls, attr, type_)
 
         # Try to register the class, skip if already registered
-        for attr_type_hint in _get_attr_type_hints(cls, attr):
+        for attr_type_hint in _get_class_attr_type_hints(cls, attr):
             try:
                 _ = register_class(attr_type_hint)
             except AlreadyRegisteredError:

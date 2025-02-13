@@ -108,7 +108,7 @@ def _validate_class_attribute_set(cls: RegistryClassTypes, attribute: str) -> No
 def _validate_class_attribute_type(
     cls: RegistryClassTypes, attribute: str, type_: Type
 ) -> None:
-    for attr_type_hint in _get_attr_type_hints(cls, attribute):
+    for attr_type_hint in _get_class_attr_type_hints(cls, attribute):
         if not issubclass(attr_type_hint, type_):
             raise TypeError(
                 f"{cls.__name__}.{attribute} must be an instance of {type_.__name__}."
@@ -116,7 +116,7 @@ def _validate_class_attribute_type(
             )
 
 
-def _get_attr_type_hints(cls: RegistryClassTypes, attribute: str) -> Tuple[Type]:
+def _get_class_attr_type_hints(cls: RegistryClassTypes, attribute: str) -> Tuple[Type]:
     cls_type_hints = get_type_hints(cls)
     if get_origin(cls_type_hints[attribute]) is Union:
         attribute_type_hints = get_args(cls_type_hints[attribute])
