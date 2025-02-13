@@ -79,7 +79,7 @@ class TrainerConfig(BaseConfig):
     loss_log_interval: int = Field(default=1, ge=0)
     """ Number of steps between logging loss. """
 
-    gradient_accumulation_steps: int = 1
+    gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """
 
     micro_batch_size: int = Field(default=1, ge=1)
@@ -161,43 +161,53 @@ class TrainerConfig(BaseConfig):
     @staticmethod
     def _get_subconfig_object(
         v: Union[Dict, BaseConfig],
-        trainer_type: str,
+        info: ValidationInfo,
         get_class_fn: Callable,
         attr_name: str,
-        skip_validation: bool = False,
     ) -> BaseConfig:
+        # Get the trainer class as it will tell us which types of factory
+        # classes (and thus configs) are default/compatible
+        trainer_type = info.data["type"]
         trainer_cls = get_registered_trainer(trainer_type)
+
+        # Get type hints for this factory class. This is a list of compatible
+        # classes for the given attribute field.
         attribute_type_hints = _get_attr_type_hints(trainer_cls, attr_name)
 
-        # If the config is a dict, we need to determine the class to instantiate
+        # Convert to a dictionary as default values are the base config classes
+        # and we likely need to use a different class based on the trainer type
+        # or user requested `type` field value.
         if isinstance(v, dict):
-            if v.get("type", ""):
-                # User explicitly specified the type
-                attr_cls = _get_attr_type_hints(get_class_fn(v["type"]), "config")[0]
-            else:
-                # User did not specify the type, use the first hint as default type
-                attr_cls = _get_attr_type_hints(attribute_type_hints[0], "config")[0]
-                v["type"] = attribute_type_hints[0].name
-            subconfig = attr_cls(**v)
+            config_dict = v
         else:
-            subconfig = v
+            config_dict = v.model_dump()
 
-        if not subconfig.type:
-            raise ValueError(
-                f"Missing 'type' field in {attr_name} config for {trainer_type}. This"
-                " is required as it cannot be inferred because multiple classes may"
-                " use the same config."
-            )
+        # Determine which attribute class to use (e.g., for `model`:
+        # HFModelFactory, LigerModelFactory, etc.)
+        if config_dict.get("type", ""):
+            # User explicitly specified the type
+            attr_cls = get_class_fn(config_dict["type"])
+        else:
+            # User did not specify the type, use the first (maybe only) hint as default type
+            attr_cls = attribute_type_hints[0]
 
-        attr_cls = get_class_fn(subconfig.type)
-        if not skip_validation and attr_cls not in attribute_type_hints:
+        # Check that the requested/resolved type is compatible with the trainer
+        if (
+            not info.data.get("skip_validation")
+            and attr_cls not in attribute_type_hints
+        ):
             raise ValueError(
                 f"{attr_cls.__name__} is not supported for {attr_name} in"
                 f" {trainer_cls.__name__}. Supported types are"
                 f" {[cls.__name__ for cls in attribute_type_hints]}."
             )
 
-        return subconfig
+        # Make sure the `type` field is set in the config dict
+        config_dict["type"] = attr_cls.name
+
+        # Get the config class for the factory class and creat the config
+        config_cls = _get_attr_type_hints(attr_cls, "config")[0]
+        return config_cls(**config_dict)
 
     @staticmethod
     def _to_list(v: Union[Any, List[Any]]) -> List[Any]:
@@ -213,17 +223,14 @@ class TrainerConfig(BaseConfig):
         info: ValidationInfo,
     ) -> List[CheckpointConfig]:
         v = cls._to_list(v)
-        trainer_type = info.data["type"]
-        skip_validation = info.data.get("skip_validation", False)
         return_list = []
         for sub_v in v:
             return_list.append(
                 cls._get_subconfig_object(
                     v=sub_v,
-                    trainer_type=trainer_type,
+                    info=info,
                     get_class_fn=get_registered_checkpoint_engine,
                     attr_name="checkpoint_engine",
-                    skip_validation=skip_validation,
                 )
             )
         return [cast(CheckpointConfig, subconfig) for subconfig in return_list]
@@ -233,14 +240,11 @@ class TrainerConfig(BaseConfig):
     def init_data_config(
         cls, v: Union[Dict, DataConfig], info: ValidationInfo
     ) -> DataConfig:
-        trainer_type = info.data["type"]
-        skip_validation = info.data.get("skip_validation", False)
         subconfig = cls._get_subconfig_object(
             v=v,
-            trainer_type=trainer_type,
+            info=info,
             get_class_fn=get_registered_data_factory,
             attr_name="data_factory",
-            skip_validation=skip_validation,
         )
         return cast(DataConfig, subconfig)
 
@@ -249,14 +253,11 @@ class TrainerConfig(BaseConfig):
     def init_model_config(
         cls, v: Union[Dict, ModelConfig], info: ValidationInfo
     ) -> ModelConfig:
-        trainer_type = info.data["type"]
-        skip_validation = info.data.get("skip_validation", False)
         subconfig = cls._get_subconfig_object(
             v=v,
-            trainer_type=trainer_type,
+            info=info,
             get_class_fn=get_registered_model_factory,
             attr_name="model_factory",
-            skip_validation=skip_validation,
         )
         return cast(ModelConfig, subconfig)
 
@@ -265,14 +266,11 @@ class TrainerConfig(BaseConfig):
     def init_optimizer_config(
         cls, v: Union[Dict, OptimizerConfig], info: ValidationInfo
     ) -> OptimizerConfig:
-        trainer_type = info.data["type"]
-        skip_validation = info.data.get("skip_validation", False)
         subconfig = cls._get_subconfig_object(
             v=v,
-            trainer_type=trainer_type,
+            info=info,
             get_class_fn=get_registered_optimizer_factory,
             attr_name="optimizer_factory",
-            skip_validation=skip_validation,
         )
         return cast(OptimizerConfig, subconfig)
 
@@ -281,14 +279,11 @@ class TrainerConfig(BaseConfig):
     def init_scheduler_config(
         cls, v: Union[Dict, SchedulerConfig], info: ValidationInfo
     ) -> SchedulerConfig:
-        trainer_type = info.data["type"]
-        skip_validation = info.data.get("skip_validation", False)
         subconfig = cls._get_subconfig_object(
             v=v,
-            trainer_type=trainer_type,
+            info=info,
             get_class_fn=get_registered_scheduler_factory,
             attr_name="scheduler_factory",
-            skip_validation=skip_validation,
         )
         return cast(SchedulerConfig, subconfig)
 
@@ -297,14 +292,11 @@ class TrainerConfig(BaseConfig):
     def init_tokenizer_config(
         cls, v: Union[Dict, TokenizerConfig], info: ValidationInfo
     ) -> TokenizerConfig:
-        trainer_type = info.data["type"]
-        skip_validation = info.data.get("skip_validation", False)
         subconfig = cls._get_subconfig_object(
             v=v,
-            trainer_type=trainer_type,
+            info=info,
             get_class_fn=get_registered_tokenizer_factory,
             attr_name="tokenizer_factory",
-            skip_validation=skip_validation,
         )
         return cast(TokenizerConfig, subconfig)
 
