@@ -30,6 +30,7 @@ from .config.optimizer import OptimizerConfig
 from .config.scheduler import SchedulerConfig
 from .config.tokenizer import TokenizerConfig
 from .config.trainer import TrainerConfig
+from .config.trainer import get_config
 from .data.factory import DataFactory
 from .data.sft_factory import SFTDataFactory
 from .data.source import DataSource

@@ -21,16 +21,21 @@ Attributes
 
 .. _trainer-attributes:
 
-There are several attributes that must be defined in the Trainer class to create
-a new custom trainer. These attributes include: :attr:`~.Trainer.name`,
-:attr:`~.Trainer.config_type`, :attr:`~.Trainer.data_factory_type`,
-:attr:`~.Trainer.model_factory_type`, :attr:`~.Trainer.checkpoint_engine_type`,
-:attr:`~.Trainer.optimizer_factory_type`,
-:attr:`~.Trainer.scheduler_factory_type`, and
-:attr:`~.Trainer.tokenizer_factory_type`.
+Creating a custom trainer starts with Inheriting from the base
+:class:`~.Trainer` class and defining the :attr:`~.Trainer.name` attribute. The
+name attribute is used to identify the trainer when registering it with
+ArcticTraining. Additionally, you can define custom types for
+:attr:`~.Trainer.config`, :attr:`~.Trainer.data_factory`,
+:attr:`~.Trainer.model_factory`, :attr:`~.Trainer.checkpoint_engine`,
+:attr:`~.Trainer.optimizer_factory`, :attr:`~.Trainer.scheduler_factory`, and
+:attr:`~.Trainer.tokenizer_factory` to specify the default factories for each
+component.
 
-These attributes are used when registering new custom trainers with
-ArcticTraining and to validate training recipes that use the trainer.
+Specify the type hint for these attributes tells ArcticTraining which building
+blocks are compatible with your custom trainer. You may define multiple
+compatible building blocks by using `typing.Union` in the type hint. When
+multiple types are specified for one of these attributes, the first is used as a
+default in the case where `type` is not specified in the input config.
 
 Properties
 ----------
@@ -92,8 +97,9 @@ in :ref:`Trainer Attributes<trainer-attributes>`. We use a custom data factory,
 SFTDataFactory, which we describe in greater detail in the :ref:`Data
 Factory<data>` section. The remainder of the attributes use the base building
 blocks from ArcticTraining. For example the model factory defaults to the
-HFModelFactory (because it is listed first in the model_factory_type attribute),
-but this trainer can work with either `HFModelFactory` or `LigerModelFactory`.
+HFModelFactory (because it is listed first in the ``model_factory`` attribute
+type hint), but this trainer can work with either `HFModelFactory` or
+`LigerModelFactory`.
 
 .. literalinclude:: ../arctic_training/trainer/sft_trainer.py
    :pyobject: SFTTrainer

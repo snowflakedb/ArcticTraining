@@ -29,7 +29,7 @@ class HFSchedulerConfig(SchedulerConfig):
 @register
 class HFSchedulerFactory(SchedulerFactory):
     name = "huggingface"
-    config_type = HFSchedulerConfig
+    config: HFSchedulerConfig
 
     def create_scheduler(self, optimizer: Any) -> Any:
         return get_scheduler(

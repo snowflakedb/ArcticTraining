@@ -16,12 +16,10 @@
 import random
 from abc import ABC
 from abc import abstractmethod
-from typing import TYPE_CHECKING
 from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Tuple
-from typing import Type
 
 import deepspeed
 import numpy as np
@@ -34,16 +32,14 @@ from transformers import set_seed
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
+from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
+from arctic_training.data.factory import DataFactory
 from arctic_training.logging import logger
-
-if TYPE_CHECKING:
-    from arctic_training.checkpoint.engine import CheckpointEngine
-    from arctic_training.data.factory import DataFactory
-    from arctic_training.model.factory import ModelFactory
-    from arctic_training.optimizer.factory import OptimizerFactory
-    from arctic_training.scheduler.factory import SchedulerFactory
-    from arctic_training.tokenizer.factory import TokenizerFactory
+from arctic_training.model.factory import ModelFactory
+from arctic_training.optimizer.factory import OptimizerFactory
+from arctic_training.scheduler.factory import SchedulerFactory
+from arctic_training.tokenizer.factory import TokenizerFactory
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
@@ -62,48 +58,48 @@ class Trainer(ABC, CallbackMixin):
     trainer to be used.
     """
 
-    config_type: Type[TrainerConfig]
+    config: TrainerConfig
     """
     The type of the config class that the trainer uses. This should be a
     subclass of TrainerConfig and add any trainer-specific fields.
     """
 
-    data_factory_type: List[Type["DataFactory"]]
+    data_factory: DataFactory
     """
     A List of valid data factory types that the trainer can use. These should
     inherit from DataFactory. The first item in the list will be used as the
     default if the type is not explicitly set in the YAML config.
     """
 
-    model_factory_type: List[Type["ModelFactory"]]
+    model_factory: ModelFactory
     """
     A List of valid model factory types that the trainer can use. These should
     inherit from ModelFactory. The first item in the list will be used as the
     default if the type is not explicitly set in the YAML config.
     """
 
-    checkpoint_engine_type: List[Type["CheckpointEngine"]]
+    checkpoint_engine: CheckpointEngine
     """
     A List of valid checkpoint engine types that the trainer can use. These
     should inherit from CheckpointEngine. The first item in the list will be
     used as the default if the type is not explicitly set in the YAML config.
     """
 
-    optimizer_factory_type: List[Type["OptimizerFactory"]]
+    optimizer_factory: OptimizerFactory
     """
     A List of valid optimizer factory types that the trainer can use. These
     should inherit from OptimizerFactory. The first item in the list will be
     used as the default if the type is not explicitly set in the YAML config.
     """
 
-    scheduler_factory_type: List[Type["SchedulerFactory"]]
+    scheduler_factory: SchedulerFactory
     """
     A List of valid scheduler factory types that the trainer can use. These
     should inherit from SchedulerFactory. The first item in the list will be
     used as the default if the type is not explicitly set in the YAML config.
     """
 
-    tokenizer_factory_type: List[Type["TokenizerFactory"]]
+    tokenizer_factory: TokenizerFactory
     """
     A List of valid tokenizer factory types that the trainer can use. These
     should inherit from TokenizerFactory. The first item in the list will be
@@ -118,7 +114,7 @@ class Trainer(ABC, CallbackMixin):
     `post-` for `init`, `train`, `epoch`, `step`, and `checkpoint`.
     """
 
-    def __init__(self, config: "TrainerConfig") -> None:
+    def __init__(self, config: TrainerConfig) -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
         self.epoch_idx = 0

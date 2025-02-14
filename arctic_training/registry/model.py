@@ -19,13 +19,13 @@ from typing import Type
 from typing import Union
 
 from arctic_training.logging import logger
+from arctic_training.registry.utils import AlreadyRegisteredError
+from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
+from arctic_training.registry.utils import _validate_method_definition
 
 if TYPE_CHECKING:
     from arctic_training.model.factory import ModelFactory
-
-from arctic_training.registry.utils import AlreadyRegisteredError
-from arctic_training.registry.utils import _validate_class_attribute_set
-from arctic_training.registry.utils import _validate_method_definition
 
 _supported_model_factory_registry: Dict[str, Type["ModelFactory"]] = {}
 
@@ -34,14 +34,17 @@ def register_model_factory(
     cls: Type["ModelFactory"], force: bool = False
 ) -> Type["ModelFactory"]:
     global _supported_model_factory_registry
+    from arctic_training.config.model import ModelConfig
     from arctic_training.model.factory import ModelFactory
 
     if not issubclass(cls, ModelFactory):
         raise ValueError(
-            f"New Model Factory {cls.__name__} clss must be a subclass of ModelFactory."
+            f"New Model Factory {cls.__name__} class must be a subclass of"
+            " ModelFactory."
         )
 
     _validate_class_attribute_set(cls, "name")
+    _validate_class_attribute_type(cls, "config", ModelConfig)
     _validate_method_definition(cls, "create_config", ["self"])
     _validate_method_definition(cls, "create_model", ["self", "model_config"])
 

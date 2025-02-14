@@ -17,6 +17,7 @@ import pytest
 from utils import models_are_equal
 
 from arctic_training.config.trainer import get_config
+from arctic_training.registry.trainer import get_registered_trainer
 
 
 @pytest.mark.cpu
@@ -24,6 +25,7 @@ def test_ds_engine(tmp_path):
     config_dict = {
         "type": "sft",
         "exit_iteration": 2,
+        "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
@@ -49,7 +51,8 @@ def test_ds_engine(tmp_path):
     }
 
     config = get_config(config_dict)
-    trainer = config.trainer
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
 
     # Force checkpoint to be saved despite no training happening
     trainer.training_finished = True
@@ -60,7 +63,8 @@ def test_ds_engine(tmp_path):
 
     config_dict["seed"] = 0  # Make sure newly initialized model is different
     config = get_config(config_dict)
-    trainer = config.trainer
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
 
     loaded_model = trainer.model
     assert models_are_equal(original_model, loaded_model), "Models are not equal"
