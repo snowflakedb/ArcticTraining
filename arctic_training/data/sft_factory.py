@@ -28,7 +28,6 @@ from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
-from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.registry import register
 
@@ -249,7 +248,7 @@ def pack_dataset(self, dataset: Dataset) -> Dataset:
 @register
 class SFTDataFactory(DataFactory):
     name = "sft"
-    config_type = SFTDataConfig
+    config: SFTDataConfig
     callbacks = [
         ("post-load", filter_dataset_length),
         ("post-load", pack_dataset),

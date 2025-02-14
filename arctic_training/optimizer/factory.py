@@ -18,7 +18,6 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Optional
-from typing import Type
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
@@ -38,7 +37,7 @@ class OptimizerFactory(ABC, CallbackMixin):
     to identify which optimizer factory to be used.
     """
 
-    config_type: Type[OptimizerConfig] = OptimizerConfig
+    config: OptimizerConfig
     """
     The type of config class that the optimizer factory uses. This should
     contain all optimizer-specific parameters.
@@ -47,7 +46,7 @@ class OptimizerFactory(ABC, CallbackMixin):
     def __init__(
         self,
         trainer: "Trainer",
-        optimizer_config: Optional["OptimizerConfig"] = None,
+        optimizer_config: Optional[OptimizerConfig] = None,
     ) -> None:
         if optimizer_config is None:
             optimizer_config = trainer.config.optimizer

@@ -88,7 +88,7 @@ class MLPSpeculatorModelConfig(ModelConfig):
 
 class MLPSpeculatorModelFactory(HFModelFactory):
     name = "spec-decode"
-    config_type = MLPSpeculatorModelConfig
+    config: MLPSpeculatorModelConfig
 
     def post_create_model_callback(self, model):
         hidden_size = model.lm_head.in_features
@@ -228,9 +228,9 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
 @register
 class MLPSpeculatorTrainer(SFTTrainer):
     name = "spec-decode"
-    config_type = MLPSpeculatorTrainerConfig
-    model_factory_type = [MLPSpeculatorModelFactory]
-    checkpoint_engine_type = [MLPSpeculatorCheckpointEngine]
+    config: MLPSpeculatorTrainerConfig
+    model_factory: MLPSpeculatorModelFactory
+    checkpoint_engine: MLPSpeculatorCheckpointEngine
 
     def generate(
         self,

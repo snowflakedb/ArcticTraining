@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 from arctic_training.logging import logger
 from arctic_training.registry.utils import AlreadyRegisteredError
 from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
 
 _supported_checkpoint_registry: Dict[str, Type["CheckpointEngine"]] = {}
 
@@ -33,6 +34,7 @@ def register_checkpoint_engine(
 ) -> Type["CheckpointEngine"]:
     global _supported_checkpoint_registry
     from arctic_training.checkpoint.engine import CheckpointEngine
+    from arctic_training.config.checkpoint import CheckpointConfig
 
     if not issubclass(cls, CheckpointEngine):
         raise ValueError(
@@ -41,7 +43,7 @@ def register_checkpoint_engine(
         )
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", CheckpointConfig)
 
     if cls.name in _supported_checkpoint_registry:
         if not force:

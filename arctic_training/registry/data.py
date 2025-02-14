@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 from arctic_training.logging import logger
 from arctic_training.registry.utils import AlreadyRegisteredError
 from arctic_training.registry.utils import _validate_class_attribute_set
+from arctic_training.registry.utils import _validate_class_attribute_type
 from arctic_training.registry.utils import _validate_method_definition
 
 _supported_data_source_registry: Dict[str, Type["DataSource"]] = {}
@@ -56,9 +57,10 @@ def register_data_factory(
     cls: Type["DataFactory"], force: bool = False
 ) -> Type["DataFactory"]:
     global _supported_data_factory_registry
+    from arctic_training.config.data import DataConfig
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", DataConfig)
     _validate_method_definition(cls, "load", ["self", "data_sources", "split"])
     _validate_method_definition(cls, "tokenize", ["self", "tokenizer", "dataset"])
     _validate_method_definition(cls, "split_data", ["self", "training_data"])
