@@ -75,7 +75,7 @@ class DataSource(ABC, CallbackMixin):
 
     @property
     def cache_path_args(self) -> Dict:
-        return self.config.model_fields
+        return self.config.model_dump()
 
     @callback_wrapper("load")
     @abstractmethod

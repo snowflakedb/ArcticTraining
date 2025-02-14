@@ -18,11 +18,15 @@ from typing import Any
 from typing import Dict
 
 from datasets import load_dataset
+from pydantic import model_validator
+from typing_extensions import Self
 
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
+from arctic_training.logging import logger
 from arctic_training.registry import register
+from arctic_training.registry.data import get_registered_data_source
 
 
 class HFDataSourceConfig(DataSourceConfig):
@@ -32,16 +36,29 @@ class HFDataSourceConfig(DataSourceConfig):
     kwargs: Dict[str, Any] = {}
     """ Keyword arguments to pass to the datasets.load_dataset function. """
 
-
-def set_dataset_name(self, config: HFDataSourceConfig) -> HFDataSourceConfig:
-    """Set the dataset name from the config. This is a helper function for the dataset-specific classes we define below."""
-    if not config.dataset_name:
-        if self.name == "huggingface":
-            raise ValueError(
-                "Must provide a dataset name for HuggingFace data sources."
-            )
-        config.dataset_name = self.name
-    return config
+    @model_validator(mode="after")
+    def set_dataset_name(self) -> Self:
+        if self.dataset_name == "":
+            try:
+                data_source = get_registered_data_source(self.type)
+                logger.warning(
+                    f"No dataset name was provided for {data_source.name}. Auto-filling"
+                    " value based on selected dataset for backwargs compatibility."
+                    " However this feature will be removed in a future version of"
+                    " ArcticTraining."
+                )
+                if data_source.name == "huggingface":
+                    raise ValueError(
+                        "Must provide a dataset name for HuggingFace data sources."
+                    )
+                self.dataset_name = data_source.name
+            except ValueError as e:
+                logger.error(
+                    "No dataset name was provided and failed to infer one from data"
+                    f" source type {self.type}."
+                )
+                raise e
+        return self
 
 
 @register
@@ -50,10 +67,11 @@ class HFDataSource(DataSource):
 
     name = "huggingface"
     config: HFDataSourceConfig
-    callbacks = [("pre-init", set_dataset_name)]
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
-        return load_dataset(config.dataset_name, split=split, **config.kwargs)
+        return load_dataset(config.dataset_name, split=split, **config.kwargs).select(
+            range(1000)
+        )
 
 
 @register

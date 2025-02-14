@@ -162,7 +162,7 @@ class DataFactory(ABC, CallbackMixin):
             data_length = torch.zeros(self.world_size).cuda()
             data_length[self.global_rank] = local_length
             torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
-            shortest_length = data_length.min().cpu().item()
+            shortest_length = int(data_length.min().cpu().item())
             del data_length  # clean the memory
         else:
             shortest_length = local_length
