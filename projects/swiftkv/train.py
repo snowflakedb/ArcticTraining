@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from typing import Any
+from typing import Union
 
 import llama_swiftkv
 import torch
@@ -37,7 +38,7 @@ class SwiftKVModelConfig(ModelConfig):
 
 class SwiftKVModelFactory(HFModelFactory):
     name = "swiftkv"
-    config_type = SwiftKVModelConfig
+    config: SwiftKVModelConfig
 
     def post_create_config_callback(self, hf_config):
         llama_swiftkv.register_auto()
@@ -95,9 +96,9 @@ class SwiftKVTrainerConfig(TrainerConfig):
 @register
 class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
-    config_type = SwiftKVTrainerConfig
-    model_factory_type = SwiftKVModelFactory
-    checkpoint_engine_type = HFCheckpointEngine
+    config: SwiftKVTrainerConfig
+    model_factory: SwiftKVModelFactory
+    checkpoint_engine: Union[HFCheckpointEngine]
 
     def loss(self, batch: Any) -> torch.Tensor:
         batch = to_device(batch, self.device)

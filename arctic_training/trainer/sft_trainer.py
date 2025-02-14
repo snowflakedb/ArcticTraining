@@ -14,12 +14,12 @@
 # limitations under the License.
 
 from typing import Dict
+from typing import Union
 
 import torch
 
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
-from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
@@ -40,13 +40,12 @@ def to_device(batch: Dict, device: str) -> Dict:
 @register
 class SFTTrainer(Trainer):
     name = "sft"
-    config_type = TrainerConfig
-    data_factory_type = [SFTDataFactory]
-    model_factory_type = [HFModelFactory, LigerModelFactory]
-    checkpoint_engine_type = [DSCheckpointEngine, HFCheckpointEngine]
-    optimizer_factory_type = [FusedAdamOptimizerFactory]
-    scheduler_factory_type = [HFSchedulerFactory]
-    tokenizer_factory_type = [HFTokenizerFactory]
+    data_factory: SFTDataFactory
+    model_factory: Union[HFModelFactory, LigerModelFactory]
+    checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
+    optimizer_factory: Union[FusedAdamOptimizerFactory]
+    scheduler_factory: Union[HFSchedulerFactory]
+    tokenizer_factory: Union[HFTokenizerFactory]
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)

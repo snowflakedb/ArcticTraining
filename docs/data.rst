@@ -39,9 +39,9 @@ datasets used in the training pipeline.
 Attributes
 ^^^^^^^^^^
 
-To define a custom data factory, you must subclass the DataFactory and define
-two attributes: :attr:`~.DataFactory.name` and
-:attr:`~.DataFactory.config_type`.
+To define a custom data factory, you must subclass the DataFactory, define the
+:attr:`~.DataFactory.name` attribute, and give a type hint for the
+:attr:`~.DataFactory.config` attribute.
 
 Properties
 ^^^^^^^^^^

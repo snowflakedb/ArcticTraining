@@ -18,8 +18,8 @@ Attributes
 Similar to other Factory classes in ArcticTraining, the TokenizerFactory class
 must have a :attr:`~.TokenizerFactory.name` attribute that is used to identify
 the factory when registering it with ArcticTraining and a
-:attr:`~.TokenizerFactory.config_type` attribute that is used to validate the
-config object passed to the factory.
+:attr:`~.TokenizerFactory.config` attribute type hint that is used to validate
+the config object passed to the factory.
 
 Properties
 ----------
