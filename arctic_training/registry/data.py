@@ -35,10 +35,12 @@ _supported_data_factory_registry: Dict[str, Type["DataFactory"]] = {}
 def register_data_source(
     cls: Type["DataSource"], force: bool = False
 ) -> Type["DataSource"]:
+    from arctic_training.config.data import DataSourceConfig
+
     global _supported_data_source_registry
 
     _validate_class_attribute_set(cls, "name")
-    _validate_class_attribute_set(cls, "config_type")
+    _validate_class_attribute_type(cls, "config", DataSourceConfig)
     _validate_method_definition(cls, "load", ["self", "config", "split"])
 
     if cls.name in _supported_data_source_registry and not force:
@@ -56,8 +58,9 @@ def register_data_source(
 def register_data_factory(
     cls: Type["DataFactory"], force: bool = False
 ) -> Type["DataFactory"]:
-    global _supported_data_factory_registry
     from arctic_training.config.data import DataConfig
+
+    global _supported_data_factory_registry
 
     _validate_class_attribute_set(cls, "name")
     _validate_class_attribute_type(cls, "config", DataConfig)

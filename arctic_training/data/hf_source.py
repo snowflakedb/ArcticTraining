@@ -49,7 +49,7 @@ class HFDataSource(DataSource):
     """Base DataSource class for loading data with HuggingFace datasets library."""
 
     name = "huggingface"
-    config_type = HFDataSourceConfig
+    config: HFDataSourceConfig
     callbacks = [("pre-init", set_dataset_name)]
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
@@ -121,7 +121,7 @@ class MetaMathQA(HFDataSource):
 
 
 @register
-class MagicoderOSSInstruct75k(DataSource):
+class MagicoderOSSInstruct75k(HFDataSource):
     name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
@@ -149,9 +149,8 @@ class MagicoderOSSInstruct75k(DataSource):
 
 
 @register
-class LMSysChat1M(DataSource):
+class LMSysChat1M(HFDataSource):
     name = "lmsys/lmsys-chat-1m"
-    data_factory_type = "sft"
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(

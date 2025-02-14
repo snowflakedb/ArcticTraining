@@ -33,9 +33,10 @@ _supported_model_factory_registry: Dict[str, Type["ModelFactory"]] = {}
 def register_model_factory(
     cls: Type["ModelFactory"], force: bool = False
 ) -> Type["ModelFactory"]:
-    global _supported_model_factory_registry
     from arctic_training.config.model import ModelConfig
     from arctic_training.model.factory import ModelFactory
+
+    global _supported_model_factory_registry
 
     if not issubclass(cls, ModelFactory):
         raise ValueError(
