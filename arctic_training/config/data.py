@@ -15,11 +15,10 @@
 
 from pathlib import Path
 from typing import TYPE_CHECKING
-from typing import Generic
+from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Type
-from typing import TypeVar
 from typing import Union
 
 from pydantic import field_validator
@@ -49,17 +48,14 @@ class DataSourceConfig(BaseConfig):
     """ Whether to shard the data. """
 
 
-TDataSourceConfig = TypeVar("TDataSourceConfig", bound=DataSourceConfig)
-
-
-class DataConfig(BaseConfig, Generic[TDataSourceConfig]):
+class DataConfig(BaseConfig):
     type: str = ""
     """ Data factory type. Defaults to the `data_factory_type` in the trainer. """
 
-    sources: List[TDataSourceConfig]
+    sources: List[DataSourceConfig]
     """ List of data sources to use for training. These must be registered `DataSource`. """
 
-    eval_sources: List[TDataSourceConfig] = []
+    eval_sources: List[DataSourceConfig] = []
     """ list of data sources to use for evaluation. These must be registered `DataSource`. """
 
     train_eval_split: Tuple[float, float] = (1.0, 0.0)
@@ -86,8 +82,8 @@ class DataConfig(BaseConfig, Generic[TDataSourceConfig]):
 
     @field_validator("sources", "eval_sources", mode="before")
     def create_source_config_from_name(
-        cls, v: List[Union[str, TDataSourceConfig]]
-    ) -> List[TDataSourceConfig]:
+        cls, v: List[Union[str, Dict, DataSourceConfig]]
+    ) -> List[DataSourceConfig]:
         data_sources = []
         for source in v:
             if isinstance(source, str):
@@ -124,6 +120,3 @@ class DataConfig(BaseConfig, Generic[TDataSourceConfig]):
             )
         assert sum(self.train_eval_split) == 1.0, "train_eval_split should sum to 1.0."
         return self
-
-
-TDataConfig = TypeVar("TDataConfig", bound=DataConfig)
