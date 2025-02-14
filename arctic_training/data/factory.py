@@ -18,7 +18,6 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
-from typing import Generic
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -32,18 +31,17 @@ from transformers import PreTrainedTokenizerBase
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
+from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
 from arctic_training.registry.data import get_registered_data_source
 
 if TYPE_CHECKING:
-    from arctic_training.trainer import Trainer
     from arctic_training.data.source import DataSource
+    from arctic_training.trainer import Trainer
 
-from arctic_training.config.data import TDataConfig
 
-
-class DataFactory(ABC, CallbackMixin, Generic[TDataConfig]):
+class DataFactory(ABC, CallbackMixin):
     """Base DataFactory class for loading training and evaluation data."""
 
     name: str

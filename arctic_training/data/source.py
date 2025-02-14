@@ -17,7 +17,6 @@ from abc import ABC
 from abc import abstractmethod
 from pathlib import Path
 from typing import Dict
-from typing import Generic
 from typing import Optional
 
 from datasets import disable_caching
@@ -25,24 +24,24 @@ from datasets import load_from_disk
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.config.data import TDataSourceConfig
+from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
 
 
-class DataSource(ABC, CallbackMixin, Generic[TDataSourceConfig]):
+class DataSource(ABC, CallbackMixin):
     """Base DataSource class for loading training and evaluation data."""
 
     name: str
     """ Name of the DataSource. """
 
-    config_type: TDataSourceConfig
+    config: DataSourceConfig
     """
     The type of the DataSourceConfig object that this DataSource uses. Any
     DataSource-specific options should be specified in this class.
     """
 
-    def __init__(self, data_factory: DataFactory, config: TDataSourceConfig) -> None:
+    def __init__(self, data_factory: DataFactory, config: DataSourceConfig) -> None:
         self._data_factory = data_factory
         self.config = config
 
@@ -80,6 +79,6 @@ class DataSource(ABC, CallbackMixin, Generic[TDataSourceConfig]):
 
     @callback_wrapper("load")
     @abstractmethod
-    def load(self, config: TDataSourceConfig, split: str) -> DatasetType:
+    def load(self, config: DataSourceConfig, split: str) -> DatasetType:
         """Method to load the data. It should return a tokenized HuggingFace Dataset or IterableDataset."""
         raise NotImplementedError("load must be implemented in subclass")

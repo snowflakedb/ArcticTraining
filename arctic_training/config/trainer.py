@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
 from typing import Dict
-from typing import Generic
 from typing import List
 from typing import Union
 from typing import cast
@@ -53,8 +52,6 @@ from arctic_training.registry.scheduler import get_registered_scheduler_factory
 from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
 from arctic_training.registry.trainer import get_registered_trainer
 from arctic_training.registry.utils import _get_class_attr_type_hints
-from arctic_training.utils import get_local_rank
-from arctic_training.utils import get_world_size
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -63,7 +60,7 @@ TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
-class TrainerConfig(BaseConfig, Generic[TDataConfig]):
+class TrainerConfig(BaseConfig):
     """Base Trainer Configuration."""
 
     type: str = TRAINER_DEFAULT
@@ -81,7 +78,7 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
     """ Tokenizer configuration. """
 
-    data: TDataConfig
+    data: DataConfig
     """ Train and eval data configuration. """
 
     logger: LoggerConfig = Field(default_factory=LoggerConfig)
@@ -297,12 +294,6 @@ class TrainerConfig(BaseConfig, Generic[TDataConfig]):
             assert (
                 self.eval_frequency > 0
             ), "eval_frequency must be set if eval dataset is provided."
-        return self
-
-    @model_validator(mode="after")
-    def set_tokenizer(self) -> Self:
-        if not self.tokenizer.name_or_path:
-            self.tokenizer.name_or_path = self.model.name_or_path
         return self
 
     @model_validator(mode="after")

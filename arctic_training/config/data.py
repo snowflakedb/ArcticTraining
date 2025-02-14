@@ -26,11 +26,11 @@ from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
+from arctic_training.config.base import BaseConfig
 from arctic_training.logging import logger
 from arctic_training.registry.data import get_registered_data_factory
 from arctic_training.registry.data import get_registered_data_source
-
-from .base import BaseConfig
+from arctic_training.registry.utils import _get_class_attr_type_hints
 
 if TYPE_CHECKING:
     from arctic_training.data.factory import DataFactory
@@ -92,7 +92,8 @@ class DataConfig(BaseConfig, Generic[TDataSourceConfig]):
         for source in v:
             if isinstance(source, str):
                 data_source_cls = get_registered_data_source(source)
-                data_sources.append(data_source_cls.config_type(type=source))
+                config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
+                data_sources.append(config_cls(type=source))
             else:
                 data_sources.append(source)
         return data_sources

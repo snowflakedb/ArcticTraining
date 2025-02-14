@@ -86,7 +86,9 @@ class SlimOrca(HFDataSource):
             }
 
         return dataset.map(
-            process_example, num_proc=self.config.num_proc, desc="Loading slim orca"
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading slim orca",
         )
 
 
