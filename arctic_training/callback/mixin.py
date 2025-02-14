@@ -56,7 +56,7 @@ def callback_wrapper(name: str):
 class CallbackMixin:
     """A mixin class that provides callback functionality to a class."""
 
-    _class_callbacks: Set[Tuple[str, Callable]] = set()
+    _class_callbacks: List[Tuple[str, Callable]] = []
 
     _initialized_callbacks: List[Callback] = []
 
@@ -89,7 +89,10 @@ class CallbackMixin:
         cls._rewrap_class_methods()
 
         # Accumulate callbacks from parent classes
-        cls._class_callbacks = cls._class_callbacks.union(cls.callbacks)
+        cls._class_callbacks = cls._class_callbacks.copy()
+        cls._class_callbacks.extend(
+            [cb for cb in cls.callbacks if cb not in cls._class_callbacks]
+        )
 
     @classmethod
     def _rewrap_class_methods(cls: Type["CallbackMixin"]) -> None:
@@ -129,7 +132,7 @@ class CallbackMixin:
             match = callback_re.match(name)
             if match:
                 event = f"{match.group(1)}-{match.group(2).replace('_', '-')}"
-                callbacks.add((event, member))
+                callbacks.append((event, member))
 
         return callbacks
 

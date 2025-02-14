@@ -69,9 +69,7 @@ class HFDataSource(DataSource):
     config: HFDataSourceConfig
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
-        return load_dataset(config.dataset_name, split=split, **config.kwargs).select(
-            range(1000)
-        )
+        return load_dataset(config.dataset_name, split=split, **config.kwargs)
 
 
 @register

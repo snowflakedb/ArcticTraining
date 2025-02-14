@@ -173,7 +173,10 @@ class DataFactory(ABC, CallbackMixin):
     def load(self, data_sources: List["DataSource"], split: str) -> DatasetType:
         datasets = []
         for data_source in data_sources:
-            cache_path = self._get_source_cache_path(data_source)
+            if self.config.use_data_cache:
+                cache_path = self._get_source_cache_path(data_source)
+            else:
+                cache_path = None
             dataset = data_source(split, cache_path=cache_path)
             datasets.append(dataset)
         dataset = concatenate_datasets(datasets)
