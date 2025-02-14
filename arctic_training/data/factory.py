@@ -67,7 +67,7 @@ class DataFactory(ABC, CallbackMixin):
         datasets: Dict[str, DatasetType] = {}
         for split in ("train", "eval"):
             data_sources = self._get_data_sources(split=split)
-            if not data_sources:
+            if len(data_sources) == 0:
                 datasets[split] = None
                 continue
             cache_path = self._get_processed_data_cache_path(data_sources)
