@@ -33,6 +33,7 @@ from arctic_training.registry.utils import _get_class_attr_type_hints
 
 if TYPE_CHECKING:
     from arctic_training.data.factory import DataFactory
+    from arctic_training.data.source import DataSource
 
 
 class DataSourceConfig(BaseConfig):
@@ -46,6 +47,10 @@ class DataSourceConfig(BaseConfig):
 
     shard: bool = True
     """ Whether to shard the data. """
+
+    @property
+    def data_source(self) -> Type["DataSource"]:
+        return get_registered_data_source(self.type)
 
 
 class DataConfig(BaseConfig):

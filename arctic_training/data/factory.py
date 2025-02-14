@@ -34,7 +34,6 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
-from arctic_training.registry.data import get_registered_data_source
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
@@ -153,9 +152,8 @@ class DataFactory(ABC, CallbackMixin):
 
         data_sources = []
         for config in data_source_configs:
-            data_source_cls = get_registered_data_source(name_or_class=config.type)
-            data_sources.append(data_source_cls(self, config))
-
+            data_source = config.data_source(data_factory=self, config=config)
+            data_sources.append(data_source)
         return data_sources
 
     def _truncate_data(self, dataset: DatasetType) -> DatasetType:

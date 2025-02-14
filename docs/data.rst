@@ -18,8 +18,8 @@ Attributes
 ^^^^^^^^^^
 
 To define a custom data source, you must subclass the DataSource and define the
-following attributes: :attr:`~.DataSource.name` and
-:attr:`~.DataSource.config_type`.
+:attr:`~.DataSource.name` attribute and give a type hint for the
+:attr:`~.DataSource.config` attribute.
 
 Methods
 ^^^^^^^
@@ -99,7 +99,7 @@ attribute and they are run on the concatenated datasets returned from the
     from arctic_training import logger
     class SFTDataFactory(DataFactory):
         name = "sft"
-        config_type = SFTDataConfig
+        config: SFTDataConfig
         callbacks = [
             ("post-load", filter_dataset_length),
             ("post-load", pack_dataset)

@@ -19,7 +19,6 @@ from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
 from arctic_training import register
-from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_source import UltraChat200K
 from arctic_training.model.hf_factory import HFModelFactory
@@ -66,7 +65,6 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
 @register
 class NoOpDataFactory(DataFactory):
     name = "noop"
-    config_type = DataConfig
 
     def __call__(self):
         return None, None

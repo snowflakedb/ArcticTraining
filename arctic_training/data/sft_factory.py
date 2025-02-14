@@ -300,6 +300,7 @@ class SFTDataFactory(DataFactory):
             return_offsets_mapping=mask_inputs,
             add_special_tokens=False,
         )
+
         if mask_inputs:
             assistant_ranges = cls.get_assistant_start_end_indices(
                 messages, conversation_text
@@ -309,14 +310,9 @@ class SFTDataFactory(DataFactory):
             conversation_ids["labels"] = labels
             # compare_messages_with_labels(split_list_by_specific_num(conversation_ids["labels"]), messages, tokenizer)
             del conversation_ids["offset_mapping"]
-
         else:
-            conversation_ids = tokenizer(
-                conversation_text,
-                return_offsets_mapping=mask_inputs,
-                add_special_tokens=False,
-            )
             conversation_ids["labels"] = conversation_ids["input_ids"]
+
         return conversation_ids
 
     @staticmethod

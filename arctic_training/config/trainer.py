@@ -302,6 +302,14 @@ class TrainerConfig(BaseConfig):
             self.tokenizer.name_or_path = self.model.name_or_path
         return self
 
+    @field_validator("logger", mode="after")
+    @classmethod
+    def initialize_logger(cls, v: LoggerConfig) -> LoggerConfig:
+        from arctic_training.logging import setup_logger
+
+        setup_logger(v)
+        return v
+
     @model_validator(mode="after")
     def build_deepspeed_config(self) -> Self:
         ds_config = self.deepspeed
@@ -321,10 +329,10 @@ class TrainerConfig(BaseConfig):
             },
         )
         if "bfloat16" not in ds_config:
-            if self.model.dtype == DType.BF16.value:
+            if self.model.dtype == DType.BF16:
                 ds_config["bfloat16"] = {"enabled": True}
         if "fp16" not in ds_config:
-            if self.model.dtype == DType.FP16.value:
+            if self.model.dtype == DType.FP16:
                 ds_config["fp16"] = {"enabled": True}
         ds_config["gradient_clipping"] = ds_config.get("gradient_clipping", 1.0)
         ds_config["prescale_gradients"] = ds_config.get("prescale_gradients", False)
