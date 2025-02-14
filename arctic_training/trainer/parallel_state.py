@@ -174,8 +174,16 @@ def initialize_model_parallel(
 
     rank = torch.distributed.get_rank()
 
+
     # Build the data-parallel groups.
     global _DATA_PARALLEL_GROUP
+
+    # print(f"mpu trace on rank {torch.distributed.get_rank()}")   
+    # print(f"{rank} dp group {_DATA_PARALLEL_GROUP}")   
+    # import traceback
+    # traceback.print_stack(limit=6)
+
+
     global _DATA_PARALLEL_GROUP_GLOO
     global _DATA_PARALLEL_GLOBAL_RANKS
     assert _DATA_PARALLEL_GROUP is None, 'data parallel group is already initialized'

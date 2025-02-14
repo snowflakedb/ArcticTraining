@@ -50,5 +50,11 @@ class SFTTrainer(Trainer):
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
         outputs = self.model(**batch, use_cache=False)
+
+        # print(outputs)
+        # output = self.tokenizer.batch_decode(outputs)
+        # #if self.global_rank == 0:
+        # print(f"RANK {self.global_rank}: {output}")
+
         loss = outputs.loss
         return loss
