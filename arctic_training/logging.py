@@ -13,10 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 import os
 import sys
 from functools import partialmethod
+from typing import Optional
+from typing import Union
 
 from deepspeed.utils import logger as ds_logger
 from loguru import logger
@@ -26,6 +29,8 @@ from typing_extensions import TYPE_CHECKING
 from .utils import get_local_rank
 
 if TYPE_CHECKING:
+    from types import FrameType
+
     from arctic_training.config.logger import LoggerConfig
 
 _logger_setup: bool = False
@@ -38,6 +43,70 @@ LOG_FORMAT = (
     " <level>{message}</level>"
     % get_local_rank()
 )
+
+
+class InterceptHandler(logging.Handler):
+    """Handler to bridge Python's builtin logging messages into Loguru.
+
+    See: https://github.com/Delgan/loguru/blob/master/README.md#entirely-compatible-with-standard-logging
+    """
+
+    @staticmethod
+    def unwind_interpreter_frames_until_logging_origin() -> int:
+        """Finds the relative stack frame depth of the most recent call-site to
+        a logging function relative to the caller of this function.
+
+        To do this, we unwind interpreter frames from the frame of the caller of
+        this function all the way until the part of execution before we got into
+        code inside the logging module itself (i.e. we go back until the filename
+        associated with the frame is no longer something like
+        `/usr/lib/python3.10/logging/__init__.py`).
+        """
+        # Jump back to the frame of the caller of this function.
+        current_frame = inspect.currentframe()
+        assert current_frame is not None
+        caller_frame = current_frame.f_back
+        assert caller_frame is not None
+
+        # Walk back up the stack until we get out of the logging module.
+        frame: Optional["FrameType"] = caller_frame
+        depth = 0
+        while frame:
+            filename = frame.f_code.co_filename
+            is_logging = filename == logging.__file__
+            is_frozen = "importlib" in filename and "_bootstrap" in filename
+            if depth > 0 and not (is_logging or is_frozen):
+                break
+            frame = frame.f_back
+            depth += 1
+
+        return depth
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Find the depth of the stack frame where the logging originated.
+        log_origin_depth = self.unwind_interpreter_frames_until_logging_origin()
+
+        # Attach origin and exception information to our logging.
+        logger_opt = logger.opt(depth=log_origin_depth, exception=record.exc_info)
+
+        # Try to recognize the level of the record in loguru terms.
+        try:
+            level: Union[str, int] = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        # Pass the log record into loguru.
+        logger_opt.log(level, record.getMessage())
+
+
+def redirect_builtin_logging_and_set_level(level: str) -> None:
+    """Sets the level of built-in Python logging to the same as our `loguru`-based
+    logging specification, then redirects all logs flowing through the root log
+    handler to our `loguru` logger.
+    """
+    root_logger = logging.getLogger()
+    root_logger.addHandler(InterceptHandler())
+    root_logger.setLevel(level)
 
 
 def set_dependencies_logger_level(level: str) -> None:
@@ -79,10 +148,10 @@ def setup_logger(config: "LoggerConfig") -> None:
             level=config.level,
         )
         logger.info("Logger enabled")
-        set_dependencies_logger_level(config.level)
+        redirect_builtin_logging_and_set_level(config.level)
     else:
         tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
-        set_dependencies_logger_level("ERROR")
+        redirect_builtin_logging_and_set_level("ERROR")
         sys.stdout = open(os.devnull, "w")
         sys.stderr = open(os.devnull, "w")
 

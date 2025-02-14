@@ -36,6 +36,7 @@ from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.logging import logger
+from arctic_training.logging import setup_logger
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -268,6 +269,7 @@ class Trainer(ABC, CallbackMixin):
         """
         Main training loop. Calls the epoch method for each epoch of training.
         """
+        setup_logger(self.config.logger)
         try:
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
