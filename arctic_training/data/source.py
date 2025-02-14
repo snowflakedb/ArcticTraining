@@ -51,9 +51,9 @@ class DataSource(ABC, CallbackMixin):
             return load_from_disk(cache_path.as_posix())
 
         dataset = self.load(self.config, split)
-        if self.config.tokenize:
-            dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.shard:
+            dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
+        if self.config.tokenize:
             dataset = self.data_factory.tokenize(self.data_factory.tokenizer, dataset)
 
         if cache_path is not None:
