@@ -164,12 +164,9 @@ def packing_sft_dataset(
 ) -> Dataset:
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
-    train_dataset: Dict[str, List] = {
-        key: [] for key in ("input_ids", "labels", "position_ids", "attention_mask")
-    }
-    example: Dict[str, List] = {
-        key: [] for key in ("input_ids", "labels", "position_ids", "attention_mask")
-    }
+    ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
+    example: Dict[str, List] = {key: [] for key in ds_keys}
 
     # pack multiple samples into one sample
     # for data in dataset:
@@ -195,10 +192,7 @@ def packing_sft_dataset(
             for key in train_dataset.keys():
                 train_dataset[key].append(example[key])
 
-            example = {
-                key: []
-                for key in ("input_ids", "labels", "position_ids", "attention_mask")
-            }
+            example = {key: [] for key in ds_keys}
 
         example["input_ids"].extend(input_ids)
         example["labels"].extend(labels)

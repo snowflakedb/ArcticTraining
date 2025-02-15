@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from abc import ABC
-from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
@@ -121,10 +120,9 @@ class DataFactory(ABC, CallbackMixin):
 
     @property
     def cache_path_args(self) -> Dict:
-        cache_path_args = {}
-        for field in self.config.model_fields.keys():
-            if field not in ["sources", "eval_sources"]:
-                cache_path_args[field] = getattr(self.config, field)
+        cache_path_args = self.config.model_dump()
+        del cache_path_args["sources"]
+        del cache_path_args["eval_sources"]
         return cache_path_args
 
     def _get_source_cache_path(self, source: "DataSource") -> Path:
@@ -157,9 +155,10 @@ class DataFactory(ABC, CallbackMixin):
         return data_sources
 
     def _truncate_data(self, dataset: DatasetType) -> DatasetType:
+        """Truncate the dataset to the shortest length across all processes. This ensures that each shard/process has the same number of samples in the dataset."""
         local_length = len(dataset)
-        if self.world_size != 1:
-            data_length = torch.zeros(self.world_size).cuda()
+        if self.world_size > 1:
+            data_length = torch.zeros(self.world_size).to(self.trainer.device)
             data_length[self.global_rank] = local_length
             torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
             shortest_length = int(data_length.min().cpu().item())
@@ -183,7 +182,6 @@ class DataFactory(ABC, CallbackMixin):
         return dataset
 
     @callback_wrapper("tokenize")
-    @abstractmethod
     def tokenize(
         self, tokenizer: PreTrainedTokenizerBase, dataset: DatasetType
     ) -> DatasetType:
@@ -195,13 +193,13 @@ class DataFactory(ABC, CallbackMixin):
     def split_data(
         self, training_data: DatasetType
     ) -> Tuple[DatasetType, Optional[DatasetType]]:
-        tmp = training_data.train_test_split(
+        datasets = training_data.train_test_split(
             test_size=self.config.train_eval_split[1],
             seed=self.config.seed,
         )
-        training_data = tmp["train"]
-        evaluation_data = tmp["test"]
-        del tmp
+        training_data = datasets["train"]
+        evaluation_data = datasets["test"]
+        del datasets
 
         return training_data, evaluation_data
 

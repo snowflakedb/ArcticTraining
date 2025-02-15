@@ -20,7 +20,6 @@ from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import List
-from typing import Set
 from typing import Tuple
 from typing import Type
 
@@ -125,7 +124,7 @@ class CallbackMixin:
     @classmethod
     def _get_all_callbacks(
         cls: Type["CallbackMixin"],
-    ) -> Set[Tuple[str, Callable]]:
+    ) -> List[Tuple[str, Callable]]:
         callbacks = cls._class_callbacks
         callback_re = re.compile(r"(pre|post)_(.+)_callback")
         for name, member in inspect.getmembers(cls, predicate=inspect.isfunction):

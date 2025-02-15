@@ -34,7 +34,7 @@ def test_sft_trainer(tmp_path):
         },
         "data": {
             "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k"],
+            "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
         },
     }
     config_path = tmp_path / "config.yaml"
@@ -63,7 +63,7 @@ def test_sft_trainer_cpu(tmp_path):
         },
         "data": {
             "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k"],
+            "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
         },
         "deepspeed": {
             "zero_optimization": {
