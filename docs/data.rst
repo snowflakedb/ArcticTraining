@@ -56,7 +56,7 @@ Methods
 ^^^^^^^
 
 To define a custom data factory, you must implement the
-:meth:`~.DataFactory.tokenize` method.  Additionally, you can override the
+:meth:`~.DataFactory.process` method.  Additionally, you can override the
 :meth:`~.DataFactory.load`, :meth:`~.DataFactory.split_data`, and
 :meth:`~.DataFactory.create_dataloader` methods to change default behaviors.
 
@@ -71,10 +71,10 @@ can be used with the SFTTrainer or your own custom trainer. It can also be
 extended to fit other use cases.
 
 To create the SFTDataFactory, we subclass the DataFactory and first define the
-:meth:`~.DataFactory.tokenize` method:
+:meth:`~.DataFactory.process` method to tokenize the loaded datasets:
 
 .. literalinclude:: ../arctic_training/data/sft_factory.py
-   :pyobject: SFTDataFactory.tokenize
+   :pyobject: SFTDataFactory.process
 
 Next we override the :meth:`~.DataFactory.create_dataloader` method to add a custom Data Collator:
 
