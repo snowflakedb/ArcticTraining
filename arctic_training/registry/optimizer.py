@@ -33,9 +33,10 @@ _supported_optimizer_factory_registry: Dict[str, Type["OptimizerFactory"]] = {}
 def register_optimizer_factory(
     cls: Type["OptimizerFactory"], force: bool = False
 ) -> Type["OptimizerFactory"]:
-    global _supported_optimizer_factory_registry
     from arctic_training.config.optimizer import OptimizerConfig
     from arctic_training.optimizer.factory import OptimizerFactory
+
+    global _supported_optimizer_factory_registry
 
     if not issubclass(cls, OptimizerFactory):
         raise ValueError(

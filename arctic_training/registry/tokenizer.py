@@ -33,9 +33,10 @@ _supported_tokenizer_factory_registry: Dict[str, Type["TokenizerFactory"]] = {}
 def register_tokenizer_factory(
     cls: Type["TokenizerFactory"], force: bool = False
 ) -> Type["TokenizerFactory"]:
-    global _supported_tokenizer_factory_registry
     from arctic_training.config.tokenizer import TokenizerConfig
     from arctic_training.tokenizer.factory import TokenizerFactory
+
+    global _supported_tokenizer_factory_registry
 
     if not issubclass(cls, TokenizerFactory):
         raise ValueError(

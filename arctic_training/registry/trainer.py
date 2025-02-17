@@ -37,7 +37,6 @@ _supported_trainer_registry: Dict[str, Type["Trainer"]] = {}
 
 
 def register_trainer(cls: Type["Trainer"], force: bool = False) -> Type["Trainer"]:
-    global _supported_trainer_registry
     from arctic_training.checkpoint.engine import CheckpointEngine
     from arctic_training.config.trainer import TrainerConfig
     from arctic_training.data.factory import DataFactory
@@ -46,6 +45,8 @@ def register_trainer(cls: Type["Trainer"], force: bool = False) -> Type["Trainer
     from arctic_training.scheduler.factory import SchedulerFactory
     from arctic_training.tokenizer.factory import TokenizerFactory
     from arctic_training.trainer.trainer import Trainer
+
+    global _supported_trainer_registry
 
     if not issubclass(cls, Trainer):
         raise ValueError(

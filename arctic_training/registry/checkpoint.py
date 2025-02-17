@@ -32,9 +32,10 @@ _supported_checkpoint_registry: Dict[str, Type["CheckpointEngine"]] = {}
 def register_checkpoint_engine(
     cls: Type["CheckpointEngine"], force: bool = False
 ) -> Type["CheckpointEngine"]:
-    global _supported_checkpoint_registry
     from arctic_training.checkpoint.engine import CheckpointEngine
     from arctic_training.config.checkpoint import CheckpointConfig
+
+    global _supported_checkpoint_registry
 
     if not issubclass(cls, CheckpointEngine):
         raise ValueError(
