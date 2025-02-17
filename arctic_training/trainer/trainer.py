@@ -311,10 +311,16 @@ class LlamaAttentionNew(torch.nn.Module):
             else:
                 attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
+        # XXX: meanwhile for consistency
+        attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
         # XXX: 
         if "ulysses" in ALL_ATTENTION_FUNCTIONS:
             attention_interface = ALL_ATTENTION_FUNCTIONS["ulysses"]
             print_rank(f"custom attention on {torch.distributed.get_rank()}")
+
+        print_rank(f"HF before attn: {query_states.shape=}")
+        print_rank(f"HF before attn: {key_states.shape=}")
+        print_rank(f"HF before attn: {value_states.shape=}")
 
         attn_output, attn_weights = attention_interface(
             self,
@@ -326,6 +332,11 @@ class LlamaAttentionNew(torch.nn.Module):
             scaling=self.scaling,
             **kwargs,
         )
+
+        print_rank(f"HF after attn: {attn_output.shape=}")
+        if attn_weights is not None:
+            print_rank(f"HF after attn: {attn_weights.shape=}")
+
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
@@ -609,16 +620,52 @@ class Trainer(ABC, CallbackMixin):
 
         #self.tokenizer.chat_template = 
         
-        texts = ["this is a first very very very long prompt ab", "this is a second prompt that is shorter tha"]
+        #texts = ["this is a first very very very long prompt about", "this is a second prompt that is shorter than"]
+
+
+
+
+        #print(batch)
+
+        #from transformers import pipeline
+
+        #generate = pipeline("text-generation", "Felladrin/Llama-160M-Chat-v1")
+
+        messages = [
+            [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
+                },
+                {
+                    "role": "user",
+                    "content": "What are some potential applications for quantum computing?",
+                },
+            ],
+            [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
+                },
+                {
+                    "role": "user",
+                    "content": "What are some good ideas?",
+                },
+            ],
+        ]
+
+        texts = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
         batch = self.tokenizer(texts, padding="max_length", max_length=self.config.data.max_length, return_tensors='pt')
 
         print(batch)
-
+        #import sys; sys.exit(0)
 
         # XXX: probably need to do padding so that all sequence chunks are the same?!
         import math
         print(f"{len(batch['input_ids'][0])=}")
-        print(f"{len(batch['input_ids'][1])=}")
+        #print(f"{len(batch['input_ids'][1])=}")
         #seq_length = len(batch["input_ids"][0])
         seq_length = self.config.data.max_length
         
@@ -628,6 +675,8 @@ class Trainer(ABC, CallbackMixin):
         print(f"{seq_length=}")
         print(f"{chunk_len=}")
 
+        
+        #import sys; sys.exit(0)
         # XXX: restore attention_mask and when doing so need to chunk it along with all other fields in the batch, like input_ids 
         del batch["attention_mask"]
 
@@ -639,22 +688,30 @@ class Trainer(ABC, CallbackMixin):
             print(f"{batch[k].shape=}")
         #import sys; sys.exit(0)
 
+        #outputs = generate(batch, do_sample=False, max_new_tokens=1)   
+        #print(f"RANK {self.global_rank}: GENERATED: [{outputs[0]['generated_text']}]")
+
+
         outputs = self.model.generate(**batch, do_sample=False, max_new_tokens=1)        
-        #print(outputs)
+        print(outputs)
         decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        decoded_last_token0 = self.tokenizer.batch_decode([outputs[0][-1:]], skip_special_tokens=True)[0]
+        decoded_last_token1 = self.tokenizer.batch_decode([outputs[1][-1:]], skip_special_tokens=True)[0]
         #if self.global_rank == 0:
         
         dist.barrier()
         # chunk = decoded[0][-100:].replace('\n',' ')
-        # print(f"RANK {self.global_rank}: GENERATED: {chunk}")
+        # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
         chunk = decoded[0].replace('\n',' ')
-        print(f"RANK {self.global_rank}: GENERATED: {chunk}")
+        print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+        print(f"RANK {self.global_rank}: NEW TOKEN[0]: [{decoded_last_token0}]")
+        print(f"RANK {self.global_rank}: NEW TOKEN[1]: [{decoded_last_token1}]")
         # chunk = decoded[0][-seq_length:].replace('\n',' ')
-        # print(f"RANK {self.global_rank}: GENERATED: {chunk}")
+        # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
 
-        dist.barrier()
-        chunk = decoded[1].replace('\n',' ')
-        print(f"RANK {self.global_rank}: GENERATED: {chunk}")
+        #dist.barrier()
+        #chunk = decoded[1].replace('\n',' ')
+        #print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
         
         # expected 1 generated character:
         # 0: o
