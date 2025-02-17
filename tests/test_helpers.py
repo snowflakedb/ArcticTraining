@@ -38,8 +38,10 @@ class RandomWeightHFModelFactory(HFModelFactory):
         )
 
 
-@register(force=True)
+@register
 class UltraChat200KTruncated(UltraChat200K):
+    name = "HuggingFaceH4/ultrachat_200k-truncated"
+
     def post_init_callback(self):
         self.config.kwargs["streaming"] = True
 
