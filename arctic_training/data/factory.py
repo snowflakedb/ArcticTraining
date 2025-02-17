@@ -156,7 +156,11 @@ class DataFactory(ABC, CallbackMixin):
         return data_sources
 
     def _truncate_data(self, dataset: DatasetType) -> DatasetType:
-        """Truncate the dataset to the shortest length across all processes. This ensures that each shard/process has the same number of samples in the dataset."""
+        """
+        Truncate the dataset to the shortest length across all processes.
+        This ensures that each shard/process has the same number of samples in
+        the dataset.
+        """
         local_length = len(dataset)
         if self.world_size > 1:
             data_length = torch.zeros(self.world_size).to(self.trainer.device)
@@ -171,6 +175,7 @@ class DataFactory(ABC, CallbackMixin):
 
     @callback_wrapper("load")
     def load(self, data_sources: List["DataSource"], split: str) -> DatasetType:
+        """Loads data from one or more data sources and concatenates into a single dataset."""
         datasets = []
         for data_source in data_sources:
             if self.config.use_data_cache:
@@ -182,10 +187,9 @@ class DataFactory(ABC, CallbackMixin):
         dataset = concatenate_datasets(datasets)
         return dataset
 
-    @callback_wrapper("tokenize")
-    def tokenize(
-        self, tokenizer: PreTrainedTokenizerBase, dataset: DatasetType
-    ) -> DatasetType:
+    @callback_wrapper("process")
+    def process(self, dataset: DatasetType) -> DatasetType:
+        """Process the dataset (e.g., tokenization for text data)."""
         raise NotImplementedError(
             "tokenize must be implemented by DataFactory subclass."
         )
@@ -194,6 +198,7 @@ class DataFactory(ABC, CallbackMixin):
     def split_data(
         self, training_data: DatasetType
     ) -> Tuple[DatasetType, Optional[DatasetType]]:
+        """Split the training data into training and evaluation datasets."""
         datasets = training_data.train_test_split(
             test_size=self.config.train_eval_split[1],
             seed=self.config.seed,
@@ -206,6 +211,7 @@ class DataFactory(ABC, CallbackMixin):
 
     @callback_wrapper("create_dataloader")
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
+        """Create a torch DataLoader from the dataset."""
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,

@@ -30,6 +30,7 @@ from transformers import PreTrainedTokenizerBase
 
 from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.utils import DatasetType
 from arctic_training.registry import register
 
 IGNORE_INDEX = -100
@@ -156,12 +157,12 @@ class DataCollatorForCausalLM:
 
 
 def packing_sft_dataset(
-    dataset: Dataset,
+    dataset: DatasetType,
     seed: int,
     rank: int,
     max_length: int,
     always_max_length: bool,
-) -> Dataset:
+) -> DatasetType:
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
     ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
@@ -222,14 +223,14 @@ class SFTDataConfig(DataConfig):
     """
 
 
-def filter_dataset_length(self, dataset: Dataset) -> Dataset:
+def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
     return dataset.filter(
         lambda x: len(x["input_ids"]) <= self.config.max_length,
         num_proc=self.config.num_proc,
     )
 
 
-def pack_dataset(self, dataset: Dataset) -> Dataset:
+def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     dataset = packing_sft_dataset(
         dataset,
         seed=self.config.seed,
@@ -249,11 +250,7 @@ class SFTDataFactory(DataFactory):
         ("post-load", pack_dataset),
     ]
 
-    def tokenize(
-        self,
-        tokenizer: PreTrainedTokenizerBase,
-        dataset: Dataset,
-    ) -> Dataset:
+    def process(self, dataset: DatasetType) -> DatasetType:
         if "messages" not in dataset.column_names:
             raise ValueError(
                 "Dataset must have 'messages' column to tokenize for SFTDataFactory."
@@ -271,7 +268,7 @@ class SFTDataFactory(DataFactory):
             lambda ex: {
                 **self.tokenize_messages(
                     ex["messages"],
-                    tokenizer,
+                    self.tokenizer,
                     mask_inputs=self.config.mask_inputs,
                 )
             },
@@ -356,7 +353,7 @@ class SFTDataFactory(DataFactory):
                     output.append(IGNORE_INDEX)
         return output
 
-    def create_dataloader(self, dataset: Dataset) -> DataLoader:
+    def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         return DataLoader(
             dataset,
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),

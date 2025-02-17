@@ -42,8 +42,8 @@ class DataSourceConfig(BaseConfig):
     type: str = ""
     """ Data source type. """
 
-    tokenize: bool = True
-    """ Whether to tokenize the data. """
+    process: bool = True
+    """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
 
     shard: bool = True
     """ Whether to shard the data. """
