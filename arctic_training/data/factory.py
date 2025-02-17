@@ -63,23 +63,24 @@ class DataFactory(ABC, CallbackMixin):
         self.config = config
 
     def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
-        datasets: Dict[str, DatasetType] = {}
-        for split in ("train", "eval"):
+        def get_data_split(split: str) -> Optional[DatasetType]:
             data_sources = self._get_data_sources(split=split)
             if len(data_sources) == 0:
-                datasets[split] = None
-                continue
+                return None
+
             cache_path = self._get_processed_data_cache_path(data_sources)
             if self.config.use_data_cache and cache_path.exists():
-                dataset = load_from_disk(cache_path.as_posix())
-            else:
-                dataset = self.load(data_sources, split=split)
-                dataset = self._truncate_data(dataset)
-                if self.config.use_data_cache:
-                    dataset.save_to_disk(cache_path.as_posix())
-            datasets[split] = dataset
+                return load_from_disk(cache_path.as_posix())
 
-        training_data, evaluation_data = datasets["train"], datasets["eval"]
+            dataset = self.load(data_sources, split=split)
+            dataset = self._truncate_data(dataset)
+            if self.config.use_data_cache:
+                dataset.save_to_disk(cache_path.as_posix())
+
+            return dataset
+
+        training_data = get_data_split("train")
+        evaluation_data = get_data_split("eval")
 
         if self.config.train_eval_split[1] > 0.0:
             training_data, evaluation_data = self.split_data(training_data)
