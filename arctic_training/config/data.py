@@ -46,7 +46,7 @@ class DataSourceConfig(BaseConfig):
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
 
     shard: bool = True
-    """ Whether to shard the data. """
+    """ Whether to shard the data across Data Parallel process ranks. """
 
     @property
     def data_source(self) -> Type["DataSource"]:
