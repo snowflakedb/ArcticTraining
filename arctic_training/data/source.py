@@ -54,7 +54,7 @@ class DataSource(ABC, CallbackMixin):
         if self.config.shard:
             dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
-            dataset = self.data_factory.process(self.data_factory.tokenizer, dataset)
+            dataset = self.data_factory.process(dataset)
 
         if cache_path is not None:
             dataset.save_to_disk(cache_path.as_posix())

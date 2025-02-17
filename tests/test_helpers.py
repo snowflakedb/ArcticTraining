@@ -43,7 +43,10 @@ class UltraChat200KTruncated(UltraChat200K):
     name = "HuggingFaceH4/ultrachat_200k-truncated"
 
     def post_init_callback(self):
-        self.config.kwargs["streaming"] = True
+        self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
+        self.config.dataset_name = (  # Set to the real dataset name
+            "HuggingFaceH4/ultrachat_200k"
+        )
 
     def post_load_callback(self, dataset: Dataset) -> Dataset:
         return Dataset.from_list(list(dataset.take(20)), features=dataset.features)
