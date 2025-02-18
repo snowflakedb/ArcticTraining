@@ -33,9 +33,10 @@ _supported_scheduler_factory_registry: Dict[str, Type["SchedulerFactory"]] = {}
 def register_scheduler_factory(
     cls: Type["SchedulerFactory"], force: bool = False
 ) -> Type["SchedulerFactory"]:
-    global _supported_scheduler_factory_registry
     from arctic_training.config.scheduler import SchedulerConfig
     from arctic_training.scheduler.factory import SchedulerFactory
+
+    global _supported_scheduler_factory_registry
 
     if not issubclass(cls, SchedulerFactory):
         raise ValueError(

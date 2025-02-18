@@ -52,12 +52,9 @@ from arctic_training.registry.scheduler import get_registered_scheduler_factory
 from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
 from arctic_training.registry.trainer import get_registered_trainer
 from arctic_training.registry.utils import _get_class_attr_type_hints
-from arctic_training.utils import get_local_rank
-from arctic_training.utils import get_world_size
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
-
 
 TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
@@ -121,9 +118,6 @@ class TrainerConfig(BaseConfig):
     """ Maximum number of training iterations. """
 
     eval_frequency: int = Field(default=0, ge=0)
-
-    global_rank: int = Field(default_factory=get_local_rank, exclude=True)
-    world_size: int = Field(default_factory=get_world_size, exclude=True)
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
