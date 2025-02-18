@@ -14,12 +14,14 @@
 # limitations under the License.
 
 from datasets import Dataset
+from datasets import IterableDataset
 from deepspeed.ops.adam import DeepSpeedCPUAdam
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
 from arctic_training import register
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.hf_source import SlimOrca
 from arctic_training.data.hf_source import UltraChat200K
 from arctic_training.model.factory import ModelFactory
 from arctic_training.model.hf_factory import HFModelFactory
@@ -50,18 +52,33 @@ class NoOpModelFactory(ModelFactory):
         return None
 
 
+def modify_config_for_truncated_data(self):
+    self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
+    self.config.dataset_name = self.name.removesuffix(  # Set to the real dataset name
+        "-truncated"
+    )
+
+
+def sample_data_for_truncated_dataset(self, dataset: IterableDataset) -> Dataset:
+    return Dataset.from_list(list(dataset.take(20)), features=dataset.features)
+
+
 @register
 class UltraChat200KTruncated(UltraChat200K):
     name = "HuggingFaceH4/ultrachat_200k-truncated"
+    callbacks = [
+        ("post-init", modify_config_for_truncated_data),
+        ("post-load", sample_data_for_truncated_dataset),
+    ]
 
-    def post_init_callback(self):
-        self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
-        self.config.dataset_name = (  # Set to the real dataset name
-            "HuggingFaceH4/ultrachat_200k"
-        )
 
-    def post_load_callback(self, dataset: Dataset) -> Dataset:
-        return Dataset.from_list(list(dataset.take(20)), features=dataset.features)
+@register
+class SlimOrcaTruncated(SlimOrca):
+    name = "Open-Orca/SlimOrca-truncated"
+    callbacks = [
+        ("post-init", modify_config_for_truncated_data),
+        ("post-load", sample_data_for_truncated_dataset),
+    ]
 
 
 @register
