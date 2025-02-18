@@ -40,7 +40,7 @@ from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.debug import print_rank
+from arctic_training.debug import print_rank0, print_rank
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
@@ -69,28 +69,39 @@ from einops import rearrange
 
 from deepspeed.sequence.layer import _DimZeroAllToAll, _SeqAllToAll
 
-class UlyssesAttentionNew(torch.nn.Module):
+class UlyssesAttentionHF(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
-    to be standard [s, b, heads, dim_per_head] form. Any deviation from this shape will raise an error
-    should be handled directly in the attn passed to the forward. 
+    to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
     
     The primary reason for the re-implementation is to make this less error prone, and remove what seemed like 
     bugs in scenarios where batch size > 1 and when using different versions of 
     flash attention each of which takes different input shape. Those should be handled by 
     the actual attn implementation, and not by this module.
 
+    Dimension annotation:
+        bs   = bs
+        hc   = head count
+        hc_l = head count local
+        hs   = head_size
+        sl   = seqlen
+        sl_l = seqlen local
+        ws   = world_size
+        em    = embedding / hidden size
+        em_l  = embedding / hidden size local   
+
     Arguments:
+        attn: normal attention implementation from transformers.modeling_utils.ALL_ATTENTION_FUNCTIONS
         local_seq_length (int): local sequence length per GPU,
         global_seq_length (int): actual sequence length,
         batch_size (int): batch size,
         attn_head_size (int): size of each attention head,
         attn_head_count (int): total number of attention heads,        
-        process_group (dist.ProcessGroup): Ulysses Process Group
+        process_group (dist.ProcessGroup): Ulysses process group
     """
 
     def __init__(
         self,
-        attn, # XXX: doc
+        attn, 
         local_seq_length: int,
         global_seq_length: int,
         batch_size: int,
@@ -99,12 +110,17 @@ class UlyssesAttentionNew(torch.nn.Module):
         process_group: dist.ProcessGroup
     ) -> None:
 
-        super(UlyssesAttentionNew, self).__init__()
+        super(UlyssesAttentionHF, self).__init__()
         self.attn = attn
         self.process_group = process_group
         self.world_size = dist.get_world_size(process_group)
         
         assert attn_head_count % self.world_size == 0, f"Attention head count {attn_head_count} is not divisible by world size {self.world_size}"
+
+        # XXX: add more constraints (some might have to go outside of this module or change the API to add more arguments if they are needed here, or perhaps add a special class method that validates the outside things)
+        # - MQA/GQA: SP size <= kv_head_count (get via sp process group world size)
+        # - sl is divisible by SP
+        # - more?
         
         self.local_seq_length = local_seq_length
         self.global_seq_length = global_seq_length
@@ -113,11 +129,13 @@ class UlyssesAttentionNew(torch.nn.Module):
         self.attn_head_size = attn_head_size
         self.attn_head_count = attn_head_count
         
+        # [sl_l bs hc hs]
         self.required_input_shape = torch.Size([local_seq_length, \
                                                 batch_size, \
                                                 attn_head_count, \
                                                 attn_head_size])
-        
+
+        # [sl bs em_l]        
         self.required_context_shape = torch.Size([global_seq_length, \
                                                 batch_size, \
                                                 attn_head_size * attn_head_count // self.world_size])
@@ -125,33 +143,62 @@ class UlyssesAttentionNew(torch.nn.Module):
     def _combine_local_sequences(self, query, key, value) -> Tuple[Tensor, Tensor, Tensor]:
         
         def combine_sequence(input):
+            """
+                expects inputs in shape: [sl_l bs hc hs]
+                returns output in shape: [sl bs hc_l hs]           
+            """
+
+            print_rank0(f"\ncombine: before reshape:  {input.shape=}")
+
+            # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
             input = input.reshape([self.local_seq_length, \
                                 self.batch_size, \
                                 self.world_size, \
                                 self.attn_head_count // self.world_size, \
                                 self.attn_head_size])    
-            input = rearrange(input, 's b w ... -> w s b ...').contiguous()
+
+            print_rank0(f"combine: after reshape:   {input.shape=}")
+
+            input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
+            print_rank0(f"combine: after rearrange: {input.shape=}")
             
             output = _DimZeroAllToAll.apply(self.process_group, input)
+            print_rank0(f"combine: after all2all:   {output.shape=}")
         
+            # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
+            print_rank0(f"combine: after reshape:   {output.shape=}")
+
+            # [sl bs hc_l hs]
             return output
         
         return combine_sequence(query), combine_sequence(key), combine_sequence(value)
         
     def _partition_global_sequence(self, input) -> Tensor:
+        """
+            expects input in shape:  [sl bs hs*hc_l] 
+            returns output in shape: 
+        """
         
+        print_rank0(f"partition: before reshape:  {input.shape=}")
+
+        # [sl, bs, hs*hc] -> [ws sl_l bs hs_l]
         input = input.reshape([self.world_size, \
                             self.local_seq_length, \
                             self.batch_size, \
                             self.attn_head_size * self.attn_head_count // self.world_size]).contiguous()    
         
+        print_rank0(f"partition: after reshape:   {input.shape=}")
         output = _DimZeroAllToAll.apply(self.process_group, input)
-        output = rearrange(output, 'w s b ... -> s b w ...')
+        print_rank0(f"partition: after all2all:   {output.shape=}")
+        output = rearrange(output, 'ws sl_l bs hs_l -> sl_l bs ws hs_l')
+        print_rank0(f"partition: after rearrange: {output.shape=}")
             
-        #s b w d --> s b wd
+        # [sl_l bs ws hs_l] -> [sl_l bs ws*hs_l]
         output = output.reshape([*output.shape[:2], -1]).contiguous()
-        
+        print_rank0(f"partition: after reshape:   {output.shape=}")
+
+        # [sl_l bs ws*hs_l]
         return output
         
     
@@ -168,36 +215,75 @@ class UlyssesAttentionNew(torch.nn.Module):
         Returns:
             * output (Tensor): context output
         """
+        # HF incoming shapes are:
+        # [batch_size, num_heads, seqlen, head_size]
+        # UA expects:
+        # [seqlen, batch_size, num_heads, head_size]
+        # print(f"{query.shape=}")
+        # print(f"{key.shape=}")
+        # print(f"{value.shape=}")
+        # print(f"{self.required_input_shape=}")   
+
+        print_rank0(f"forward 1 {query.shape=}")
+        print_rank0(f"forward 1 {key.shape=}")
+        print_rank0(f"forward 1 {value.shape=}")
+
+        query = rearrange(query, 'bs hc sl hs -> sl bs hc hs')
+        key = rearrange(key,     'bs hc sl hs -> sl bs hc hs')
+        value = rearrange(value, 'bs hc sl hs -> sl bs hc hs')
         
-        print_rank(f"{query.shape=}")
-        print_rank(f"{key.shape=}")
-        print_rank(f"{value.shape=}")
-        print_rank(f"{self.required_input_shape=}") 
-        #print_rank(f"{attention_mask.shape=}")
+        print_rank0(f"forward 2 {query.shape=}")
+        print_rank0(f"forward 2 {key.shape=}")
+        print_rank0(f"forward 2 {value.shape=}")
+        print_rank0(f"forward 2 {self.required_input_shape=}")
+
+        #print_rank0(f"{attention_mask.shape=}")
         # please don't remove the white-space vertical alignment in the error message
         assert query.shape == key.shape == value.shape == self.required_input_shape, \
             f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
         
+        # expects: [sl_l bs hc hs]
         query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
-            
-        context_layer, _ = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
-        
-        print(f"1 {context_layer.shape=}")  
-        context_layer = rearrange(context_layer, 's w b h -> s b w h')
-        print(f"2 {context_layer.shape=}")  
+        # returns: [sl bs hc_l hs]           
+
+        query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs')
+        key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs')
+        value_layer = rearrange(value_layer, 'sl bs hc_l hs -> bs hc_l sl hs')
+
+        print_rank0(f"{query_layer.shape=}")
+        print_rank0(f"{key_layer.shape=}")
+        print_rank0(f"{value_layer.shape=}")
+
+        # expects: [bs hc_l sl hs]
+        # XXX: fix _
+        context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
+        # returns [bs sl hc_l hs]
+
+        print_rank0(f"1 {context_layer.shape=}")  
+        context_layer = rearrange(context_layer, 'bs sl hc_l hs -> sl bs hs hc_l')
+        print_rank0(f"2 {context_layer.shape=}")  
         context_layer = context_layer.reshape([*context_layer.shape[:2], -1])
-        print(f"3 {context_layer.shape=}")  
+        print_rank0(f"3 {context_layer.shape=}")  
+        print_rank0(f"{self.required_context_shape=}")  
 
         assert context_layer.shape == self.required_context_shape, \
                     f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
-        
+
+        # expects: [sl bs hs*hc_l]       
         output = self._partition_global_sequence(context_layer)
-        
-        print(f"1 {output.shape=}")  
+        # returns: [sl_l bs ws*hs_l]
+         
+        print(f"1 {output.shape=}")
+        output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
+        print(f"2 {output.shape=}")
 
-        return output
+        #output = output.reshape([*output.shape[:2], ]))
+        print_rank0(f"{attn_weights.shape=}")  
 
-# class UlyssesAttentionHF(UlyssesAttentionNew):
+        # expects [bs sl hc hs]
+        return output, attn_weights
+
+# class UlyssesAttentionHF(UlyssesAttentionHF):
 #     def forward(self,
 #         module: torch.nn.Module,        
 #         query: torch.Tensor,
@@ -285,6 +371,7 @@ class LlamaAttentionNew(torch.nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
+
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
@@ -316,11 +403,11 @@ class LlamaAttentionNew(torch.nn.Module):
         # XXX: 
         if "ulysses" in ALL_ATTENTION_FUNCTIONS:
             attention_interface = ALL_ATTENTION_FUNCTIONS["ulysses"]
-            print_rank(f"custom attention on {torch.distributed.get_rank()}")
+            print_rank0(f"custom attention on {torch.distributed.get_rank()}")
 
-        print_rank(f"HF before attn: {query_states.shape=}")
-        print_rank(f"HF before attn: {key_states.shape=}")
-        print_rank(f"HF before attn: {value_states.shape=}")
+        print_rank0(f"HF before attn: {query_states.shape=}")
+        print_rank0(f"HF before attn: {key_states.shape=}")
+        print_rank0(f"HF before attn: {value_states.shape=}")
 
         attn_output, attn_weights = attention_interface(
             self,
@@ -333,9 +420,9 @@ class LlamaAttentionNew(torch.nn.Module):
             **kwargs,
         )
 
-        print_rank(f"HF after attn: {attn_output.shape=}")
+        print_rank0(f"HF after attn: {attn_output.shape=}")
         if attn_weights is not None:
-            print_rank(f"HF after attn: {attn_weights.shape=}")
+            print_rank0(f"HF after attn: {attn_weights.shape=}")
 
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
@@ -449,13 +536,13 @@ class Trainer(ABC, CallbackMixin):
         attn_implementation_real =  transformers.models.llama.modeling_llama.eager_attention_forward
 
         #from deepspeed.sequence.layer import DistributedAttention
-        uattn = UlyssesAttentionNew(
+        uattn = UlyssesAttentionHF(
             attn=attn_implementation_real,
             local_seq_length=self.config.data.max_length // mpu.get_sequence_parallel_world_size(),
             global_seq_length=self.config.data.max_length, 
             batch_size=self.config.micro_batch_size, 
-            attn_head_size=model_config.num_attention_heads, 
-            attn_head_count=model_config.hidden_size // model_config.num_attention_heads, 
+            attn_head_count=model_config.num_attention_heads,
+            attn_head_size=model_config.hidden_size // model_config.num_attention_heads, 
             process_group = mpu.get_sequence_parallel_group(),
         )
 
@@ -467,23 +554,11 @@ class Trainer(ABC, CallbackMixin):
             attention_mask: torch.Tensor,
             *args,
             **kwargs,               
-        ) -> Tuple[torch.Tensor, None]:
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
             
             # XXX: for MQA key/value num of heads is different from query - currently working with MHA models to overcome this
 
-            # HF incoming shapes are:
-            # [batch_size, num_heads, seqlen, head_size]
-            # UA expects:
-            # [seqlen, batch_size, head_size, num_heads]
-            # print(f"{query.shape=}")
-            # print(f"{key.shape=}")
-            # print(f"{value.shape=}")
-            # print(f"{self.required_input_shape=}")   
-            query = rearrange(query, 'b h s w -> s b w h')
-            key = rearrange(key, 'b h s w -> s b w h')
-            value = rearrange(value, 'b h s w -> s b w h')
-
-            attn_output = uattn(
+            attn_output, attn_weights = uattn(
                 module,
                 query,
                 key,
@@ -493,7 +568,7 @@ class Trainer(ABC, CallbackMixin):
                 *args,
                 **kwargs
             )
-            return attn_output, None           
+            return attn_output, attn_weights
 
         if mpu.get_sequence_parallel_world_size() > 1:
             ALL_ATTENTION_FUNCTIONS["ulysses"] = uattn_wrapper
@@ -631,96 +706,105 @@ class Trainer(ABC, CallbackMixin):
 
         #generate = pipeline("text-generation", "Felladrin/Llama-160M-Chat-v1")
 
-        messages = [
-            [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
-                },
-                {
-                    "role": "user",
-                    "content": "What are some potential applications for quantum computing?",
-                },
-            ],
-            [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
-                },
-                {
-                    "role": "user",
-                    "content": "What are some good ideas?",
-                },
-            ],
-        ]
+        if 0:
+            messages = [
+                [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "What are some potential applications for quantum computing?",
+                    },
+                ],
+                [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "What are some good ideas?",
+                    },
+                ],
+            ]
 
-        texts = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        )
-        batch = self.tokenizer(texts, padding="max_length", max_length=self.config.data.max_length, return_tensors='pt')
+            texts = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+            batch = self.tokenizer(texts, padding="max_length", max_length=self.config.data.max_length, return_tensors='pt')
 
-        print(batch)
-        #import sys; sys.exit(0)
+            print(batch)
+            #import sys; sys.exit(0)
 
-        # XXX: probably need to do padding so that all sequence chunks are the same?!
-        import math
-        print(f"{len(batch['input_ids'][0])=}")
-        #print(f"{len(batch['input_ids'][1])=}")
-        #seq_length = len(batch["input_ids"][0])
-        seq_length = self.config.data.max_length
-        
-        sp_world_size = groups._get_sequence_parallel_world_size()
-        sp_rank = groups._get_sequence_parallel_rank()
-        chunk_len = math.ceil(seq_length / sp_world_size)
-        print(f"{seq_length=}")
-        print(f"{chunk_len=}")
+        if 1:
+            # XXX: probably need to do padding so that all sequence chunks are the same?!
+            import math
+            print(f"{len(batch['input_ids'][0])=}")
+            #print(f"{len(batch['input_ids'][1])=}")
+            #seq_length = len(batch["input_ids"][0])
+            seq_length = self.config.data.max_length
+            
+            sp_world_size = groups._get_sequence_parallel_world_size()
+            sp_rank = groups._get_sequence_parallel_rank()
+            chunk_len = math.ceil(seq_length / sp_world_size)
+            print(f"{seq_length=}")
+            print(f"{chunk_len=}")
 
-        
-        #import sys; sys.exit(0)
-        # XXX: restore attention_mask and when doing so need to chunk it along with all other fields in the batch, like input_ids 
-        del batch["attention_mask"]
+            
+            #import sys; sys.exit(0)
 
-        for k in batch.keys():
-            if sp_world_size > 1:
-                batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
-            else:
-                batch[k] = batch[k].to(self.device)
-            print(f"{batch[k].shape=}")
-        #import sys; sys.exit(0)
+            for k in batch.keys():
+                if sp_world_size > 1:
+                    batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
+                else:
+                    batch[k] = batch[k].to(self.device)
+                print(f"{batch[k].shape=}")
+            #import sys; sys.exit(0)
 
-        #outputs = generate(batch, do_sample=False, max_new_tokens=1)   
-        #print(f"RANK {self.global_rank}: GENERATED: [{outputs[0]['generated_text']}]")
+            #outputs = generate(batch, do_sample=False, max_new_tokens=1)   
+            #print(f"RANK {self.global_rank}: GENERATED: [{outputs[0]['generated_text']}]")
 
+            #print_rank0(f'{batch["attention_mask"]=}')
 
-        outputs = self.model.generate(**batch, do_sample=False, max_new_tokens=1)        
-        print(outputs)
-        decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        decoded_last_token0 = self.tokenizer.batch_decode([outputs[0][-1:]], skip_special_tokens=True)[0]
-        decoded_last_token1 = self.tokenizer.batch_decode([outputs[1][-1:]], skip_special_tokens=True)[0]
-        #if self.global_rank == 0:
-        
-        dist.barrier()
-        # chunk = decoded[0][-100:].replace('\n',' ')
-        # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-        chunk = decoded[0].replace('\n',' ')
-        print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-        print(f"RANK {self.global_rank}: NEW TOKEN[0]: [{decoded_last_token0}]")
-        print(f"RANK {self.global_rank}: NEW TOKEN[1]: [{decoded_last_token1}]")
-        # chunk = decoded[0][-seq_length:].replace('\n',' ')
-        # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+            # XXX: restore attention_mask and when doing so need to chunk it along with all other fields in the batch, like input_ids 
+            #del batch["attention_mask"]
 
-        #dist.barrier()
-        #chunk = decoded[1].replace('\n',' ')
-        #print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-        
-        # expected 1 generated character:
-        # 0: o
-        # 1: .
+        if 0:
+            outputs = self.model.generate(**batch, do_sample=False, max_new_tokens=1)        
+            print(outputs)
+            decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            decoded_last_token0 = self.tokenizer.batch_decode([outputs[0][-1:]], skip_special_tokens=True)[0]
+            decoded_last_token1 = self.tokenizer.batch_decode([outputs[1][-1:]], skip_special_tokens=True)[0]
+            #if self.global_rank == 0:
+            
+            dist.barrier()
+            # chunk = decoded[0][-100:].replace('\n',' ')
+            # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+            chunk = decoded[0].replace('\n',' ')
+            print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+            print(f"RANK {self.global_rank}: NEW TOKEN[0]: [{decoded_last_token0}]")
+            print(f"RANK {self.global_rank}: NEW TOKEN[1]: [{decoded_last_token1}]")
+            # chunk = decoded[0][-seq_length:].replace('\n',' ')
+            # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
 
-        import sys; sys.exit(0)
+            #dist.barrier()
+            #chunk = decoded[1].replace('\n',' ')
+            #print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+            
+            # expected 1 generated character:
+            # 0: o
+            # 1: .
 
+            import sys; sys.exit(0)
+
+        #del batch["attention_mask"]
         self.model.train()
         loss = self.loss(batch)
+        print_rank(f"{loss=}")
+        import sys; sys.exit(0)
+
         self.model.backward(loss)
         self.model.step()
 
