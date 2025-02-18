@@ -36,7 +36,6 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.logging import logger
-from arctic_training.logging import setup_logger
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.scheduler.factory import SchedulerFactory
@@ -265,7 +264,6 @@ class Trainer(ABC, CallbackMixin):
         """
         Main training loop. Calls the epoch method for each epoch of training.
         """
-        setup_logger(self.config.logger)
         try:
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
