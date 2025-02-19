@@ -96,5 +96,5 @@ class DataSource(ABC, CallbackMixin):
     @callback_wrapper("load")
     @abstractmethod
     def load(self, config: DataSourceConfig, split: str) -> DatasetType:
-        """Method to load the data. It should return a tokenized HuggingFace Dataset or IterableDataset."""
+        """Method to load the data. It should return a datasets.Dataset or datasets.IterableDataset."""
         raise NotImplementedError("load must be implemented in subclass")
