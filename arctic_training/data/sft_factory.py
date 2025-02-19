@@ -232,7 +232,7 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
     if len(dataset) < 1:
         raise ValueError(
             f"No data left after filtering by max length {self.config.max_length} in"
-            f" {self.__class__.__name__}"
+            f" {self.__class__.__name__}. Consider increasing the `max_length`."
         )
     return dataset
 
