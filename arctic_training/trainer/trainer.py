@@ -69,6 +69,8 @@ from einops import rearrange
 
 from deepspeed.sequence.layer import _DimZeroAllToAll, _SeqAllToAll
 
+
+
 class UlyssesAttentionHF(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
     to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
@@ -134,6 +136,14 @@ class UlyssesAttentionHF(torch.nn.Module):
                                                 batch_size, \
                                                 attn_head_count, \
                                                 attn_head_size])
+        
+        # # [bs hc_l sl hs]
+        # self.required_input_shape_for_core_attn = torch.Size([batch_size, \
+        #                                                       attn_head_count, \
+        #                                                       global_seq_length, \
+        #                                                       attn_head_size])
+
+
 
         # [sl bs em_l]        
         self.required_context_shape = torch.Size([global_seq_length, \
@@ -148,7 +158,8 @@ class UlyssesAttentionHF(torch.nn.Module):
                 returns output in shape: [sl bs hc_l hs]           
             """
 
-            print_rank0(f"\ncombine: before reshape:  {input.shape=}")
+            print_rank0('')
+            print_rank0(f"combine: before reshape:  {input.shape=}")
 
             # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
             input = input.reshape([self.local_seq_length, \
@@ -209,7 +220,7 @@ class UlyssesAttentionHF(torch.nn.Module):
             query (Tensor): query input to the layer
             key (Tensor): key input to the layer
             value (Tensor): value input to the layer
-            ### XXX: attn (Callable): Attention method to call
+            attention_mask (Tensor): Attention mask
             args: other args
 
         Returns:
@@ -254,10 +265,28 @@ class UlyssesAttentionHF(torch.nn.Module):
         print_rank0(f"{key_layer.shape=}")
         print_rank0(f"{value_layer.shape=}")
 
+        if attention_mask is not None:
+            print_rank0(f"{attention_mask.shape=}")
+            print_rank0(f"{attention_mask=}")
+
+        print_rank0(f"HF before real attn: {query_layer.shape=}")
+        print_rank0(f"HF before real attn: {key_layer.shape=}")
+        print_rank0(f"HF before real attn: {value_layer.shape=}")
+        print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
+        print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
+        print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
+
+        # this check I added is wrong I think
+        # # please don't remove the white-space vertical alignment in the error message
+        # assert query_layer.shape == key_layer.shape == value_layer.shape == self.required_input_shape_for_core_attn, \
+        #     f"[{dist.get_rank()}]: One of the input tensors does not match the required_input_shape_for_core_attn\n                   {self.required_input_shape_for_core_attn}:\n {query_layer.shape=}\n   {key_layer.shape=}\n {value_layer.shape=}"
+
         # expects: [bs hc_l sl hs]
-        # XXX: fix _
         context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
         # returns [bs sl hc_l hs]
+
+        print_rank0(f"HF after real attn: {context_layer.shape=}")
+        print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")  
 
         print_rank0(f"1 {context_layer.shape=}")  
         context_layer = rearrange(context_layer, 'bs sl hc_l hs -> sl bs hs hc_l')
@@ -278,7 +307,9 @@ class UlyssesAttentionHF(torch.nn.Module):
         print(f"2 {output.shape=}")
 
         #output = output.reshape([*output.shape[:2], ]))
-        print_rank0(f"{attn_weights.shape=}")  
+        #print_rank0(f"{attn_weights.shape=}")  
+
+
 
         # expects [bs sl hc hs]
         return output, attn_weights
@@ -389,6 +420,7 @@ class LlamaAttentionNew(torch.nn.Module):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
         import transformers
         attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
+        
         if self.config._attn_implementation != "eager":
             if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
                 logger.warning_once(
@@ -398,8 +430,10 @@ class LlamaAttentionNew(torch.nn.Module):
             else:
                 attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
-        # XXX: meanwhile for consistency
-        attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
+        # XXX: meanwhile for consistency with non-sp testing
+        #attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
+        attention_interface: Callable = transformers.integrations.flash_attention.flash_attention_forward
+
         # XXX: 
         if "ulysses" in ALL_ATTENTION_FUNCTIONS:
             attention_interface = ALL_ATTENTION_FUNCTIONS["ulysses"]
@@ -408,6 +442,9 @@ class LlamaAttentionNew(torch.nn.Module):
         print_rank0(f"HF before attn: {query_states.shape=}")
         print_rank0(f"HF before attn: {key_states.shape=}")
         print_rank0(f"HF before attn: {value_states.shape=}")
+        print_rank0(f"HF before attn: {torch.norm(query_states)=}")
+        print_rank0(f"HF before attn: {torch.norm(key_states)=}")
+        print_rank0(f"HF before attn: {torch.norm(value_states)=}")
 
         attn_output, attn_weights = attention_interface(
             self,
@@ -421,8 +458,10 @@ class LlamaAttentionNew(torch.nn.Module):
         )
 
         print_rank0(f"HF after attn: {attn_output.shape=}")
+        print_rank0(f"HF after attn: {torch.norm(attn_output)=}")  
         if attn_weights is not None:
             print_rank0(f"HF after attn: {attn_weights.shape=}")
+            print_rank0(f"HF after attn: {torch.norm(attn_weights)=}")  
 
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
@@ -533,7 +572,8 @@ class Trainer(ABC, CallbackMixin):
         import transformers.models.llama.modeling_llama
         transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
-        attn_implementation_real =  transformers.models.llama.modeling_llama.eager_attention_forward
+        #attn_implementation_real =  transformers.models.llama.modeling_llama.eager_attention_forward
+        attn_implementation_real = transformers.integrations.flash_attention.flash_attention_forward
 
         #from deepspeed.sequence.layer import DistributedAttention
         uattn = UlyssesAttentionHF(
@@ -632,6 +672,16 @@ class Trainer(ABC, CallbackMixin):
     def device(self) -> torch.device:
         """Current device."""
         return torch.device(get_accelerator().device_name(self.global_rank))
+
+    @property
+    def model_unwrapped(self):
+        """Return the original model before it was wrapped by deepspeed"""
+
+        # XXX: later might add a recursion if we have more than one level of wrapping
+        if hasattr(self.model, "module"):
+            return self.model.module
+        else:
+            return self.model  
 
     @property
     def training_horizon(self) -> int:
@@ -738,6 +788,31 @@ class Trainer(ABC, CallbackMixin):
             print(batch)
             #import sys; sys.exit(0)
 
+        # XXX: important
+        # batch["attention_mask"] = torch.ne(batch["input_ids"], 2).int()
+
+        # 2D to 4D with full seqlen to get the attention mask right
+        # XXX: hardcoded for Llama for now
+
+        # past_seen_tokens = 0 # XXX: ? what's the 2nd iteration value
+        # inputs_embeds = self.model.model.embed_tokens(batch["input_ids"].to(self.device))
+        # cache_position = torch.arange(past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device)
+        # attention_mask_4D = self.model.model._update_causal_mask(
+        #     attention_mask=batch["attention_mask"], 
+        #     input_tensor=inputs_embeds, 
+        #     cache_position=cache_position, 
+        #     past_key_values=None,
+        #     output_attentions=False,
+        # )
+        # batch["attention_mask"] = attention_mask_4D
+
+        for k in batch.keys():
+            print_rank0(f"before sp {k}: {batch[k].shape=}")
+            print_rank0(f"before sp {k}: {batch[k]=}")
+        #import sys; sys.exit(0)
+
+
+
         if 1:
             # XXX: probably need to do padding so that all sequence chunks are the same?!
             import math
@@ -752,21 +827,22 @@ class Trainer(ABC, CallbackMixin):
             print(f"{seq_length=}")
             print(f"{chunk_len=}")
 
-            
             #import sys; sys.exit(0)
 
             for k in batch.keys():
-                if sp_world_size > 1:
+                if sp_world_size > 1 and k in ["input_ids", "position_ids"]: # , "labels"]:
+                #if sp_world_size > 1 and k in ["input_ids"]:
                     batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
                 else:
                     batch[k] = batch[k].to(self.device)
-                print(f"{batch[k].shape=}")
+                print(f"{k} {batch[k].shape=}")
             #import sys; sys.exit(0)
 
             #outputs = generate(batch, do_sample=False, max_new_tokens=1)   
             #print(f"RANK {self.global_rank}: GENERATED: [{outputs[0]['generated_text']}]")
 
             #print_rank0(f'{batch["attention_mask"]=}')
+            #print_rank0(f'{batch["attention_mask"].shape=}')
 
             # XXX: restore attention_mask and when doing so need to chunk it along with all other fields in the batch, like input_ids 
             #del batch["attention_mask"]
@@ -799,9 +875,19 @@ class Trainer(ABC, CallbackMixin):
 
             import sys; sys.exit(0)
 
-        #del batch["attention_mask"]
+        if 0:
+            del batch["attention_mask"]
+
+        for k in batch.keys():
+            print_rank0(f"after sp: {k}: {batch[k].shape=}")
+            print_rank0(f"after sp: {k}: {batch[k]=}")
         self.model.train()
-        loss = self.loss(batch)
+
+        if sp_world_size > 1:
+            loss = self.loss_sp(batch)
+        else:
+            loss = self.loss(batch)
+
         print_rank(f"{loss=}")
         import sys; sys.exit(0)
 
