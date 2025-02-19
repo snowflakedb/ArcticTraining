@@ -227,7 +227,7 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
     dataset = dataset.filter(
         lambda x: len(x["input_ids"]) <= self.config.max_length,
         num_proc=self.config.num_proc,
-        description="Filtering dataset by max length",
+        desc="Filtering dataset by max length",
     )
     if len(dataset) < 1:
         raise ValueError(
