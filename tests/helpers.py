@@ -23,7 +23,6 @@ from arctic_training import register
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_source import SlimOrca
 from arctic_training.data.hf_source import UltraChat200K
-from arctic_training.model.factory import ModelFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.factory import SchedulerFactory
@@ -39,17 +38,6 @@ class RandomWeightHFModelFactory(HFModelFactory):
             attn_implementation=self.config.attn_implementation,
             torch_dtype=self.config.dtype,
         )
-
-
-@register
-class NoOpModelFactory(ModelFactory):
-    name = "noop"
-
-    def create_config(self) -> None:
-        return None
-
-    def create_model(self, model_config) -> None:
-        return None
 
 
 def modify_config_for_truncated_data(self):
