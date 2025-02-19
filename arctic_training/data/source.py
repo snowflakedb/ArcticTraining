@@ -51,10 +51,26 @@ class DataSource(ABC, CallbackMixin):
             return load_from_disk(cache_path.as_posix())
 
         dataset = self.load(self.config, split)
+        if len(dataset) < 1:
+            raise ValueError(
+                f"Empty dataset from load() for data source type {self.name} with"
+                f" config {self.config} for split {split}"
+            )
         if self.config.shard:
+            if len(dataset) < self.world_size:
+                raise ValueError(
+                    "Sharding is enabled but the dataset size is smaller than the"
+                    f" number of shards. Dataset size: {len(dataset)}, number of"
+                    f" shards: {self.world_size}"
+                )
             dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
             dataset = self.data_factory.process(dataset)
+            if len(dataset) < 1:
+                raise ValueError(
+                    "Empty dataset after process() for data source type"
+                    f" {self.name} with config {self.config} for split {split}"
+                )
 
         if cache_path is not None:
             dataset.save_to_disk(cache_path.as_posix())

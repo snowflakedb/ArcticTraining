@@ -224,10 +224,17 @@ class SFTDataConfig(DataConfig):
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
-    return dataset.filter(
+    dataset = dataset.filter(
         lambda x: len(x["input_ids"]) <= self.config.max_length,
         num_proc=self.config.num_proc,
+        desc="Filtering dataset by max length",
     )
+    if len(dataset) < 1:
+        raise ValueError(
+            f"No data left after filtering by max length {self.config.max_length} in"
+            f" {self.__class__.__name__}. Consider increasing the `max_length`."
+        )
+    return dataset
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
@@ -238,6 +245,10 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
         max_length=self.config.max_length,
         always_max_length=self.config.always_max_length,
     )
+    if len(dataset) < 1:
+        raise ValueError(
+            f"No data left after packing dataset samples in {self.__class__.__name__}"
+        )
     return dataset
 
 
