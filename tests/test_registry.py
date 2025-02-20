@@ -31,6 +31,12 @@ from arctic_training.registry import get_registered_class
 from arctic_training.registry import register
 
 
+@pytest.fixture(scope="function", autouse=True)
+def reset_registry():
+    """Fixture to reset the registry before each test."""
+    RegistryMeta._registry = {}
+
+
 @pytest.fixture
 def loguru_caplog():
     """Fixture to capture Loguru logs in pytest."""
@@ -293,4 +299,21 @@ def test_registration_validation_literal_fail():
     with pytest.raises(RegistryValidationError):
 
         class RegisteredClass(BaseClass):
+            name = "test_class"
+
+
+def test_registration_already_registered_fail():
+    class BaseClass(ABC, CallbackMixin, metaclass=RegistryMeta):
+        name: str
+
+        @classmethod
+        def _validate_subclass(cls):
+            pass
+
+    class RegisteredClass(BaseClass):
+        name = "test_class"
+
+    with pytest.raises(RegistryValidationError):
+
+        class NewRegisteredClass(BaseClass):
             name = "test_class"

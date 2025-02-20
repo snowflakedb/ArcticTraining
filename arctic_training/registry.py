@@ -95,6 +95,10 @@ class RegistryMeta(ABCMeta):
         registry_name = class_dict["name"]
         if base_type not in mcs._registry:
             mcs._registry[base_type] = {}
+        if registry_name in mcs._registry[base_type]:
+            raise RegistryValidationError(
+                f"{registry_name} is already registered as a {base_type}."
+            )
         mcs._registry[base_type][registry_name] = cls
 
         return cls
