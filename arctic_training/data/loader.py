@@ -4,7 +4,9 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import List, Union, Tuple
+from typing import List
+from typing import Tuple
+from typing import Union
 
 import torch
 from datasets import Dataset
@@ -51,19 +53,19 @@ class DataSetLoader(DataLoaderBase):
 
     def __init__(
         self,
-        dataset: Union[str,Tuple[str,str]],
+        dataset: Union[str, Tuple[str, str]],
         tokenizer: PreTrainedTokenizerBase,
         eval: bool,
         config: "DataConfig",
     ) -> None:
-        
-        if isinstance(dataset,tuple):
-            self.dataset= dataset[0]
+
+        if isinstance(dataset, tuple):
+            self.dataset = dataset[0]
             self.location = dataset[1]
         else:
             self.dataset = dataset
             self.location = None
-            
+
         self.tokenizer = tokenizer
         self.eval = eval
         self.config = config
@@ -132,22 +134,24 @@ class ConcatenatedDataSetsLoader(DataLoaderBase):
 
         datasets = [d.load_dataset() for d in self.dataset_loaders]
         dataset = concatenate_datasets(datasets)
-        if self.config.dataset_type == "sft":
-            # DPO has length filter inside the tokenization step
-            dataset = dataset.filter(
-                lambda x: len(x["input_ids"]) <= self.config.max_length,
-                num_proc=self.config.num_proc,
-            )
 
-        # TODO can this be moved to the DataSetLoader?
-        if self.config.dataset_type == "sft":
-            dataset = packing_sft_dataset(
-                dataset,
-                seed=self.config.seed,
-                rank=self.global_rank,
-                max_length=self.config.max_length,
-                always_max_length=self.config.always_max_length,
-            )
+        if not self.config.not_packing_input:
+            if self.config.dataset_type == "sft":
+                # DPO has length filter inside the tokenization step
+                dataset = dataset.filter(
+                    lambda x: len(x["input_ids"]) <= self.config.max_length,
+                    num_proc=self.config.num_proc,
+                )
+
+            # TODO can this be moved to the DataSetLoader?
+            if self.config.dataset_type == "sft":
+                dataset = packing_sft_dataset(
+                    dataset,
+                    seed=self.config.seed,
+                    rank=self.global_rank,
+                    max_length=self.config.max_length,
+                    always_max_length=self.config.always_max_length,
+                )
 
         truncate_length = self.get_shortest_data_length(dataset)
         dataset = dataset.select(range(truncate_length))

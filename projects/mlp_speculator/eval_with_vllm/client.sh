@@ -6,4 +6,4 @@
 #python3 benchmark_serving.py --backend vllm  --request-rate 2.0  --base-url http://127.0.0.1:8000 --dataset-path=/code/users/samyam/snowflakedb-vllm/vllm/benchmarks/ShareGPT.json --dataset-name=sharegpt --model NousResearch/Meta-Llama-3.1-8B-Instruct --seed 12345
 
 #Neural Magic Llama 3 70B
-python3 benchmark_serving.py --backend vllm  --request-rate 2.0  --base-url http://127.0.0.1:8000 --dataset-path=/code/users/samyam/snowflakedb-vllm/vllm/benchmarks/ShareGPT.json --dataset-name=sharegpt --model neuralmagic/Meta-Llama-3.1-70B-Instruct-FP8 --seed 12345
+python3 benchmark_serving.py --backend vllm  --request-rate 2.0  --base-url http://0.0.0.0:8000 --dataset-path=/home/yak/jaeseong/ShareGPT.json --dataset-name=sharegpt --model /home/yak/jaeseong/Meta-Llama-3.1-8B-Instruct --seed 12345

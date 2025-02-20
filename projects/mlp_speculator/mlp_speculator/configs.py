@@ -18,6 +18,9 @@ class MLPSpeculatorTrainConfig(Config):
     gen_micro_batch: int = 32
     gen_train_micro_batch: int = 32
     gen_prompt_length: int = 64
+    sim_gen_loss: bool = False
+    aurick_loss: bool = False
+    ctc_loss_weight: float = 0.0
     gen_seq_length: int = 256
     weighted_sum: bool = False
 

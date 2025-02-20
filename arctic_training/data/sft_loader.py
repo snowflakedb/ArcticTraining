@@ -6,7 +6,8 @@ from typing import List
 from typing import Tuple
 
 from datasets import Dataset
-from datasets import load_dataset, load_from_disk
+from datasets import load_dataset
+from datasets import load_from_disk
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
@@ -124,6 +125,184 @@ class SFTDataSetLoader(DataSetLoader):
                     output.append(IGNORE_INDEX)
         return output
 
+
+@register_dataset
+class RawDisk(SFTDataSetLoader):
+    dataset_name = "RawDisk"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_from_disk(self.location)
+        return dataset
+
+    def tokenize_fn(
+        self,
+        dataset: Dataset,
+        tokenizer: PreTrainedTokenizerBase,
+        data_config: "DataConfig",
+    ) -> Dataset:
+        return dataset
+
+
+@register_dataset
+class JsonOutput(SFTDataSetLoader):
+    dataset_name = "JsonOutput"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_dataset("json", data_files=self.location)["train"]
+        return dataset
+
+    def tokenize_fn(
+        self,
+        dataset: Dataset,
+        tokenizer: PreTrainedTokenizerBase,
+        data_config: "DataConfig",
+    ) -> Dataset:
+        return dataset.map(
+            lambda ex: {
+                **self.tokenize_messages(
+                    ex, tokenizer, mask_inputs=data_config.mask_inputs
+                )
+            },
+            num_proc=data_config.num_proc,
+            desc="Tokenizing messages",
+        )
+
+    @classmethod
+    def tokenize_messages(
+        cls,
+        ex: dict,
+        tokenizer: PreTrainedTokenizerBase,
+        mask_inputs: bool = True,
+    ) -> BatchEncoding:
+        output = ex["output"]
+        conversation_ids = tokenizer(
+            output,
+            add_special_tokens=False,
+        )
+        conversation_ids["labels"] = conversation_ids["input_ids"]
+        return conversation_ids
+
+
+@register_dataset
+class JsonCleverInputOutput(SFTDataSetLoader):
+    dataset_name = "JsonCleverInputOutput"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_dataset("json", data_files=self.location)["train"]
+        return dataset
+
+    def tokenize_fn(
+        self,
+        dataset: Dataset,
+        tokenizer: PreTrainedTokenizerBase,
+        data_config: "DataConfig",
+    ) -> Dataset:
+        return dataset.map(
+            lambda ex: {
+                **self.tokenize_messages(
+                    ex, tokenizer, mask_inputs=data_config.mask_inputs
+                )
+            },
+            num_proc=data_config.num_proc,
+            desc="Tokenizing messages",
+        )
+
+    @classmethod
+    def tokenize_messages(
+        cls,
+        ex: dict,
+        tokenizer: PreTrainedTokenizerBase,
+        mask_inputs: bool = True,
+    ) -> BatchEncoding:
+        input = ex["input"]
+        output = ex["output"]
+        inputs = tokenizer(
+            input,
+            add_special_tokens=False,
+        )
+        outputs = tokenizer(
+            output,
+            add_special_tokens=False,
+        )
+        inputs["input_ids"] += outputs["input_ids"]
+        inputs["labels"] = outputs["input_ids"]
+        inputs["attention_mask"] += outputs["attention_mask"]
+        return inputs
+
+
+@register_dataset
+class JsonInputOutput(SFTDataSetLoader):
+    dataset_name = "JsonInputOutput"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_dataset("json", data_files=self.location)["train"]
+        return dataset
+
+    def tokenize_fn(
+        self,
+        dataset: Dataset,
+        tokenizer: PreTrainedTokenizerBase,
+        data_config: "DataConfig",
+    ) -> Dataset:
+        return dataset.map(
+            lambda ex: {
+                **self.tokenize_messages(
+                    ex, tokenizer, mask_inputs=data_config.mask_inputs
+                )
+            },
+            num_proc=data_config.num_proc,
+            desc="Tokenizing messages",
+        )
+
+    @classmethod
+    def tokenize_messages(
+        cls,
+        ex: dict,
+        tokenizer: PreTrainedTokenizerBase,
+        mask_inputs: bool = True,
+    ) -> BatchEncoding:
+        input = ex["input"]
+        output = ex["output"]
+        if mask_inputs:
+            inputs = tokenizer(
+                input,
+                add_special_tokens=False,
+            )
+            labels = [IGNORE_INDEX] * len(inputs["input_ids"])
+
+            outputs = tokenizer(
+                output,
+                add_special_tokens=False,
+            )
+            inputs["input_ids"] += outputs["input_ids"]
+            inputs["labels"] = labels + outputs["input_ids"]
+            inputs["attention_mask"] += outputs["attention_mask"]
+            return inputs
+
+        else:
+            conversation_ids = tokenizer(
+                input + output,
+                return_offsets_mapping=mask_inputs,
+                add_special_tokens=False,
+            )
+            conversation_ids["labels"] = conversation_ids["input_ids"]
+            return conversation_ids
+
+
+@register_dataset
+class JsonDataset(SFTDataSetLoader):
+    dataset_name = "JsonDataset"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_dataset("json", data_files=self.location)["train"]
+        return dataset
+
+
 @register_dataset
 class PromptResponsePairs(SFTDataSetLoader):
     dataset_name = "PromptResponsePairs"
@@ -140,7 +319,7 @@ class PromptResponsePairs(SFTDataSetLoader):
             )
         )
         return formatted_dataset.select_columns(["messages"])
-    
+
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
         conversation = [
@@ -301,7 +480,12 @@ class LMSysChat1M(SFTDataSetLoader):
     def load_fn(self, num_proc: int, eval: bool) -> Dataset:
         if eval:
             assert False, "Test split does not exist."
-        dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", num_proc=num_proc, token=os.environ.get("HF_TOKEN", None))
+        dataset = load_dataset(
+            "lmsys/lmsys-chat-1m",
+            split="train",
+            num_proc=num_proc,
+            token=os.environ.get("HF_TOKEN", None),
+        )
         # TODO
         # if sample:
         #    shuffled_dataset = dataset.shuffle(seed=42)

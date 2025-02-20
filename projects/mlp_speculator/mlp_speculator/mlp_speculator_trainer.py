@@ -1,4 +1,5 @@
 # General Imports
+import os
 import sys
 import types
 from typing import Optional
@@ -7,6 +8,7 @@ import torch
 import torch.nn.functional as F
 import tqdm
 from torch.nn import CrossEntropyLoss
+from torch.nn import CTCLoss
 from transformers.cache_utils import DynamicCache
 from transformers.trainer_pt_utils import LabelSmoother
 
@@ -16,7 +18,6 @@ from arctic_training.logging import logger
 from arctic_training.trainer.sft_trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
-from .checkpointing import MLPSpeculatorCheckpointEngine
 from .configs import MLPSpeculatorConfig
 
 # MLPSpeculator Imports
@@ -208,6 +209,36 @@ class MLPSpeculatorTrainer(SFTTrainer):
 
         return result
 
+    def _compute_loss_simulate_generation(self, inputs):
+        """
+        We saved the input and generated tokens by compute_loss3.
+        """
+        inputs = to_device(inputs, self.device)
+        labels = inputs.pop("labels")
+
+        with torch.no_grad():
+            outputs = self.model(**inputs, speculator_return=True)
+            hidden_states = outputs[0]  # b n h
+
+        gen_seq_length = labels.shape[-1]
+
+        spec_inputs = hidden_states.detach()[
+            :, -gen_seq_length - 1 : -self.model.speculator.n_predict - 1, :
+        ]
+        spec_inputs2 = labels[:, -gen_seq_length:]
+        preds = self.model.speculator(spec_inputs, spec_inputs2)
+        losses = []
+        loss_fn = CrossEntropyLoss()
+
+        for i in range(preds.size(0)):
+            label = labels[:, i + 1 : preds.size(2) + i + 1]  # b n
+            loss = loss_fn(
+                preds[i].reshape(-1, preds.size(3)), label.long().reshape(-1)
+            )
+            losses.append(loss)
+        loss = sum(losses)
+        return loss
+
     def _compute_loss1(self, inputs):
         """
         Compute the training loss for the model.
@@ -233,16 +264,60 @@ class MLPSpeculatorTrainer(SFTTrainer):
 
         labels = inputs["labels"]
         weighted_sum = self.config.weighted_sum
-        
-        for i in range(preds.size(0)):
-            targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
-            loss = loss_fn(preds[i].reshape(-1, preds.size(3)), targ.long().reshape(-1))
-            if weighted_sum:
-                weight = 1.0/float(1.0+i)
-                losses.append(weight * loss)
-            else:
+        aurick_loss = self.config.aurick_loss
+        ctc_loss_weight = self.config.ctc_loss_weight
+
+        if aurick_loss:
+            total_loss = 0
+            for i in range(preds.size(0)):
+                targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
+                loss = torch.sum(
+                    torch.softmax(preds[i].reshape(-1, preds.size(3)), dim=-1)
+                    * F.one_hot(targ.long().reshape(-1), preds.size(3)),
+                    dim=-1,
+                )
                 losses.append(loss)
-        loss = sum(losses)
+                cur_loss = loss
+                for j in range(i):
+                    cur_loss = cur_loss * losses[j]
+                total_loss += cur_loss
+            loss = -torch.sum(torch.log(total_loss + 1e-7))
+        elif ctc_loss_weight:
+            ctc_loss_fn = CTCLoss(blank=128002, zero_infinity=True)
+            targets = []
+            for i in range(preds.size(0)):
+                targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
+                targets.append(targ.reshape(-1))
+                loss = loss_fn(
+                    preds[i].reshape(-1, preds.size(3)), targ.long().reshape(-1)
+                )
+                losses.append(loss)
+            loss = sum(losses)
+            targets = torch.stack(targets, dim=1)
+            logsoftmaxed = (
+                preds.view(preds.shape[0], -1, preds.shape[-1]).float().log_softmax(2)
+            )
+            lengths = torch.full(
+                (targets.shape[0],),
+                preds.shape[0],
+                dtype=torch.long,
+                device=preds.device,
+            )
+            loss += ctc_loss_weight * ctc_loss_fn(
+                logsoftmaxed, targets, lengths, lengths
+            )
+        else:
+            for i in range(preds.size(0)):
+                targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
+                loss = loss_fn(
+                    preds[i].reshape(-1, preds.size(3)), targ.long().reshape(-1)
+                )
+                if weighted_sum:
+                    weight = 1.0 / float(1.0 + i)
+                    losses.append(weight * loss)
+                else:
+                    losses.append(loss)
+            loss = sum(losses)
         return loss
 
     def _compute_loss2(self, inputs):
@@ -350,6 +425,9 @@ class MLPSpeculatorTrainer(SFTTrainer):
 
         # train on generated data distribution
         # does generation inside the loss function
+        if config.sim_gen_loss:
+            return self._compute_loss_simulate_generation(inputs)
+
         if config.gen_train and not config.gen_train_simple:
             assert (
                 config.gen_micro_batch % config.gen_train_micro_batch == 0
@@ -410,6 +488,9 @@ class MLPSpeculatorTrainer(SFTTrainer):
                     inputs["input_ids"].size(0) * grow_factor, config.gen_prompt_length
                 )
 
+                rank = torch.distributed.get_rank()
+                os.makedirs(f"toks/{rank}", exist_ok=True)
+
                 generated_tokens, hidden_states = self.generate(
                     inputs,
                     config.data.max_length,
@@ -426,6 +507,12 @@ class MLPSpeculatorTrainer(SFTTrainer):
                     :, -config.gen_seq_length : -self.model.speculator.n_predict, :
                 ]
 
+                file_length = len(os.listdir(f"toks/{rank}"))
+                torch.save(
+                    {"input": inputs["input_ids"], "generated": generated_tokens},
+                    f"toks/{rank}/{file_length:06d}.pt",
+                )
+
                 hidden_states = hidden_states.reshape(
                     [
                         -1,
@@ -434,9 +521,9 @@ class MLPSpeculatorTrainer(SFTTrainer):
                         hidden_states.size(2),
                     ]
                 )
-            #The generation takes a long time so doing this once in a while wont be a big overhead
+            # The generation takes a long time so doing this once in a while wont be a big overhead
             torch.cuda.empty_cache()
-            
+
             speculator_inputs = {}
             for i in tqdm.tqdm(
                 range(generated_tokens.size(0)),
@@ -459,7 +546,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
         multi_step_with_generation()
 
     # def checkpoint_engine(self):
-        
+
     #     ckpt_engine = MLPSpeculatorCheckpointEngine(
     #         trainer=self, config=self.config.checkpoint[0]
     #     )
