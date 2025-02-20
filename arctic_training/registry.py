@@ -210,7 +210,7 @@ def _validate_class_attribute_type(cls: Type, attribute: str, type_: Type) -> No
         raise RegistryValidationError(
             f"{cls.__name__}.{attribute} must define one or more types that are a"
             f" subclass of {type_.__name__} but the following types are not subclasses:"
-            f" {(t.__name__ for t in bad_types)}."
+            f" {[t.__name__ for t in bad_types]}."
         )
 
 
