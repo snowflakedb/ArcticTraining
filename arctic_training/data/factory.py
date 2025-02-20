@@ -125,12 +125,12 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def global_rank(self) -> int:
         """The global rank of the current process."""
-        return self.trainer.global_rank
+        return self.config.global_rank
 
     @property
     def world_size(self) -> int:
         """The total number of processes in the world."""
-        return self.trainer.world_size
+        return self.config.world_size
 
     @property
     def cache_path_args(self) -> Dict:
