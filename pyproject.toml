@@ -54,12 +54,6 @@ max-line-length = 88
 ignore = ["E203", "E266", "E501", "W503"]
 exclude = ["tests/*"]
 
-# Configuration for Mypy (type checker)
-[tool.mypy]
-python_version = 3.8
-check_untyped_defs = true
-ignore_missing_imports = true
-
 # Optional configuration for isort (import sorting)
 [tool.isort]
 profile = "black"
