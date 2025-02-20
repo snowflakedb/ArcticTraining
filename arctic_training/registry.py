@@ -209,7 +209,8 @@ def _validate_class_attribute_type(cls: Type, attribute: str, type_: Type) -> No
     if len(bad_types) != 0:
         raise RegistryValidationError(
             f"{cls.__name__}.{attribute} must define one or more types that are a"
-            f" subclass of {type_.__name__} but the following types are not subclasses:"
+            f" subclass of {type_.__name__} for the {attribute} attribute, but we found"
+            " the following types are not subclasses:"
             f" {[t.__name__ for t in bad_types]}."
         )
 
