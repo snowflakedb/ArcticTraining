@@ -41,7 +41,7 @@ from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
-from arctic_training.registry import _validate_method_definition
+from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 
@@ -127,11 +127,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_attribute_type(cls, "optimizer_factory", OptimizerFactory)
         _validate_class_attribute_type(cls, "scheduler_factory", SchedulerFactory)
         _validate_class_attribute_type(cls, "tokenizer_factory", TokenizerFactory)
-        _validate_method_definition(cls, "loss", ["self", "batch"])
-        _validate_method_definition(cls, "step", ["self", "batch"])
-        _validate_method_definition(cls, "epoch", ["self"])
-        _validate_method_definition(cls, "train", ["self"])
-        _validate_method_definition(cls, "checkpoint", ["self"])
+        _validate_class_method(cls, "loss", ["self", "batch"])
+        _validate_class_method(cls, "step", ["self", "batch"])
+        _validate_class_method(cls, "epoch", ["self"])
+        _validate_class_method(cls, "train", ["self"])
+        _validate_class_method(cls, "checkpoint", ["self"])
 
     def __init__(self, config: TrainerConfig) -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")

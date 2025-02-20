@@ -26,7 +26,6 @@ from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
 from arctic_training.logging import logger
 from arctic_training.registry import get_registered_data_source
-from arctic_training.registry import register
 
 
 class HFDataSourceConfig(DataSourceConfig):
@@ -61,7 +60,6 @@ class HFDataSourceConfig(DataSourceConfig):
         return self
 
 
-@register
 class HFDataSource(DataSource):
     """Base DataSource class for loading data with HuggingFace datasets library."""
 
@@ -72,7 +70,6 @@ class HFDataSource(DataSource):
         return load_dataset(config.dataset_name, split=split, **config.kwargs)
 
 
-@register
 class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
@@ -81,7 +78,6 @@ class UltraChat200K(HFDataSource):
         return split_map.get(split, split)
 
 
-@register
 class SlimOrca(HFDataSource):
     name = "Open-Orca/SlimOrca"
 
@@ -108,7 +104,6 @@ class SlimOrca(HFDataSource):
         )
 
 
-@register
 class MetaMathQA(HFDataSource):
     name = "meta-math/MetaMathQA"
 
@@ -136,7 +131,6 @@ class MetaMathQA(HFDataSource):
         }
 
 
-@register
 class MagicoderOSSInstruct75k(HFDataSource):
     name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
 
@@ -164,7 +158,6 @@ class MagicoderOSSInstruct75k(HFDataSource):
         }
 
 
-@register
 class LMSysChat1M(HFDataSource):
     name = "lmsys/lmsys-chat-1m"
 

@@ -30,7 +30,7 @@ from arctic_training.data.utils import DatasetType
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
-from arctic_training.registry import _validate_method_definition
+from arctic_training.registry import _validate_class_method
 
 
 class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -49,7 +49,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", DataSourceConfig)
-        _validate_method_definition(cls, "load", ["self", "config", "split"])
+        _validate_class_method(cls, "load", ["self", "config", "split"])
 
     def __init__(self, data_factory: DataFactory, config: DataSourceConfig) -> None:
         self._data_factory = data_factory

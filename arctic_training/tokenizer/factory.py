@@ -26,7 +26,7 @@ from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
-from arctic_training.registry import _validate_method_definition
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -51,7 +51,7 @@ class TokenizerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", TokenizerConfig)
-        _validate_method_definition(cls, "create_tokenizer", ["self"])
+        _validate_class_method(cls, "create_tokenizer", ["self"])
 
     def __init__(
         self, trainer: "Trainer", tokenizer_config: Optional[TokenizerConfig] = None

@@ -36,7 +36,7 @@ from arctic_training.data.utils import calculate_hash_from_args
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
-from arctic_training.registry import _validate_method_definition
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
@@ -63,10 +63,10 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", DataConfig)
-        _validate_method_definition(cls, "load", ["self", "data_sources", "split"])
-        _validate_method_definition(cls, "process", ["self", "dataset"])
-        _validate_method_definition(cls, "split_data", ["self", "training_data"])
-        _validate_method_definition(cls, "create_dataloader", ["self", "dataset"])
+        _validate_class_method(cls, "load", ["self", "data_sources", "split"])
+        _validate_class_method(cls, "process", ["self", "dataset"])
+        _validate_class_method(cls, "split_data", ["self", "training_data"])
+        _validate_class_method(cls, "create_dataloader", ["self", "dataset"])
 
     def __init__(self, trainer: "Trainer", config: Optional[DataConfig] = None) -> None:
         if config is None:

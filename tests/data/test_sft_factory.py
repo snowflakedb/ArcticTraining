@@ -39,7 +39,6 @@ def sft_data_factory(training_sources):
     return config.factory(dummy_trainer, config)
 
 
-@pytest.mark.cpu
 @pytest.mark.parametrize(
     "training_sources, expected_sum",
     [

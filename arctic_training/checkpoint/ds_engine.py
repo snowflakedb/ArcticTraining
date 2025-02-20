@@ -22,10 +22,8 @@ import numpy as np
 import torch
 
 from arctic_training.checkpoint.engine import CheckpointEngine
-from arctic_training.registry import register
 
 
-@register
 class DSCheckpointEngine(CheckpointEngine):
     name = "deepspeed"
 

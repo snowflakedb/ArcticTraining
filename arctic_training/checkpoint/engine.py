@@ -27,7 +27,7 @@ from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
-from arctic_training.registry import _validate_method_definition
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
@@ -52,8 +52,8 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", CheckpointConfig)
-        _validate_method_definition(cls, "load", ["self", "model"])
-        _validate_method_definition(cls, "save", ["self", "model"])
+        _validate_class_method(cls, "load", ["self", "model"])
+        _validate_class_method(cls, "save", ["self", "model"])
 
     def __init__(self, trainer: "Trainer", config: CheckpointConfig) -> None:
         self._trainer = trainer
