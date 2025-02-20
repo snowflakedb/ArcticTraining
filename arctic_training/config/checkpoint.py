@@ -16,6 +16,7 @@ class CheckpointConfig(BaseConfig):
     save_every_n_steps: int = Field(default=0, ge=0)
     save_every_n_epochs: int = Field(default=0, ge=0)
     save_end_of_training: bool = False
+    checkpoint_dir: Path = ""
 
     @model_validator(mode="after")
     def validate_checkpoint_type(self) -> Self:

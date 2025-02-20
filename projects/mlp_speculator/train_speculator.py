@@ -68,21 +68,25 @@ def MLPSpeculatorParser():
     group.add_argument("--speculator_tie_weights", action="store_true", default=False)
     group.add_argument("--speculator_scale_input", action="store_true", default=False)
     group.add_argument("--speculator_path", type=str, default=None)
-    group.add_argument("--weighted_sum", action="store_true", default=False)
 
     ################### Arguments for generative training ###################
 
     # if true, the training will generate data for training the speculator
     group.add_argument("--gen_train", action="store_true", default=False)
-    group.add_argument("--sim_gen_loss", action="store_true", default=False)
-    group.add_argument("--aurick_loss", action="store_true", default=False)
     group.add_argument("--mask_inputs", action="store_true", default=False)
-    group.add_argument("--ctc_loss_weight", type=float, default=0.0)
     group.add_argument("--not_packing_input", action="store_true", default=False)
     group.add_argument("--gen_train_global_batch", type=int, default=2048)
     group.add_argument("--gen_train_micro_batch", type=int, default=32)
     group.add_argument("--gen_micro_batch", type=int, default=384)
     group.add_argument("--max_length", type=int, default=4096)
+    group.add_argument("--sim_gen_loss", action="store_true", default=False)
+
+    ################### Arguments for helping prefix ###################
+    group.add_argument("--weighted_sum", action="store_true", default=False)
+    group.add_argument("--aurick_loss", action="store_true", default=False)
+    group.add_argument("--ctc_loss_weight", type=float, default=0.0)
+    group.add_argument("--freeze_layers", type=str, default="")
+    group.add_argument("--auto_resume", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -135,6 +139,7 @@ if __name__ == "__main__":
         sim_gen_loss=args.sim_gen_loss,
         aurick_loss=args.aurick_loss,
         ctc_loss_weight=args.ctc_loss_weight,
+        freeze_layers=args.freeze_layers.split("|"),
         weighted_sum=args.weighted_sum,
         gen_train=args.gen_train,
         gen_micro_batch=args.gen_micro_batch,
@@ -170,7 +175,8 @@ if __name__ == "__main__":
                 "save_every_n_steps": args.checkpoint_interval,
                 "save_every_n_epochs": 1,
                 "save_end_of_training": True,
-                "auto_resume": False,
+                "auto_resume": args.auto_resume,
+                "checkpoint_dir": args.checkpoint_path,
             }
         ],
     )

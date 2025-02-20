@@ -18,6 +18,7 @@ from arctic_training.logging import logger
 from arctic_training.trainer.sft_trainer import SFTTrainer
 from arctic_training.trainer.sft_trainer import to_device
 
+from .checkpointing import MLPSpeculatorCheckpointEngine  # noqa: F401
 from .configs import MLPSpeculatorConfig
 
 # MLPSpeculator Imports
@@ -126,8 +127,12 @@ class MLPSpeculatorTrainer(SFTTrainer):
                 param.requires_grad = False
 
             # Unfreeze speculator heads
-            for param in model.speculator.parameters():
-                param.requires_grad = True
+            for name, param in model.speculator.named_parameters():
+                if any([s in name for s in self.config.freeze_layers]):
+                    print(f"SKIPPING UNFREEZING OF {name}")
+                    param.requires_grad = False
+                else:
+                    param.requires_grad = True
 
     _trainer_callbacks = [
         ("post-model-init", add_mlp_speculator),

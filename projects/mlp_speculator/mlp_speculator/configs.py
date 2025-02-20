@@ -22,6 +22,7 @@ class MLPSpeculatorTrainConfig(Config):
     aurick_loss: bool = False
     ctc_loss_weight: float = 0.0
     gen_seq_length: int = 256
+    freeze_layers: list = []
     weighted_sum: bool = False
 
 
