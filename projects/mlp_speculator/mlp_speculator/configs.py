@@ -71,7 +71,7 @@ class MLPSpeculatorConfig:
 
         self.scale_input = scale_input
         self.tie_weights = tie_weights
-        self.top_k_tokesns_per_head = [1 for i in range(self.n_predict)]
+        self.top_k_tokens_per_head = [1 for i in range(self.n_predict)]
 
         self.torch_dtype = "bfloat16"
         self.transformers_version = transformers.__version__
