@@ -28,7 +28,7 @@ from arctic_training.registry import register
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer import Trainer
-from arctic_training.debug import print_rank0, print_rank
+from arctic_training.debug import print_rank0, print_rank, exit
 
 def to_device(batch: Dict, device: str) -> Dict:
     output = {}
