@@ -15,6 +15,8 @@
 
 
 class RegistryValidationError(Exception):
+    # TODO: modify to capture multiple exceptions when registry validation fails
+    # so we can provide a summary of all errors
     pass
 
 
