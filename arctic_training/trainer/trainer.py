@@ -143,8 +143,6 @@ class UlyssesAttentionHF(torch.nn.Module):
         #                                                       global_seq_length, \
         #                                                       attn_head_size])
 
-
-
         # [sl bs em_l]        
         self.required_context_shape = torch.Size([global_seq_length, \
                                                 batch_size, \
@@ -203,6 +201,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         output = _DimZeroAllToAll.apply(self.process_group, input)
         print_rank0(f"partition: after all2all:   {output.shape=}")
         output = rearrange(output, 'ws sl_l bs em_l -> sl_l bs ws em_l')
+        #output = rearrange(output, 'ws sl_l bs ... -> sl_l bs ws ...')
         print_rank0(f"partition: after rearrange: {output.shape=}")
             
         # [sl_l bs ws em_l] -> [sl_l bs em]
@@ -300,8 +299,9 @@ class UlyssesAttentionHF(torch.nn.Module):
         print_rank0(f"HF after real attn: {context_layer.shape=}")
         print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")  
 
-        print_rank0(f"1 {context_layer.shape=}")  
-        context_layer = rearrange(context_layer, 'bs sl hc_l hs -> sl bs hs hc_l')
+        print_rank0(f"1 {context_layer.shape=}")
+        # [bs sl hc_l hs] -> [sl bs hc_l hs]'
+        context_layer = rearrange(context_layer, 'bs sl ... -> sl bs ...')
         print_rank0(f"2 {context_layer.shape=}")  
         context_layer = context_layer.reshape([*context_layer.shape[:2], -1])
         print_rank0(f"3 {context_layer.shape=}")  
@@ -318,33 +318,18 @@ class UlyssesAttentionHF(torch.nn.Module):
         output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
         print(f"2 {output.shape=}")
 
-        #output = output.reshape([*output.shape[:2], ]))
+        output = output.reshape([*output.shape[:2], -1])
+        print(f"3 {output.shape=}")
         if attn_weights is not None:
             print_rank0(f"{attn_weights.shape=}")  
 
         debug_gathered_tensor(output, sp_group, name="output")
         
 
-        # expects [bs sl hc hs]
+        # expects [bs sl em]
         return output, attn_weights
 
-# class UlyssesAttentionHF(UlyssesAttentionHF):
-#     def forward(self,
-#         module: torch.nn.Module,        
-#         query: torch.Tensor,
-#         key: torch.Tensor,
-#         value: torch.Tensor,
-#         *args,
-#         **kwargs,
-#     ) -> Tuple[torch.Tensor, None]:
-#         attn_output = super().forward(
-#             query=query,
-#             key=key,
-#             value=value,
-#             *args,
-#             **kwargs
-#         )
-#         return attn_output, None
+
 
 
 from typing import Callable, List, Optional, Tuple, Union
@@ -483,21 +468,24 @@ class LlamaAttentionNew(torch.nn.Module):
 
         from deepspeed.utils import groups
         sp_group = groups._get_sequence_parallel_group()
+        sp_world_size = groups._get_sequence_parallel_world_size()
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
 
-        if sp_group is not None:
+        if sp_world_size > 1:
             debug_gathered_tensor(attn_output, sp_group, name="attn_output prefinal")
         else:
+            print_rank0(f"HF after attn prefinal: {attn_output.shape=}")  
             print_rank0(f"HF after attn prefinal: {torch.norm(attn_output)=}")  
 
         attn_output = self.o_proj(attn_output)
 
-        if sp_group is not None:
-            debug_gathered_tensor(attn_output, sp_group, name="attn_output")
+        if sp_world_size > 1:
+            debug_gathered_tensor(attn_output, sp_group, name="attn_output after o_proj")
         else:
-            print_rank0(f"HF after attn final: {torch.norm(attn_output)=}")  
-
+            print_rank0(f"HF after o_proj: {attn_output.shape=}")  
+            print_rank0(f"HF after o_proj: {torch.norm(attn_output)=}")  
+        #exit()
 
         return attn_output, attn_weights
 
@@ -762,7 +750,7 @@ class Trainer(ABC, CallbackMixin):
         #time.sleep(5)
         #die
 
-        torch.set_printoptions(sci_mode=True)
+        torch.set_printoptions(sci_mode=False)
         # torch.set_printoptions(
         #     threshold=100000000, # print all data (without ... skipping) - can be huge!
         #     sci_mode=False,      # print all data on the same scale of 1 (this disables scientific notation)
@@ -1064,33 +1052,33 @@ class Trainer(ABC, CallbackMixin):
             # XXX: restore attention_mask and when doing so need to chunk it along with all other fields in the batch, like input_ids 
             #del batch["attention_mask"]
 
-        if 0:
-            outputs = self.model.generate(**batch, do_sample=False, max_new_tokens=1)        
-            print(outputs)
-            decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-            decoded_last_token0 = self.tokenizer.batch_decode([outputs[0][-1:]], skip_special_tokens=True)[0]
-            decoded_last_token1 = self.tokenizer.batch_decode([outputs[1][-1:]], skip_special_tokens=True)[0]
-            #if self.global_rank == 0:
+        # if 0:
+        #     outputs = self.model.generate(**batch, do_sample=False, max_new_tokens=1)        
+        #     print(outputs)
+        #     decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        #     decoded_last_token0 = self.tokenizer.batch_decode([outputs[0][-1:]], skip_special_tokens=True)[0]
+        #     decoded_last_token1 = self.tokenizer.batch_decode([outputs[1][-1:]], skip_special_tokens=True)[0]
+        #     #if self.global_rank == 0:
             
-            dist.barrier()
-            # chunk = decoded[0][-100:].replace('\n',' ')
-            # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-            chunk = decoded[0].replace('\n',' ')
-            print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-            print(f"RANK {self.global_rank}: NEW TOKEN[0]: [{decoded_last_token0}]")
-            print(f"RANK {self.global_rank}: NEW TOKEN[1]: [{decoded_last_token1}]")
-            # chunk = decoded[0][-seq_length:].replace('\n',' ')
-            # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+        #     dist.barrier()
+        #     # chunk = decoded[0][-100:].replace('\n',' ')
+        #     # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+        #     chunk = decoded[0].replace('\n',' ')
+        #     print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+        #     print(f"RANK {self.global_rank}: NEW TOKEN[0]: [{decoded_last_token0}]")
+        #     print(f"RANK {self.global_rank}: NEW TOKEN[1]: [{decoded_last_token1}]")
+        #     # chunk = decoded[0][-seq_length:].replace('\n',' ')
+        #     # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
 
-            #dist.barrier()
-            #chunk = decoded[1].replace('\n',' ')
-            #print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
+        #     #dist.barrier()
+        #     #chunk = decoded[1].replace('\n',' ')
+        #     #print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
             
-            # expected 1 generated character:
-            # 0: o
-            # 1: .
+        #     # expected 1 generated character:
+        #     # 0: o
+        #     # 1: .
 
-            import sys; sys.exit(0)
+        #     import sys; sys.exit(0)
 
         if 0:
             del batch["attention_mask"]
@@ -1105,8 +1093,11 @@ class Trainer(ABC, CallbackMixin):
         else:
             loss = self.loss(batch)
 
-        print_rank(f"{loss=}")
-        import sys; sys.exit(0)
+        print_rank(f"{self.train_batch_idx}: {loss.grad=}")
+
+
+        print_rank(f"{self.train_batch_idx}: {loss=}")
+        exit()
 
         self.model.backward(loss)
         self.model.step()

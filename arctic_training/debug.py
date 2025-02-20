@@ -18,8 +18,17 @@ def print_rank0(*msg):
         print(f"[{global_rank}]", *msg)
 
 
-def debug_gathered_tensor(tensor, group, name=None):
-    """gather a tensor across ranks of the given group and dump its shape and norm"""
+def debug_gathered_tensor(tensor, group, name=None, dim=1):
+    """gather a tensor across ranks of the given group and dump its shape and norm
+    
+    
+    Arguments:
+        tensor: tensor to gather
+        group: process group to gather on
+        name: optional - the variable name for the tensor
+        dim: which dimension to gather on. default: 0
+
+    """
 
     world_size = dist.get_world_size(group)
     prefix = f"gathered {name}" if name is not None else "gathered"
@@ -29,7 +38,7 @@ def debug_gathered_tensor(tensor, group, name=None):
     dist.all_gather(tensor_list, tensor, group=group)
 
     # concatenate on any dimension since we are just doing norm on everything
-    gathered_tensor = torch.cat(tensor_list, dim=0)
+    gathered_tensor = torch.cat(tensor_list, dim=dim)
     print_rank0(f"{prefix}: shape: {gathered_tensor.shape}")      
     print_rank0(f"{prefix}: norm:  {torch.norm(gathered_tensor)}")      
     #print_rank0(f"{prefix}:  {gathered_tensor}")      
