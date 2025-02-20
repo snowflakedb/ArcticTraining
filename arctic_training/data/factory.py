@@ -33,13 +33,17 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_method_definition
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
     from arctic_training.trainer import Trainer
 
 
-class DataFactory(ABC, CallbackMixin):
+class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base DataFactory class for loading training and evaluation data."""
 
     name: str
@@ -54,6 +58,15 @@ class DataFactory(ABC, CallbackMixin):
     The type of the DataConfig object that this DataFactory uses. Any
     DataFactory-specific options should be specified in this class.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", DataConfig)
+        _validate_method_definition(cls, "load", ["self", "data_sources", "split"])
+        _validate_method_definition(cls, "process", ["self", "dataset"])
+        _validate_method_definition(cls, "split_data", ["self", "training_data"])
+        _validate_method_definition(cls, "create_dataloader", ["self", "dataset"])
 
     def __init__(self, trainer: "Trainer", config: Optional[DataConfig] = None) -> None:
         if config is None:

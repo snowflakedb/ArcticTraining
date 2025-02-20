@@ -22,12 +22,16 @@ from typing import Optional
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.optimizer import OptimizerConfig
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_method_definition
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class OptimizerFactory(ABC, CallbackMixin):
+class OptimizerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base class for optimizer creation."""
 
     name: str
@@ -42,6 +46,14 @@ class OptimizerFactory(ABC, CallbackMixin):
     The type of config class that the optimizer factory uses. This should
     contain all optimizer-specific parameters.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", OptimizerConfig)
+        _validate_method_definition(
+            cls, "create_optimizer", ["self", "model", "optimizer_config"]
+        )
 
     def __init__(
         self,

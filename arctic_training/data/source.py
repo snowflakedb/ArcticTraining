@@ -27,9 +27,13 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_method_definition
 
 
-class DataSource(ABC, CallbackMixin):
+class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base DataSource class for loading training and evaluation data."""
 
     name: str
@@ -40,6 +44,12 @@ class DataSource(ABC, CallbackMixin):
     The type of the DataSourceConfig object that this DataSource uses. Any
     DataSource-specific options should be specified in this class.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", DataSourceConfig)
+        _validate_method_definition(cls, "load", ["self", "config", "split"])
 
     def __init__(self, data_factory: DataFactory, config: DataSourceConfig) -> None:
         self._data_factory = data_factory

@@ -20,7 +20,7 @@ from typing import Type
 from pydantic import Field
 
 from arctic_training.config import BaseConfig
-from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
+from arctic_training.registry import get_registered_checkpoint_engine
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -50,4 +50,4 @@ class CheckpointConfig(BaseConfig):
 
     @property
     def engine(self) -> Type["CheckpointEngine"]:
-        return get_registered_checkpoint_engine(self.type)
+        return get_registered_checkpoint_engine(name=self.type)

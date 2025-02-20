@@ -38,6 +38,10 @@ from arctic_training.data.factory import DataFactory
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_method_definition
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 
@@ -47,7 +51,7 @@ except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
 
-class Trainer(ABC, CallbackMixin):
+class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base Trainer class."""
 
     name: str
@@ -112,6 +116,22 @@ class Trainer(ABC, CallbackMixin):
     implements the callback. Callback events for the trainer include `pre-` and
     `post-` for `init`, `train`, `epoch`, `step`, and `checkpoint`.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", TrainerConfig)
+        _validate_class_attribute_type(cls, "data_factory", DataFactory)
+        _validate_class_attribute_type(cls, "model_factory", ModelFactory)
+        _validate_class_attribute_type(cls, "checkpoint_engine", CheckpointEngine)
+        _validate_class_attribute_type(cls, "optimizer_factory", OptimizerFactory)
+        _validate_class_attribute_type(cls, "scheduler_factory", SchedulerFactory)
+        _validate_class_attribute_type(cls, "tokenizer_factory", TokenizerFactory)
+        _validate_method_definition(cls, "loss", ["self", "batch"])
+        _validate_method_definition(cls, "step", ["self", "batch"])
+        _validate_method_definition(cls, "epoch", ["self"])
+        _validate_method_definition(cls, "train", ["self"])
+        _validate_method_definition(cls, "checkpoint", ["self"])
 
     def __init__(self, config: TrainerConfig) -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
