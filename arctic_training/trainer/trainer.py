@@ -118,6 +118,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.attn = attn
         self.process_group = process_group
         self.world_size = dist.get_world_size(process_group)
+        self.sp_rank = dist.get_rank(process_group)
         
         self.local_seq_length = local_seq_length
         self.global_seq_length = global_seq_length
@@ -127,8 +128,11 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.attn_head_count = attn_head_count
         self.global_kv_head_count = kv_head_count
 
-        # XXX: need to deal with 
+        self.local_q_head_count = attn_head_count // self.world_size
         self.local_kv_head_count = kv_head_count // self.world_size
+
+        print_rank0(f"{self.local_kv_head_count=}")
+        #exit()
 
         if self.attn_head_count % self.world_size != 0:
             raise ValueError(f"Attention head count {attn_head_count} is not divisible by world size {self.world_size}")
@@ -140,10 +144,18 @@ class UlyssesAttentionHF(torch.nn.Module):
         # - more?
 
         # [sl_l bs hc hs]
-        self.required_input_shape = torch.Size([local_seq_length, \
+        self.required_query_shape = torch.Size([local_seq_length, \
                                                 batch_size, \
                                                 attn_head_count, \
                                                 attn_head_size])
+        self.required_key_value_shape = torch.Size([local_seq_length, \
+                                                batch_size, \
+                                                kv_head_count, \
+                                                attn_head_size])
+        # self.required_input_shape = torch.Size([local_seq_length, \
+        #                                         batch_size, \
+        #                                         attn_head_count, \
+        #                                         attn_head_size])
         
         # [sl bs em_l]        
         self.required_context_shape = torch.Size([global_seq_length, \
@@ -152,10 +164,12 @@ class UlyssesAttentionHF(torch.nn.Module):
         
     def _combine_local_sequences(self, query, key, value) -> Tuple[Tensor, Tensor, Tensor]:
         
-        def combine_sequence(input):
+        def combine_sequence(input, local_head_count):
             """
                 expects inputs in shape: [sl_l bs hc hs]
-                returns output in shape: [sl bs hc_l hs]           
+                returns output in shape: [sl bs hc_l hs]
+
+                local_head_count could be different for k,v vs q if it's not an MHA situation          
             """
 
             print_rank0('')
@@ -165,7 +179,7 @@ class UlyssesAttentionHF(torch.nn.Module):
             input = input.reshape([self.local_seq_length, \
                                 self.batch_size, \
                                 self.world_size, \
-                                self.attn_head_count // self.world_size, \
+                                local_head_count, \
                                 self.attn_head_size])    
 
             print_rank0(f"combine: after reshape:   {input.shape=}")
@@ -183,7 +197,8 @@ class UlyssesAttentionHF(torch.nn.Module):
             # [sl bs hc_l hs]
             return output
         
-        return combine_sequence(query), combine_sequence(key), combine_sequence(value)
+        
+        return combine_sequence(query, self.local_q_head_count),  combine_sequence(key, self.local_kv_head_count),  combine_sequence(value, self.local_kv_head_count)
         
     def _partition_global_sequence(self, input) -> Tensor:
         """
@@ -240,8 +255,6 @@ class UlyssesAttentionHF(torch.nn.Module):
         print_rank0(f"forward 1 {key.shape=}")
         print_rank0(f"forward 1 {value.shape=}")
 
-
-
         query = rearrange(query, 'bs hc sl hs -> sl bs hc hs')
         key = rearrange(key,     'bs hc sl hs -> sl bs hc hs')
         value = rearrange(value, 'bs hc sl hs -> sl bs hc hs')
@@ -249,12 +262,17 @@ class UlyssesAttentionHF(torch.nn.Module):
         print_rank0(f"forward 2 {query.shape=}")
         print_rank0(f"forward 2 {key.shape=}")
         print_rank0(f"forward 2 {value.shape=}")
-        print_rank0(f"forward 2 {self.required_input_shape=}")
+        print_rank0(f"forward 2 {self.required_query_shape=}")
+        print_rank0(f"forward 2 {self.required_key_value_shape=}")
 
         #print_rank0(f"{attention_mask.shape=}")
         # please don't remove the white-space vertical alignment in the error message
-        assert query.shape == key.shape == value.shape == self.required_input_shape, \
-            f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
+        assert query.shape == self.required_query_shape, \
+            f"[{dist.get_rank()}]: query input tensor does not match the required shape\n             {self.required_query_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
+        assert key.shape == value.shape == self.required_key_value_shape, \
+            f"[{dist.get_rank()}]: key or value input tensor does not match the required shape\n             {self.required_key_value_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
+        # assert query.shape == key.shape == value.shape == self.required_input_shape, \
+        #     f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
         
         # expects: [sl_l bs hc hs]
         query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
