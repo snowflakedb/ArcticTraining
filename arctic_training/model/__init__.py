@@ -13,6 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .factory import ModelFactory
-from .hf_factory import HFModelFactory
-from .liger_factory import LigerModelFactory
+from arctic_training.model.factory import ModelFactory
+from arctic_training.model.hf_factory import HFModelFactory
+from arctic_training.model.liger_factory import LigerModelFactory

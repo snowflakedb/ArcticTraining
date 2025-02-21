@@ -20,11 +20,10 @@ from typing import Union
 
 from pydantic import field_validator
 
+from arctic_training.config.base import BaseConfig
 from arctic_training.logging import LOG_LEVEL_DEFAULT
 from arctic_training.utils import get_local_rank
 from arctic_training.utils import get_world_size
-
-from .base import BaseConfig
 
 
 class LoggerConfig(BaseConfig):

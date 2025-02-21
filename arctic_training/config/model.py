@@ -23,13 +23,12 @@ from typing import Union
 
 from pydantic import field_validator
 
+from arctic_training.config.base import BaseConfig
+from arctic_training.config.enums import DType
 from arctic_training.registry import get_registered_model_factory
 
 if TYPE_CHECKING:
     from arctic_training.model.factory import ModelFactory
-
-from .base import BaseConfig
-from .enums import DType
 
 
 class ModelConfig(BaseConfig):

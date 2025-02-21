@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import hf_source
-from .factory import DataFactory
-from .sft_factory import SFTDataFactory
-from .source import DataSource
+from arctic_training.data.factory import DataFactory
+from arctic_training.data.hf_source import HFDataSource
+from arctic_training.data.sft_factory import SFTDataFactory
+from arctic_training.data.source import DataSource

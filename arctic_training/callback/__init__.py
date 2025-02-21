@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .callback import Callback
-from .mixin import CallbackMixin
+from arctic_training.callback.callback import Callback
+from arctic_training.callback.mixin import CallbackMixin

@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .factory import SchedulerFactory
-from .hf_factory import HFSchedulerFactory
+from arctic_training.scheduler.factory import SchedulerFactory
+from arctic_training.scheduler.hf_factory import HFSchedulerFactory

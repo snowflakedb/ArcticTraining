@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import BaseConfig
-from .checkpoint import CheckpointConfig
-from .data import DataConfig
-from .model import ModelConfig
-from .optimizer import OptimizerConfig
-from .scheduler import SchedulerConfig
-from .tokenizer import TokenizerConfig
-from .trainer import TrainerConfig
+from arctic_training.config.base import BaseConfig
+from arctic_training.config.checkpoint import CheckpointConfig
+from arctic_training.config.data import DataConfig
+from arctic_training.config.model import ModelConfig
+from arctic_training.config.optimizer import OptimizerConfig
+from arctic_training.config.scheduler import SchedulerConfig
+from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.config.trainer import TrainerConfig

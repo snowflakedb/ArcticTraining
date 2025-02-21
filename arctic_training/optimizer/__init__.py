@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .adam_factory import FusedAdamOptimizerFactory
-from .factory import OptimizerFactory
+from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
+from arctic_training.optimizer.factory import OptimizerFactory

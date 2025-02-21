@@ -13,6 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .ds_engine import DSCheckpointEngine
-from .engine import CheckpointEngine
-from .hf_engine import HFCheckpointEngine
+from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
+from arctic_training.checkpoint.engine import CheckpointEngine
+from arctic_training.checkpoint.hf_engine import HFCheckpointEngine

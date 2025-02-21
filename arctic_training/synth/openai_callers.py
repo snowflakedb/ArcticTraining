@@ -26,7 +26,7 @@ from openai import AzureOpenAI
 from openai import OpenAI
 from tabulate import tabulate
 
-from .base_caller import BatchProcessor
+from arctic_training.synth.base_caller import BatchProcessor
 
 
 def load_credentials(credential_path):

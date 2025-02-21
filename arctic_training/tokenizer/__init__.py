@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .factory import TokenizerFactory
-from .hf_factory import HFTokenizerFactory
+from arctic_training.tokenizer.factory import TokenizerFactory
+from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
