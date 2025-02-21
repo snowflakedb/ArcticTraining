@@ -16,7 +16,7 @@
 import pytest
 
 from arctic_training.config.trainer import get_config
-from arctic_training.registry.trainer import get_registered_trainer
+from arctic_training.registry import get_registered_trainer
 
 
 @pytest.mark.gpu
@@ -44,7 +44,6 @@ def test_sft_trainer():
     assert trainer.global_step > 0, "Training did not run"
 
 
-@pytest.mark.cpu
 def test_sft_trainer_cpu():
     config_dict = {
         "type": "sft",

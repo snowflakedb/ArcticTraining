@@ -22,12 +22,16 @@ from typing import Optional
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.scheduler import SchedulerConfig
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class SchedulerFactory(ABC, CallbackMixin):
+class SchedulerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base class for all scheduler factories."""
 
     name: str
@@ -41,6 +45,12 @@ class SchedulerFactory(ABC, CallbackMixin):
     The configuration class for the scheduler factory. This is used to validate
     the configuration passed to the factory.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", SchedulerConfig)
+        _validate_class_method(cls, "create_scheduler", ["self", "optimizer"])
 
     def __init__(
         self,

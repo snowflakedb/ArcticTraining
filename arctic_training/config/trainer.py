@@ -44,14 +44,14 @@ from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.config.wandb import WandBConfig
-from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
-from arctic_training.registry.data import get_registered_data_factory
-from arctic_training.registry.model import get_registered_model_factory
-from arctic_training.registry.optimizer import get_registered_optimizer_factory
-from arctic_training.registry.scheduler import get_registered_scheduler_factory
-from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
-from arctic_training.registry.trainer import get_registered_trainer
-from arctic_training.registry.utils import _get_class_attr_type_hints
+from arctic_training.registry import _get_class_attr_type_hints
+from arctic_training.registry import get_registered_checkpoint_engine
+from arctic_training.registry import get_registered_data_factory
+from arctic_training.registry import get_registered_model_factory
+from arctic_training.registry import get_registered_optimizer_factory
+from arctic_training.registry import get_registered_scheduler_factory
+from arctic_training.registry import get_registered_tokenizer_factory
+from arctic_training.registry import get_registered_trainer
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine

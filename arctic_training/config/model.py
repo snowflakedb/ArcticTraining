@@ -23,7 +23,7 @@ from typing import Union
 
 from pydantic import field_validator
 
-from arctic_training.registry.model import get_registered_model_factory
+from arctic_training.registry import get_registered_model_factory
 
 if TYPE_CHECKING:
     from arctic_training.model.factory import ModelFactory
@@ -56,7 +56,7 @@ class ModelConfig(BaseConfig):
 
     @property
     def factory(self) -> Type["ModelFactory"]:
-        return get_registered_model_factory(self.type)
+        return get_registered_model_factory(name=self.type)
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:

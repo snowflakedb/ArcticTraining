@@ -24,12 +24,16 @@ from transformers import PreTrainedModel
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.model import ModelConfig
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.trainer import Trainer
 
 
-class ModelFactory(ABC, CallbackMixin):
+class ModelFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base class for model creation."""
 
     name: str
@@ -44,6 +48,13 @@ class ModelFactory(ABC, CallbackMixin):
     The type of config class that the model factory uses. This should contain
     all model-specific parameters.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", ModelConfig)
+        _validate_class_method(cls, "create_config", ["self"])
+        _validate_class_method(cls, "create_model", ["self", "model_config"])
 
     def __init__(
         self, trainer: "Trainer", model_config: Optional[ModelConfig] = None

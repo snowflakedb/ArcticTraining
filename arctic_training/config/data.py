@@ -27,9 +27,9 @@ from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.logging import logger
-from arctic_training.registry.data import get_registered_data_factory
-from arctic_training.registry.data import get_registered_data_source
-from arctic_training.registry.utils import _get_class_attr_type_hints
+from arctic_training.registry import _get_class_attr_type_hints
+from arctic_training.registry import get_registered_data_factory
+from arctic_training.registry import get_registered_data_source
 
 if TYPE_CHECKING:
     from arctic_training.data.factory import DataFactory

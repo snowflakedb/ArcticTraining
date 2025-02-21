@@ -22,7 +22,6 @@ import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
 
 from arctic_training import logger
-from arctic_training import register
 from arctic_training.checkpoint import HFCheckpointEngine
 from arctic_training.config import ModelConfig
 from arctic_training.config import TrainerConfig
@@ -93,7 +92,6 @@ class SwiftKVTrainerConfig(TrainerConfig):
     temperature: float = 1.0
 
 
-@register
 class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
     config: SwiftKVTrainerConfig
