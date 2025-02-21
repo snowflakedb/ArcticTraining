@@ -19,12 +19,8 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
-<<<<<<< HEAD
-from arctic_training.registry import get_registered_tokenizer_factory
-=======
 from arctic_training.config.base import BaseConfig
-from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
->>>>>>> b44617b (move to fully qualified imports)
+from arctic_training.registry import get_registered_tokenizer_factory
 
 if TYPE_CHECKING:
     from arctic_training.tokenizer.factory import TokenizerFactory
