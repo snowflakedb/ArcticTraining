@@ -34,7 +34,10 @@ from arctic_training.registry import register
 @pytest.fixture(scope="function", autouse=True)
 def reset_registry():
     """Fixture to reset the registry before each test."""
+    original_registry = RegistryMeta._registry
     RegistryMeta._registry = {}
+    yield
+    RegistryMeta._registry = original_registry
 
 
 @pytest.fixture
