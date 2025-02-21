@@ -47,6 +47,7 @@ class SFTTrainer(Trainer):
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 
+    # XXX: merge with loss_sp - call depending on SP>1
     def loss_sp(self, batch) -> torch.Tensor:
 
         #from torch.nn import CrossEntropyLoss
@@ -54,11 +55,13 @@ class SFTTrainer(Trainer):
 
         from deepspeed.utils import groups
         import torch.distributed as dist
+        import torch
         #from transformers.modeling_utils import unwrap_model
         #unwrapped_model = unwrap_model(self.model)
         batch = to_device(batch, self.device)
 
-        # remove labels to avoid an attempt to calculate loss by transformers
+        # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+        # therefore remove labels to avoid an attempt to calculate loss by transformers
         labels = batch.pop("labels")
         outputs = self.model(**batch, use_cache=False)
 
@@ -72,27 +75,12 @@ class SFTTrainer(Trainer):
         sp_group = groups._get_sequence_parallel_group()
         sp_world_size = groups._get_sequence_parallel_world_size()
 
-        tensor_list = [torch.zeros_like(logits) for _ in range(sp_world_size)]
-        dist.all_gather(tensor_list, logits, group=sp_group)
-        for t in tensor_list:
-            print_rank(f"{t.shape=}")
-
+        # we need the differentiable all_gather, which is the functional version of it 
+        import torch.distributed.nn.functional
+        tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
         # concatenate on the seqlen dimension        
         logits = torch.cat(tensor_list, dim=1)
         print_rank(f"after cat: {logits.shape=}")
-
-        # XXX: is this more efficient?
-        # logits_shape = [logits.shape[0], logits.shape[1]*sp_world_size, logits.shape[2]]
-        # tensor_out = torch.zeros(logits_shape, dtype=logits.dtype, device=logits.device)
-        # dist.all_gather_into_tensor(tensor_out, labels, group=sp_group)
-
-        # print(outputs)
-        # output = self.tokenizer.batch_decode(outputs)
-        # #if self.global_rank == 0:
-        # print(f"RANK {self.global_rank}: {output}")
-
-        #print(self.model.module.config.keys())
-        #import sys; sys.exit()
 
         loss = self.model.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
         print_rank(f"{loss=}")
