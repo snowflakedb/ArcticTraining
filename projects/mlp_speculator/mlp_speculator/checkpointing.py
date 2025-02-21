@@ -37,7 +37,10 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
                 with GatheredParameters([param], modifier_rank=0):
                     if dist.get_rank() == 0:
                         if name in state_dict:
-                            param.copy_(state_dict[name])
+                            try:
+                                param.copy_(state_dict[name])
+                            except Exception:
+                                param.data.copy_(state_dict[name])
 
     def save(self) -> None:
         if dist.get_rank() == 0:

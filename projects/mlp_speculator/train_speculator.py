@@ -43,7 +43,7 @@ def MLPSpeculatorParser():
         "--model_path", type=str, default="NousResearch/Meta-Llama-3-8B-Instruct"
     )
     group.add_argument("--output_path", type=str, default="")
-    group.add_argument("--checkpoint_path", type=str, default=None)
+    group.add_argument("--checkpoint_path", type=str, default="")
 
     group.add_argument(
         "--datasets",
@@ -83,10 +83,16 @@ def MLPSpeculatorParser():
 
     ################### Arguments for helping prefix ###################
     group.add_argument("--weighted_sum", action="store_true", default=False)
-    group.add_argument("--aurick_loss", action="store_true", default=False)
+    group.add_argument("--loss_type", type=str, default="")
     group.add_argument("--ctc_loss_weight", type=float, default=0.0)
     group.add_argument("--freeze_layers", type=str, default="")
     group.add_argument("--auto_resume", action="store_true", default=False)
+    group.add_argument(
+        "--param_init_method",
+        type=str,
+        default="zeros",
+        choices=["zeros", "from_model_else_zeros", "from_model_else_ones"],
+    )
 
     return parser.parse_args()
 
@@ -137,12 +143,13 @@ if __name__ == "__main__":
         speculator_tie_weights=args.speculator_tie_weights,
         speculator_scale_input=args.speculator_scale_input,
         sim_gen_loss=args.sim_gen_loss,
-        aurick_loss=args.aurick_loss,
+        loss_type=args.loss_type,
         ctc_loss_weight=args.ctc_loss_weight,
         freeze_layers=args.freeze_layers.split("|"),
         weighted_sum=args.weighted_sum,
         gen_train=args.gen_train,
         gen_micro_batch=args.gen_micro_batch,
+        param_init_method=args.param_init_method,
         gen_seq_length=256,
         gen_prompt_length=64,
         gen_train_micro_batch=args.gen_train_micro_batch,

@@ -28,9 +28,15 @@ def parse_arguments():
         help="Model name or path",
     )
     parser.add_argument(
+        "--tokenizer",
+        type=str,
+        default=None,
+        help="Model name or path",
+    )
+    parser.add_argument(
         "--tensor_parallel",
         type=int,
-        default=2,
+        default=1,
         help="Number of tensor parallelism splits",
     )
     parser.add_argument(
@@ -149,8 +155,15 @@ def generate(args):
     start = args.cur_split * len(dataset) // args.total_split
     end = (args.cur_split + 1) * len(dataset) // args.total_split
     dataset = dataset.select(range(start, end))
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    llm = LLM(model=args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
+    llm = LLM(
+        model=args.model,
+        tensor_parallel_size=args.tensor_parallel,
+        max_model_len=1024,
+        enable_chunked_prefill=True,
+        # distributed_executor_backend="ray",
+        gpu_memory_utilization=0.96,
+    )
 
     sampling_params = SamplingParams(
         temperature=1,

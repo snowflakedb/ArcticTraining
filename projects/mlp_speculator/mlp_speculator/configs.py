@@ -19,11 +19,12 @@ class MLPSpeculatorTrainConfig(Config):
     gen_train_micro_batch: int = 32
     gen_prompt_length: int = 64
     sim_gen_loss: bool = False
-    aurick_loss: bool = False
+    loss_type: str = ""
     ctc_loss_weight: float = 0.0
     gen_seq_length: int = 256
     freeze_layers: list = []
     weighted_sum: bool = False
+    param_init_method: str = "zeros"
 
 
 # Configs used for savings model checkpoint for inference

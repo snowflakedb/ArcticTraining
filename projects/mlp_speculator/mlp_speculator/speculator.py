@@ -1,8 +1,11 @@
+import json
 import math
+import os
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from safetensors import safe_open
 
 from .configs import MLPSpeculatorConfig
 
@@ -116,6 +119,7 @@ class MLPSpeculator(nn.Module):
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
+
         self.emb = nn.ModuleList(
             [
                 nn.Embedding(self.vocab_size, self.inner_dim)
@@ -175,13 +179,53 @@ class MLPSpeculator(nn.Module):
             for i in range(2, self.n_predict):
                 self.proj[i].weight = self.proj[1].weight
 
-    def reset_parameters(self):
-        for m in self.modules():
-            if isinstance(m, nn.Embedding) or isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 1 / math.sqrt(self.inner_dim))
-            elif isinstance(m, LayerNormParameterized) and hasattr(m, "weight"):
+    def reset_parameters(
+        self,
+        method="zeros",
+        model_weight_base_dir="",
+    ):
+        if model_weight_base_dir:
+            weight_map = json.load(
+                open(
+                    os.path.join(model_weight_base_dir, "model.safetensors.index.json")
+                )
+            )["weight_map"]
+            with safe_open(
+                os.path.join(model_weight_base_dir, weight_map["lm_head.weight"]),
+                framework="pt",
+                device="cpu",
+            ) as f:
+                lm_head_weight = f.get_tensor("lm_head.weight")
+            with safe_open(
+                os.path.join(
+                    model_weight_base_dir, weight_map["model.embed_tokens.weight"]
+                ),
+                framework="pt",
+                device="cpu",
+            ) as f:
+                emb_weight = f.get_tensor("model.embed_tokens.weight")
+
+        for n, m in self.named_modules():
+            if isinstance(m, LayerNormParameterized) and hasattr(m, "weight"):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+            if method == "zeros":
+                if isinstance(m, nn.Embedding) or isinstance(m, nn.Linear):
+                    nn.init.normal_(m.weight, 0, 1 / math.sqrt(self.inner_dim))
+            elif "from_model" in method:
+                print(f"INITIALIZING {n} from model")
+                if isinstance(m, nn.Embedding):
+                    m.weight.data.copy_(emb_weight)
+                if isinstance(m, nn.Linear):
+                    if "head" in n:
+                        m.weight.data.copy_(lm_head_weight)
+                    else:
+                        nn.init.normal_(m.weight, 0, 1 / math.sqrt(self.inner_dim))
+                        if method == "from_model_else_ones":
+                            print(f"INITIALIZING {n} from model adding ones")
+                            m.weight.data.add_(
+                                torch.eye(m.weight.size(1), device=m.weight.device)
+                            )
 
     def generate_suffixes(
         self,

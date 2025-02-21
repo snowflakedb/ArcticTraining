@@ -8,7 +8,6 @@ import torch
 import torch.nn.functional as F
 import tqdm
 from torch.nn import CrossEntropyLoss
-from torch.nn import CTCLoss
 from transformers.cache_utils import DynamicCache
 from transformers.trainer_pt_utils import LabelSmoother
 
@@ -57,7 +56,9 @@ class MLPSpeculatorTrainer(SFTTrainer):
         # Ensure Speculator dtype and device align with the base_model
         model.speculator.to(model.dtype).to(model.device)
 
-        model.speculator.reset_parameters()
+        model.speculator.reset_parameters(
+            config.param_init_method, config.model.name_or_path
+        )
 
         # if config.speculator_path is not None:
         #     model_state_dict = torch.load(config.speculator_path)
@@ -128,7 +129,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
 
             # Unfreeze speculator heads
             for name, param in model.speculator.named_parameters():
-                if any([s in name for s in self.config.freeze_layers]):
+                if any([s and (s in name) for s in self.config.freeze_layers]):
                     print(f"SKIPPING UNFREEZING OF {name}")
                     param.requires_grad = False
                 else:
@@ -228,7 +229,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
         gen_seq_length = labels.shape[-1]
 
         spec_inputs = hidden_states.detach()[
-            :, -gen_seq_length - 1 : -self.model.speculator.n_predict - 1, :
+            :, -gen_seq_length - 1 : -self.model.speculator.config.n_predict - 1, :
         ]
         spec_inputs2 = labels[:, -gen_seq_length:]
         preds = self.model.speculator(spec_inputs, spec_inputs2)
@@ -261,18 +262,16 @@ class MLPSpeculatorTrainer(SFTTrainer):
             hidden_states = outputs[0]  # b n h
 
         preds = self.model.speculator(
-            hidden_states.detach()[:, : -self.model.speculator.n_predict - 1, :],
+            hidden_states.detach()[:, : -self.model.speculator.config.n_predict - 1, :],
             inputs["input_ids"][:, 1:],
         )
         losses = []
-        loss_fn = CrossEntropyLoss()
 
         labels = inputs["labels"]
         weighted_sum = self.config.weighted_sum
-        aurick_loss = self.config.aurick_loss
-        ctc_loss_weight = self.config.ctc_loss_weight
+        loss_type = self.config.loss_type
 
-        if aurick_loss:
+        if loss_type == "aurick_loss":
             total_loss = 0
             for i in range(preds.size(0)):
                 targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
@@ -287,31 +286,29 @@ class MLPSpeculatorTrainer(SFTTrainer):
                     cur_loss = cur_loss * losses[j]
                 total_loss += cur_loss
             loss = -torch.sum(torch.log(total_loss + 1e-7))
-        elif ctc_loss_weight:
-            ctc_loss_fn = CTCLoss(blank=128002, zero_infinity=True)
-            targets = []
+        elif loss_type == "detach_conditional":
+            total_loss = 0
+            probabilities = []
+            loss_fn = CrossEntropyLoss(reduction="none")
             for i in range(preds.size(0)):
                 targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
-                targets.append(targ.reshape(-1))
-                loss = loss_fn(
+                ce_loss = loss_fn(
                     preds[i].reshape(-1, preds.size(3)), targ.long().reshape(-1)
                 )
-                losses.append(loss)
-            loss = sum(losses)
-            targets = torch.stack(targets, dim=1)
-            logsoftmaxed = (
-                preds.view(preds.shape[0], -1, preds.shape[-1]).float().log_softmax(2)
-            )
-            lengths = torch.full(
-                (targets.shape[0],),
-                preds.shape[0],
-                dtype=torch.long,
-                device=preds.device,
-            )
-            loss += ctc_loss_weight * ctc_loss_fn(
-                logsoftmaxed, targets, lengths, lengths
-            )
+                for j in range(i):
+                    # print(ce_loss.shape, probabilities[j].shape)
+                    ce_loss = ce_loss * probabilities[j]
+                total_loss += ce_loss
+
+                prob = torch.softmax(preds[i].reshape(-1, preds.size(3)), dim=-1)
+                target_prob = torch.sum(
+                    prob * F.one_hot(targ.long().reshape(-1), preds.size(3)), dim=-1
+                )
+                probabilities.append(target_prob.detach())
+            loss = torch.mean(total_loss)
         else:
+            assert not loss_type
+            loss_fn = CrossEntropyLoss()
             for i in range(preds.size(0)):
                 targ = labels[:, i + 2 : preds.size(2) + i + 2]  # b n
                 loss = loss_fn(
@@ -363,7 +360,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
 
             generated_tokens = generated_tokens[:, -config.gen_seq_length :]
             hidden_states = hidden_states[
-                :, -config.gen_seq_length : -self.model.speculator.n_predict
+                :, -config.gen_seq_length : -self.model.speculator.config.n_predict
             ]
 
         preds = self.model.speculator(
@@ -509,7 +506,9 @@ class MLPSpeculatorTrainer(SFTTrainer):
                     :, -config.gen_seq_length :
                 ].reshape([-1, config.gen_train_micro_batch, config.gen_seq_length])
                 hidden_states = hidden_states[
-                    :, -config.gen_seq_length : -self.model.speculator.n_predict, :
+                    :,
+                    -config.gen_seq_length : -self.model.speculator.config.n_predict,
+                    :,
                 ]
 
                 file_length = len(os.listdir(f"toks/{rank}"))
