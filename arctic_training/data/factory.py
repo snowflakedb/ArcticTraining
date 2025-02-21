@@ -40,7 +40,7 @@ from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
-    from arctic_training.trainer import Trainer
+    from arctic_training.trainer.trainer import Trainer
 
 
 class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):

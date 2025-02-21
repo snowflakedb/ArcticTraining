@@ -34,7 +34,7 @@ from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
-from arctic_training.config import BaseConfig
+from arctic_training.config.base import BaseConfig
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.data import DataConfig
 from arctic_training.config.enums import DType

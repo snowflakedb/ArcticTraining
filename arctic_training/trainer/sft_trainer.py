@@ -26,7 +26,7 @@ from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
-from arctic_training.trainer import Trainer
+from arctic_training.trainer.trainer import Trainer
 
 
 def to_device(batch: Dict, device: str) -> Dict:
