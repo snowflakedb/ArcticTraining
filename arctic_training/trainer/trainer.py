@@ -47,7 +47,6 @@ try:
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
-import arctic_training.trainer.parallel_state as mpu
 
 # x = None
 # def reenter():
@@ -74,10 +73,10 @@ from deepspeed.sequence.layer import _DimZeroAllToAll, _SeqAllToAll
 class UlyssesAttentionHF(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
     to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
-    
-    The primary reason for the re-implementation is to make this less error prone, and remove what seemed like 
-    bugs in scenarios where batch size > 1 and when using different versions of 
-    flash attention each of which takes different input shape. Those should be handled by 
+
+    The primary reason for the re-implementation is to make this less error prone, and remove what seemed like
+    bugs in scenarios where batch size > 1 and when using different versions of
+    flash attention each of which takes different input shape. Those should be handled by
     the actual attn implementation, and not by this module.
 
     Dimension annotation:
@@ -89,7 +88,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         sl_l = seqlen local
         ws   = world_size
         em    = embedding (hidden size)
-        em_l  = embedding (hidden size) local   
+        em_l  = embedding (hidden size) local
 
     Arguments:
         attn: normal attention implementation from transformers.modeling_utils.ALL_ATTENTION_FUNCTIONS
@@ -104,11 +103,11 @@ class UlyssesAttentionHF(torch.nn.Module):
 
     def __init__(
         self,
-        attn, 
+        attn,
         local_seq_length: int,
         global_seq_length: int,
         batch_size: int,
-        attn_head_count: int,        
+        attn_head_count: int,
         attn_head_size: int,
         kv_head_count: int,
         process_group: dist.ProcessGroup
@@ -119,11 +118,11 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.process_group = process_group
         self.world_size = dist.get_world_size(process_group)
         self.sp_rank = dist.get_rank(process_group)
-        
+
         self.local_seq_length = local_seq_length
         self.global_seq_length = global_seq_length
         self.batch_size = batch_size
-        
+
         self.attn_head_size = attn_head_size
         self.attn_head_count = attn_head_count
         self.global_kv_head_count = kv_head_count
@@ -132,12 +131,15 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.local_kv_head_count = kv_head_count // self.world_size
 
         print_rank0(f"{self.local_kv_head_count=}")
+        print_rank0(f"{self.local_q_head_count=}")
         #exit()
 
         if self.attn_head_count % self.world_size != 0:
-            raise ValueError(f"Attention head count {attn_head_count} is not divisible by world size {self.world_size}")
+            raise ValueError(f"Attention head count {attn_head_count} is not divisible by SP size {self.world_size}")
         if not (self.global_kv_head_count % self.world_size == 0 or self.world_size % self.global_kv_head_count == 0):
-            raise ValueError(f"KV attention head count {self.global_kv_head_count} is not divisible by world size {self.world_size} or vice versa")
+            raise ValueError(f"KV attention head count {self.global_kv_head_count} is not divisible by SP size {self.world_size} or vice versa")
+        if self.global_kv_head_count < self.world_size:
+            raise ValueError(f"KV attention head count < sp size ({self.global_kv_head_count} < {self.world_size}) is currently not supported but it can be implemented by replicating heads")
 
         # XXX: add more constraints (some might have to go outside of this module or change the API to add more arguments if they are needed here, or perhaps add a special class method that validates the outside things)
         # - global_seq_length is divisible by SP? but probably has to be sorted out before this module
@@ -156,20 +158,20 @@ class UlyssesAttentionHF(torch.nn.Module):
         #                                         batch_size, \
         #                                         attn_head_count, \
         #                                         attn_head_size])
-        
-        # [sl bs em_l]        
+
+        # [sl bs em_l]
         self.required_context_shape = torch.Size([global_seq_length, \
                                                 batch_size, \
                                                 attn_head_size * attn_head_count // self.world_size])
-        
+
     def _combine_local_sequences(self, query, key, value) -> Tuple[Tensor, Tensor, Tensor]:
-        
+
         def combine_sequence(input, local_head_count):
             """
                 expects inputs in shape: [sl_l bs hc hs]
                 returns output in shape: [sl bs hc_l hs]
 
-                local_head_count could be different for k,v vs q if it's not an MHA situation          
+                local_head_count could be different for k,v vs q if it's not an MHA situation
             """
 
             print_rank0('')
@@ -180,55 +182,55 @@ class UlyssesAttentionHF(torch.nn.Module):
                                 self.batch_size, \
                                 self.world_size, \
                                 local_head_count, \
-                                self.attn_head_size])    
+                                self.attn_head_size])
 
             print_rank0(f"combine: after reshape:   {input.shape=}")
 
             input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
             print_rank0(f"combine: after rearrange: {input.shape=}")
-            
+
             output = _DimZeroAllToAll.apply(self.process_group, input)
             print_rank0(f"combine: after all2all:   {output.shape=}")
-        
+
             # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
             print_rank0(f"combine: after reshape:   {output.shape=}")
 
             # [sl bs hc_l hs]
             return output
-        
-        
+
+
         return combine_sequence(query, self.local_q_head_count),  combine_sequence(key, self.local_kv_head_count),  combine_sequence(value, self.local_kv_head_count)
-        
+
     def _partition_global_sequence(self, input) -> Tensor:
         """
-            expects input in shape:  [sl bs em_l] 
+            expects input in shape:  [sl bs em_l]
             returns output in shape: [sl_l bs em]
         """
-        
+
         print_rank0(f"partition: before reshape:  {input.shape=}")
 
         # [sl bs em_l] -> [ws sl_l bs em_l]
         input = input.reshape([self.world_size, \
                             self.local_seq_length, \
                             self.batch_size, \
-                            self.attn_head_size * self.attn_head_count // self.world_size]).contiguous()    
-        
+                            self.attn_head_size * self.attn_head_count // self.world_size]).contiguous()
+
         print_rank0(f"partition: after reshape:   {input.shape=}")
         output = _DimZeroAllToAll.apply(self.process_group, input)
         print_rank0(f"partition: after all2all:   {output.shape=}")
         output = rearrange(output, 'ws sl_l bs em_l -> sl_l bs ws em_l')
         #output = rearrange(output, 'ws sl_l bs ... -> sl_l bs ws ...')
         print_rank0(f"partition: after rearrange: {output.shape=}")
-            
+
         # [sl_l bs ws em_l] -> [sl_l bs em]
         output = output.reshape([*output.shape[:2], -1]).contiguous()
         print_rank0(f"partition: after reshape:   {output.shape=}")
 
         # [sl_l bs em]
         return output
-        
-    
+
+
     def forward(self, module: torch.nn.Module, query: Tensor, key: Tensor, value: Tensor, attention_mask: Tensor, *args: Any, **kwargs: Any) -> Tensor:
         """ forward
 
@@ -249,7 +251,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         # print(f"{query.shape=}")
         # print(f"{key.shape=}")
         # print(f"{value.shape=}")
-        # print(f"{self.required_input_shape=}")   
+        # print(f"{self.required_input_shape=}")
 
         print_rank0(f"forward 1 {query.shape=}")
         print_rank0(f"forward 1 {key.shape=}")
@@ -258,7 +260,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         query = rearrange(query, 'bs hc sl hs -> sl bs hc hs')
         key = rearrange(key,     'bs hc sl hs -> sl bs hc hs')
         value = rearrange(value, 'bs hc sl hs -> sl bs hc hs')
-        
+
         print_rank0(f"forward 2 {query.shape=}")
         print_rank0(f"forward 2 {key.shape=}")
         print_rank0(f"forward 2 {value.shape=}")
@@ -273,10 +275,10 @@ class UlyssesAttentionHF(torch.nn.Module):
             f"[{dist.get_rank()}]: key or value input tensor does not match the required shape\n             {self.required_key_value_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
         # assert query.shape == key.shape == value.shape == self.required_input_shape, \
         #     f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
-        
+
         # expects: [sl_l bs hc hs]
         query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
-        # returns: [sl bs hc_l hs]           
+        # returns: [sl bs hc_l hs]
 
         query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs')
         key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs')
@@ -288,7 +290,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
         if attention_mask is not None:
             print_rank0(f"{attention_mask.shape=}")
-            print_rank0(f"{attention_mask=}")
+            #print_rank0(f"{attention_mask=}")
 
         # XXX: stick into the trainer object
         from deepspeed.utils import groups
@@ -314,23 +316,23 @@ class UlyssesAttentionHF(torch.nn.Module):
         debug_gathered_tensor(context_layer, sp_group, name="context_layer")
 
         print_rank0(f"HF after real attn: {context_layer.shape=}")
-        print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")  
+        print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")
 
         print_rank0(f"1 {context_layer.shape=}")
         # [bs sl hc_l hs] -> [sl bs hc_l hs]'
         context_layer = rearrange(context_layer, 'bs sl ... -> sl bs ...')
-        print_rank0(f"2 {context_layer.shape=}")  
+        print_rank0(f"2 {context_layer.shape=}")
         context_layer = context_layer.reshape([*context_layer.shape[:2], -1])
-        print_rank0(f"3 {context_layer.shape=}")  
-        print_rank0(f"{self.required_context_shape=}")  
+        print_rank0(f"3 {context_layer.shape=}")
+        print_rank0(f"{self.required_context_shape=}")
 
         assert context_layer.shape == self.required_context_shape, \
                     f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
 
-        # expects: [sl bs em_l]       
+        # expects: [sl bs em_l]
         output = self._partition_global_sequence(context_layer)
         # returns: [sl_l bs em]
-         
+
         print(f"1 {output.shape=}")
         output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
         print(f"2 {output.shape=}")
@@ -338,10 +340,10 @@ class UlyssesAttentionHF(torch.nn.Module):
         output = output.reshape([*output.shape[:2], -1])
         print(f"3 {output.shape=}")
         if attn_weights is not None:
-            print_rank0(f"{attn_weights.shape=}")  
+            print_rank0(f"{attn_weights.shape=}")
 
         debug_gathered_tensor(output, sp_group, name="output")
-        
+
 
         # expects [bs sl em]
         return output, attn_weights
@@ -436,7 +438,7 @@ class LlamaAttentionNew(torch.nn.Module):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
         import transformers
         attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
-        
+
         if self.config._attn_implementation != "eager":
             if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
                 logger.warning_once(
@@ -449,12 +451,12 @@ class LlamaAttentionNew(torch.nn.Module):
         # XXX: meanwhile for consistency with non-sp testing
         #attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
         #attention_interface: Callable = transformers.integrations.flash_attention.flash_attention_forward
-        attention_interface: Callable = transformers.integrations.sdpa_attention.sdpa_attention_forward
+        #attention_interface: Callable = transformers.integrations.sdpa_attention.sdpa_attention_forward
 
-        # XXX: 
-        if "ulysses" in ALL_ATTENTION_FUNCTIONS:
-            attention_interface = ALL_ATTENTION_FUNCTIONS["ulysses"]
-            print_rank0(f"custom attention on {torch.distributed.get_rank()}")
+        # XXX:
+        # if "ulysses" in ALL_ATTENTION_FUNCTIONS:
+        #     attention_interface = ALL_ATTENTION_FUNCTIONS["ulysses"]
+        #     print_rank0(f"custom attention on {torch.distributed.get_rank()}")
 
         print_rank0(f"HF before attn: {query_states.shape=}")
         print_rank0(f"HF before attn: {key_states.shape=}")
@@ -462,6 +464,11 @@ class LlamaAttentionNew(torch.nn.Module):
         print_rank0(f"HF before attn: {torch.norm(query_states)=}")
         print_rank0(f"HF before attn: {torch.norm(key_states)=}")
         print_rank0(f"HF before attn: {torch.norm(value_states)=}")
+
+        if attention_mask is not None:
+            print_rank0(f"HF before attn: {attention_mask.shape=}")
+        else:
+            print_rank0(f"HF before attn: {attention_mask=}")
 
         #print_rank0(f"HF before attn: {value_states=}")
 
@@ -478,10 +485,10 @@ class LlamaAttentionNew(torch.nn.Module):
 
         #exit()
         print_rank0(f"HF after attn: {attn_output.shape=}")
-        print_rank0(f"HF after attn: {torch.norm(attn_output)=}")  
+        print_rank0(f"HF after attn: {torch.norm(attn_output)=}")
         if attn_weights is not None:
             print_rank0(f"HF after attn: {attn_weights.shape=}")
-            print_rank0(f"HF after attn: {torch.norm(attn_weights)=}")  
+            print_rank0(f"HF after attn: {torch.norm(attn_weights)=}")
 
         from deepspeed.utils import groups
         sp_group = groups._get_sequence_parallel_group()
@@ -492,16 +499,16 @@ class LlamaAttentionNew(torch.nn.Module):
         if sp_world_size > 1:
             debug_gathered_tensor(attn_output, sp_group, name="attn_output prefinal")
         else:
-            print_rank0(f"HF after attn prefinal: {attn_output.shape=}")  
-            print_rank0(f"HF after attn prefinal: {torch.norm(attn_output)=}")  
+            print_rank0(f"HF after attn prefinal: {attn_output.shape=}")
+            print_rank0(f"HF after attn prefinal: {torch.norm(attn_output)=}")
 
         attn_output = self.o_proj(attn_output)
 
         if sp_world_size > 1:
             debug_gathered_tensor(attn_output, sp_group, name="attn_output after o_proj")
         else:
-            print_rank0(f"HF after o_proj: {attn_output.shape=}")  
-            print_rank0(f"HF after o_proj: {torch.norm(attn_output)=}")  
+            print_rank0(f"HF after o_proj: {attn_output.shape=}")
+            print_rank0(f"HF after o_proj: {torch.norm(attn_output)=}")
         #exit()
 
         return attn_output, attn_weights
@@ -573,9 +580,6 @@ class Trainer(ABC, CallbackMixin):
     """
 
     def __init__(self, config: TrainerConfig) -> None:
-        
-        # reenter()
-        # self.dontexist()
 
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
@@ -596,48 +600,70 @@ class Trainer(ABC, CallbackMixin):
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
 
-        # XXX: fixme
-        import torch
-        print(f"MPU INIT on rank {torch.distributed.get_rank()}")
-        print(f"MBS  {self.config.micro_batch_size}")
-        
-        mpu.initialize_model_parallel(sequence_parallel_size=self.config.sequence_parallel_size)
-
+        # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         import transformers.models.llama.modeling_llama
         transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
-        if mpu.get_sequence_parallel_world_size() > 1:
+        # XXX: find a place for this code
+        if self.config.sequence_parallel_size == 1:
+            mpu = None
+        else:
+            import arctic_training.trainer.parallel_state as mpu
+            import torch
             from transformers import AutoConfig
-            # XXX:
-            model_config = AutoConfig.from_pretrained(self.config.model.name_or_path)
+            from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+
+            print(f"MPU INIT on rank {torch.distributed.get_rank()}")
+            print(f"MBS  {self.config.micro_batch_size}")
+            mpu.initialize_model_parallel(sequence_parallel_size=self.config.sequence_parallel_size)
+
+            # we don't have the model yet at this stage
+            hf_model_config = AutoConfig.from_pretrained(self.config.model.name_or_path)
+
+            core_attn_implementation = self.config.model.attn_implementation
+            if core_attn_implementation == "eager":
+                # The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager with sequence parallelism
+
+                # XXX: there is also flex attention but I haven't tested if it works
+                raise ValueError(f"{core_attn_implementation} attn_implementation isn't currently supported by sequence parallelism. Set attention_implementation to either 'flash_attention_2' and 'sdpa'.")
+
+            core_attn_function = ALL_ATTENTION_FUNCTIONS.get(core_attn_implementation, None)
+            if core_attn_function is None:
+                raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.keys()}")
 
             #attn_implementation_real =  transformers.models.llama.modeling_llama.eager_attention_forward
             #attn_implementation_real = transformers.integrations.flash_attention.flash_attention_forward
-            attn_implementation_real = transformers.integrations.sdpa_attention.sdpa_attention_forward
+            #attn_implementation_real = transformers.integrations.sdpa_attention.sdpa_attention_forward
+
+            # print_rank(core_attn_implementation)
+            # print_rank(core_attn_function)
+            # exit()
 
             #from deepspeed.sequence.layer import DistributedAttention
             uattn = UlyssesAttentionHF(
-                attn=attn_implementation_real,
+                attn=core_attn_function,
                 local_seq_length=self.config.data.max_length // mpu.get_sequence_parallel_world_size(),
-                global_seq_length=self.config.data.max_length, 
-                batch_size=self.config.micro_batch_size, 
-                attn_head_count=model_config.num_attention_heads,
-                attn_head_size=model_config.hidden_size // model_config.num_attention_heads,
-                kv_head_count=model_config.num_key_value_heads,
+                global_seq_length=self.config.data.max_length,
+                batch_size=self.config.micro_batch_size,
+                attn_head_count=hf_model_config.num_attention_heads,
+                attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
+                kv_head_count=hf_model_config.num_key_value_heads,
                 process_group = mpu.get_sequence_parallel_group(),
             )
 
             def uattn_wrapper(
-                module: torch.nn.Module,        
+                module: torch.nn.Module,
                 query: torch.Tensor,
                 key: torch.Tensor,
                 value: torch.Tensor,
                 attention_mask: torch.Tensor,
                 *args,
-                **kwargs,               
+                **kwargs,
             ) -> Tuple[torch.Tensor, torch.Tensor]:
-                
-                # XXX: for MQA key/value num of heads is different from query - currently working with MHA models to overcome this
+
+                # XXX: we are relaying on position_ids for SP to work so attention_mask has to be None
+                # the problem is that HF currently doesn't know anything about ALL_ATTENTION_FUNCTIONS["ulysses"] so it doesn't make a special case like for "flash_attention_2" and "sdpa" and it creates an attention mask on the fly and it breaks things.
+                attention_mask = None
 
                 attn_output, attn_weights = uattn(
                     module,
@@ -651,6 +677,8 @@ class Trainer(ABC, CallbackMixin):
                 )
                 return attn_output, attn_weights
 
+            # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesAttentionHF`
+            self.config.model.attn_implementation = "ulysses"
             ALL_ATTENTION_FUNCTIONS["ulysses"] = uattn_wrapper
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
@@ -671,7 +699,7 @@ class Trainer(ABC, CallbackMixin):
             config=self.config.deepspeed,
             mpu=mpu,
         )
-        
+
 
         self.checkpoint_engines = [
             engine(self) for engine in self.config.checkpoint_engines
@@ -721,7 +749,7 @@ class Trainer(ABC, CallbackMixin):
         if hasattr(self.model, "module"):
             return self.model.module
         else:
-            return self.model  
+            return self.model
 
     @property
     def training_horizon(self) -> int:
@@ -756,11 +784,11 @@ class Trainer(ABC, CallbackMixin):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
-        
-        import deepspeed.comm as dist   
-        import q
+
+        import deepspeed.comm as dist
+        # import q
         from deepspeed.utils import groups
-        q(self.global_rank)
+        # q(self.global_rank)
         print(f"{groups._get_sequence_parallel_group()=}")
         print(f"{groups._get_sequence_parallel_rank()=}")
         print(f"{groups._get_sequence_parallel_world_size()=}")
@@ -779,54 +807,10 @@ class Trainer(ABC, CallbackMixin):
         #                         # if threshold is defined, matrix printing will ignore this setting
         #     profile="full",      # printing defaults: "default", "short", "full"
         # )
-        
+
         # if self.global_rank == 0:
         #     print(batch)
 
-        #self.tokenizer.chat_template = 
-        
-        #texts = ["this is a first very very very long prompt about", "this is a second prompt that is shorter than"]
-
-
-        if 0:
-            messages = [
-                [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
-                    },
-                    {
-                        "role": "user",
-                        "content": "What are some potential applications for quantum computing?",
-                    },
-                ],
-                [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant who answers user's questions with details and curiosity.",
-                    },
-                    {
-                        "role": "user",
-                        "content": "What are some good ideas?",
-                    },
-                ],
-            ]
-
-            texts = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True,
-            )
-            batch = self.tokenizer(texts, padding="max_length", max_length=self.config.data.max_length, return_tensors='pt')
-
-            batch["position_ids"] = torch.cat(
-                [
-                    torch.arange(batch["input_ids"].shape[1]).unsqueeze(0) for _ in range(batch["input_ids"].shape[0])
-                    ]
-                )
-            #print(batch)
-            #import sys; sys.exit(0)
-
-        # print_rank0(batch)
-        # exit()
 
         batch = {'input_ids': torch.tensor([[   529,  29989,    326,  29918,   2962,  29989,  29958,   1792,     13,  29954,   5428,    278,   1426,  29901,
           23212,   1581,    338,   5545,    553,  27797,    363,   3619,  19309,  15313,   9466,    322,   2301,  16637,
@@ -1015,7 +999,7 @@ class Trainer(ABC, CallbackMixin):
 
 
         # tokenized with Felladrin/Llama-160M-Chat-v1
-        if 0:
+        if 1:
             batch =  {'input_ids': torch.tensor([[  529, 29989,   326, 29918,  2962, 29989, 29958,  1792,    13, 29899, 18555,   781,   950,  2875, 27428, 29966,
          29989,   326, 29918,   355, 29989, 29958,    13, 29966, 29989,   326, 29918,  2962, 29989, 29958,   465, 22137,
             13,  2928,   295,   781,   950,  2875, 27428, 14637,   304,   278, 11706, 10462,   393, 15724,   470, 14582,
@@ -1191,31 +1175,6 @@ class Trainer(ABC, CallbackMixin):
          484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499, 500, 501, 502, 503, 504, 505,
          506, 507, 508, 509, 510, 511]])}
 
-        # XXX: important
-        # batch["attention_mask"] = torch.ne(batch["input_ids"], 2).int()
-
-        # 2D to 4D with full seqlen to get the attention mask right
-        # XXX: hardcoded for Llama for now
-
-        # past_seen_tokens = 0 # XXX: ? what's the 2nd iteration value
-        # inputs_embeds = self.model.model.embed_tokens(batch["input_ids"].to(self.device))
-        # cache_position = torch.arange(past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device)
-        # attention_mask_4D = self.model.model._update_causal_mask(
-        #     attention_mask=batch["attention_mask"], 
-        #     input_tensor=inputs_embeds, 
-        #     cache_position=cache_position, 
-        #     past_key_values=None,
-        #     output_attentions=False,
-        # )
-        # batch["attention_mask"] = attention_mask_4D
-
-        for k in batch.keys():
-            print_rank0(f"before sp {k}: {batch[k].shape=}")
-            print_rank0(f"before sp {k}: {batch[k]=}")
-        #import sys; sys.exit(0)
-
-
-
         if 1:
             # XXX: probably need to do padding so that all sequence chunks are the same?!
             import math
@@ -1223,7 +1182,7 @@ class Trainer(ABC, CallbackMixin):
             #print(f"{len(batch['input_ids'][1])=}")
             #seq_length = len(batch["input_ids"][0])
             seq_length = self.config.data.max_length
-            
+
             sp_world_size = groups._get_sequence_parallel_world_size()
             sp_rank = groups._get_sequence_parallel_rank()
             chunk_len = math.ceil(seq_length / sp_world_size)
@@ -1241,55 +1200,13 @@ class Trainer(ABC, CallbackMixin):
                 print(f"{k} {batch[k].shape=}")
             #import sys; sys.exit(0)
 
-            #outputs = generate(batch, do_sample=False, max_new_tokens=1)   
-            #print(f"RANK {self.global_rank}: GENERATED: [{outputs[0]['generated_text']}]")
-
-            #print_rank0(f'{batch["attention_mask"]=}')
-            #print_rank0(f'{batch["attention_mask"].shape=}')
-
-            # XXX: restore attention_mask and when doing so need to chunk it along with all other fields in the batch, like input_ids 
-            #del batch["attention_mask"]
-
-        # if 0:
-        #     outputs = self.model.generate(**batch, do_sample=False, max_new_tokens=1)        
-        #     print(outputs)
-        #     decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        #     decoded_last_token0 = self.tokenizer.batch_decode([outputs[0][-1:]], skip_special_tokens=True)[0]
-        #     decoded_last_token1 = self.tokenizer.batch_decode([outputs[1][-1:]], skip_special_tokens=True)[0]
-        #     #if self.global_rank == 0:
-            
-        #     dist.barrier()
-        #     # chunk = decoded[0][-100:].replace('\n',' ')
-        #     # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-        #     chunk = decoded[0].replace('\n',' ')
-        #     print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-        #     print(f"RANK {self.global_rank}: NEW TOKEN[0]: [{decoded_last_token0}]")
-        #     print(f"RANK {self.global_rank}: NEW TOKEN[1]: [{decoded_last_token1}]")
-        #     # chunk = decoded[0][-seq_length:].replace('\n',' ')
-        #     # print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-
-        #     #dist.barrier()
-        #     #chunk = decoded[1].replace('\n',' ')
-        #     #print(f"RANK {self.global_rank}: GENERATED: [{chunk}]")
-            
-        #     # expected 1 generated character:
-        #     # 0: o
-        #     # 1: .
-
-        #     import sys; sys.exit(0)
-
-        if 0:
-            del batch["attention_mask"]
 
         for k in batch.keys():
             print_rank0(f"after sp: {k}: {batch[k].shape=}")
             print_rank0(f"after sp: {k}: {batch[k]=}")
-        self.model.train()
 
-        if sp_world_size > 1:
-            loss = self.loss_sp(batch)
-        else:
-            loss = self.loss(batch)
+        self.model.train()
+        loss = self.loss(batch)
 
         #print_rank(f"{self.train_batch_idx}: {loss.grad=}")
         print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
@@ -1307,7 +1224,7 @@ class Trainer(ABC, CallbackMixin):
         # for n,p in self.model.module.named_parameters():
         #     if p.requires_grad:
         #         print_rank(f"{n}: {p.numel()}")
-            
+
         #exit()
         self.model.step()
 

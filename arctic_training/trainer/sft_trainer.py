@@ -47,54 +47,53 @@ class SFTTrainer(Trainer):
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 
-    # XXX: merge with loss_sp - call depending on SP>1
-    def loss_sp(self, batch) -> torch.Tensor:
+    # # XXX: merge with loss_sp - call depending on SP>1
+    # def loss_sp(self, batch) -> torch.Tensor:
 
-        #from torch.nn import CrossEntropyLoss
-        #loss_function = CrossEntropyLoss()
+    #     #from torch.nn import CrossEntropyLoss
+    #     #loss_function = CrossEntropyLoss()
 
-        from deepspeed.utils import groups
-        import torch.distributed as dist
-        import torch
-        #from transformers.modeling_utils import unwrap_model
-        #unwrapped_model = unwrap_model(self.model)
-        batch = to_device(batch, self.device)
+    #     #from transformers.modeling_utils import unwrap_model
+    #     #unwrapped_model = unwrap_model(self.model)
+    #     batch = to_device(batch, self.device)
 
-        # because we have to gather logits from all sp ranks we have to do the loss function ourselves
-        # therefore remove labels to avoid an attempt to calculate loss by transformers
-        labels = batch.pop("labels")
-        outputs = self.model(**batch, use_cache=False)
 
-        logits = outputs.logits
-        print_rank(f"{torch.norm(logits)=}")
-        print_rank(f"{logits.shape=}")
-        #print_rank(f"{logits.dtype=}")
-        print_rank(f"{labels.shape=}")
-
-        # XXX: stick into the trainer object
-        sp_group = groups._get_sequence_parallel_group()
-        sp_world_size = groups._get_sequence_parallel_world_size()
-
-        # we need the differentiable all_gather, which is the functional version of it 
-        import torch.distributed.nn.functional
-        tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
-        # concatenate on the seqlen dimension        
-        logits = torch.cat(tensor_list, dim=1)
-        print_rank(f"after cat: {logits.shape=}")
-
-        loss = self.model.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
-        print_rank(f"{loss=}")
-
-        return loss
+    #     return loss
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
-        outputs = self.model(**batch, use_cache=False)
 
-        # print(outputs)
-        # output = self.tokenizer.batch_decode(outputs)
-        # #if self.global_rank == 0:
-        # print(f"RANK {self.global_rank}: {output}")
+        if self.config.sequence_parallel_size == 1:
+            outputs = self.model(**batch, use_cache=False)
+            loss = outputs.loss
+        else:
+            # XXX: this would be the same not just for SFT so probably should abstract it away
+            from deepspeed.utils import groups
+            import torch.distributed as dist
+            import torch
 
-        loss = outputs.loss
+            # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+            # therefore remove labels to avoid an attempt to calculate loss by transformers
+            labels = batch.pop("labels")
+            outputs = self.model(**batch, use_cache=False)
+
+            logits = outputs.logits
+            print_rank(f"{torch.norm(logits)=}")
+            print_rank(f"{logits.shape=}")
+            #print_rank(f"{logits.dtype=}")
+            print_rank(f"{labels.shape=}")
+
+            # XXX: stick into the trainer object
+            sp_group = groups._get_sequence_parallel_group()
+
+            # we need the differentiable all_gather, which is the functional version of it
+            import torch.distributed.nn.functional
+            tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
+            # concatenate on the seqlen dimension
+            logits = torch.cat(tensor_list, dim=1)
+            print_rank(f"after cat: {logits.shape=}")
+
+            loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
+            print_rank(f"{loss=}")
+
         return loss

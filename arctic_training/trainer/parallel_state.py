@@ -178,8 +178,8 @@ def initialize_model_parallel(
     # Build the data-parallel groups.
     global _DATA_PARALLEL_GROUP
 
-    # print(f"mpu trace on rank {torch.distributed.get_rank()}")   
-    # print(f"{rank} dp group {_DATA_PARALLEL_GROUP}")   
+    # print(f"mpu trace on rank {torch.distributed.get_rank()}")
+    # print(f"{rank} dp group {_DATA_PARALLEL_GROUP}")
     # import traceback
     # traceback.print_stack(limit=6)
 
