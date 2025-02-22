@@ -94,7 +94,7 @@ class MLPSpeculator(nn.Module):
     ----
     emb_dim : int
         Dimensionality of the input vector from the base model.
-    inner_dim : int
+    inner_dim : List[int]
         Latent dimensionality of the speculator model.
     vocab_size : int
         Number of entries in the tokenizer associated with the base model.
@@ -114,23 +114,23 @@ class MLPSpeculator(nn.Module):
         self.config = config
         self.n_predict = config.n_predict
         self.emb_dim = config.emb_dim
-        inner_dim = config.inner_dim
-        self.inner_dim = inner_dim if inner_dim != 0 else self.emb_dim
+        inner_dim = [int(i) for i in config.inner_dim.split(".")]
+        self.inner_dim = inner_dim
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
 
         self.emb = nn.ModuleList(
             [
-                nn.Embedding(self.vocab_size, self.inner_dim)
+                nn.Embedding(self.vocab_size, self.inner_dim[0])
                 for _ in range(self.n_predict)
             ]
         )
         self.proj = nn.ModuleList(
             [
                 nn.Linear(
-                    (self.emb_dim if i == 0 else self.inner_dim),
-                    self.inner_dim,
+                    (self.emb_dim if i == 0 else self.inner_dim[0]),
+                    self.inner_dim[0],
                     bias=False,
                 )
                 for i in range(self.n_predict)
@@ -138,26 +138,45 @@ class MLPSpeculator(nn.Module):
         )
         self.head = nn.ModuleList(
             [
-                nn.Linear(self.inner_dim, self.vocab_size, bias=False)
+                nn.Linear(self.inner_dim[-1], self.vocab_size, bias=False)
                 for _ in range(self.n_predict)
             ]
         )
-        self.ln = nn.ModuleList(
-            [
-                LayerNormParameterized(
-                    self.inner_dim, elementwise_shift=True, elementwise_scale=True
-                )
-                for _ in range(self.n_predict)
-            ]
-        )
+
+        lns = []
+        self.activation = nn.GELU()
+        for n_i in range(self.n_predict):
+            if not self.tie_weights or n_i == 0:
+                seqs = [
+                    LayerNormParameterized(
+                        self.inner_dim[0],
+                        elementwise_shift=True,
+                        elementwise_scale=True,
+                    )
+                ]
+                for i in range(1, len(self.inner_dim)):
+                    seqs.append(self.activation)
+                    seqs.append(
+                        nn.Linear(self.inner_dim[i - 1], self.inner_dim[i], bias=False)
+                    )
+                    seqs.append(
+                        LayerNormParameterized(
+                            self.inner_dim[i],
+                            elementwise_shift=True,
+                            elementwise_scale=True,
+                        )
+                    )
+                lns.append(nn.Sequential(*seqs))
+        self.ln = nn.ModuleList(lns)
         if self.scale_input:
             self.ln0 = LayerNormParameterized(
                 self.emb_dim, elementwise_shift=False, elementwise_scale=False
             )
         # Weights ensure that state_0 accounts for 50% of state magnitude by final head in expectation
         self.state_weight = 0.5 ** (0.5 / self.n_predict)
-        self.emb_weight = math.sqrt((1 - self.state_weight**2) * (self.inner_dim / 2))
-        self.activation = nn.GELU()
+        self.emb_weight = math.sqrt(
+            (1 - self.state_weight**2) * (self.inner_dim[0] / 2)
+        )
 
         # Handle weight tying as specified
         if self.tie_weights:
@@ -171,9 +190,9 @@ class MLPSpeculator(nn.Module):
             for head in self.head:
                 head.weight = self.head[0].weight
 
-            for ln in self.ln:
-                ln.weight = self.ln[0].weight
-                ln.bias = self.ln[0].bias
+            # for ln in self.ln:
+            #     ln.weight = self.ln[0].weight
+            #     ln.bias = self.ln[0].bias
 
             # Since first proj has different size, allow different initial proj from base into model
             for i in range(2, self.n_predict):
@@ -211,7 +230,7 @@ class MLPSpeculator(nn.Module):
                 m.bias.data.zero_()
             if method == "zeros":
                 if isinstance(m, nn.Embedding) or isinstance(m, nn.Linear):
-                    nn.init.normal_(m.weight, 0, 1 / math.sqrt(self.inner_dim))
+                    nn.init.normal_(m.weight, 0, 1 / math.sqrt(min(m.weight.shape)))
             elif "from_model" in method:
                 print(f"INITIALIZING {n} from model")
                 if isinstance(m, nn.Embedding):
@@ -220,7 +239,7 @@ class MLPSpeculator(nn.Module):
                     if "head" in n:
                         m.weight.data.copy_(lm_head_weight)
                     else:
-                        nn.init.normal_(m.weight, 0, 1 / math.sqrt(self.inner_dim))
+                        nn.init.normal_(m.weight, 0, 1 / math.sqrt(min(m.weight.shape)))
                         if method == "from_model_else_ones":
                             print(f"INITIALIZING {n} from model adding ones")
                             m.weight.data.add_(
@@ -337,7 +356,10 @@ class MLPSpeculator(nn.Module):
             # Let subsequent LN take care of denominator
             # state_weight is close to 1, so shouldn't be any precision issues
             state = torch.add(state, z, alpha=self.emb_weight / self.state_weight)
-            state = self.activation(self.ln[i](state))  # b n d
+            if self.tie_weights:
+                state = self.activation(self.ln[0](state))  # b n d
+            else:
+                state = self.activation(self.ln[i](state))  # b n d
             out.append(self.head[i](state))  # b n v
 
         return torch.stack(out, dim=0)  # h b n v

@@ -8,7 +8,7 @@ from arctic_training.config import Config
 
 # Configs used for training the model
 class MLPSpeculatorTrainConfig(Config):
-    speculator_width: int = 3072
+    speculator_width: str = "3072"
     n_speculator_heads: int = 3
     speculator_tie_weights: bool = False
     speculator_scale_input: bool = False
@@ -36,7 +36,7 @@ class MLPSpeculatorConfig:
     ----
     emb_dim : int
         Dimensionality of the input vector from the base model.
-    inner_dim : int
+    inner_dim : str
         Latent dimensionality of the speculator model.
     vocab_size : int
         Number of entries in the tokenizer associated with the base model.

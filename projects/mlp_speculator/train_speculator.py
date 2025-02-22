@@ -62,7 +62,7 @@ def MLPSpeculatorParser():
 
     group.add_argument("--zero_stage", type=int, default=2)
 
-    group.add_argument("--speculator_width", type=int, default=4096)
+    group.add_argument("--speculator_width", type=str, default="4096")
     group.add_argument("--n_speculator_heads", type=int, default=3)
 
     group.add_argument("--speculator_tie_weights", action="store_true", default=False)
