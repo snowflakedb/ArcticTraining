@@ -47,19 +47,6 @@ class SFTTrainer(Trainer):
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 
-    # # XXX: merge with loss_sp - call depending on SP>1
-    # def loss_sp(self, batch) -> torch.Tensor:
-
-    #     #from torch.nn import CrossEntropyLoss
-    #     #loss_function = CrossEntropyLoss()
-
-    #     #from transformers.modeling_utils import unwrap_model
-    #     #unwrapped_model = unwrap_model(self.model)
-    #     batch = to_device(batch, self.device)
-
-
-    #     return loss
-
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
@@ -97,3 +84,20 @@ class SFTTrainer(Trainer):
             print_rank(f"{loss=}")
 
         return loss
+
+    # # possible future version of integrated loss - would need to move the rest of the code into all_gather_logits_and_do_loss
+    # def loss(self, batch) -> torch.Tensor:
+    #     batch = to_device(batch, self.device)
+
+    #     if self.config.sequence_parallel_size != 1:
+    #         # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+    #         # therefore remove labels to avoid an attempt to calculate loss by transformers and store those for later use
+    #         labels = batch.pop("labels")
+
+    #     outputs = self.model(**batch, use_cache=False)
+
+    #     if self.config.sequence_parallel_size == 1:
+    #         loss = outputs.loss
+    #     else:
+    #         loss = all_gather_logits_and_do_loss(outputs.logits, labels)
+    #     return loss

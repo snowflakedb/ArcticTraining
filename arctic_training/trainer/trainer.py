@@ -601,6 +601,7 @@ class Trainer(ABC, CallbackMixin):
         self.train_dataloader, self.eval_dataloader = data_factory()
 
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
+        # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
         transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
@@ -789,9 +790,9 @@ class Trainer(ABC, CallbackMixin):
         # import q
         from deepspeed.utils import groups
         # q(self.global_rank)
-        print(f"{groups._get_sequence_parallel_group()=}")
-        print(f"{groups._get_sequence_parallel_rank()=}")
-        print(f"{groups._get_sequence_parallel_world_size()=}")
+        # print(f"{groups._get_sequence_parallel_group()=}")
+        # print(f"{groups._get_sequence_parallel_rank()=}")
+        # print(f"{groups._get_sequence_parallel_world_size()=}")
         #dist.barrier()
         #import time
         #time.sleep(5)
@@ -811,8 +812,8 @@ class Trainer(ABC, CallbackMixin):
         # if self.global_rank == 0:
         #     print(batch)
 
-
-        batch = {'input_ids': torch.tensor([[   529,  29989,    326,  29918,   2962,  29989,  29958,   1792,     13,  29954,   5428,    278,   1426,  29901,
+        if 0:
+            batch = {'input_ids': torch.tensor([[   529,  29989,    326,  29918,   2962,  29989,  29958,   1792,     13,  29954,   5428,    278,   1426,  29901,
           23212,   1581,    338,   5545,    553,  27797,    363,   3619,  19309,  15313,   9466,    322,   2301,  16637,
            3657,    267,  29889,    739,    884,    577,    720,    267,    322,  10208,   9100,    599,  24646,  29892,
           19912,    304,   1104,   2418,   9950,  12137,   1550,  12515,  19309,   5941,    322,   4964,  29889,     13,
@@ -999,7 +1000,7 @@ class Trainer(ABC, CallbackMixin):
 
 
         # tokenized with Felladrin/Llama-160M-Chat-v1
-        if 1:
+        if 0:
             batch =  {'input_ids': torch.tensor([[  529, 29989,   326, 29918,  2962, 29989, 29958,  1792,    13, 29899, 18555,   781,   950,  2875, 27428, 29966,
          29989,   326, 29918,   355, 29989, 29958,    13, 29966, 29989,   326, 29918,  2962, 29989, 29958,   465, 22137,
             13,  2928,   295,   781,   950,  2875, 27428, 14637,   304,   278, 11706, 10462,   393, 15724,   470, 14582,
@@ -1175,58 +1176,117 @@ class Trainer(ABC, CallbackMixin):
          484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499, 500, 501, 502, 503, 504, 505,
          506, 507, 508, 509, 510, 511]])}
 
-        if 1:
-            # XXX: probably need to do padding so that all sequence chunks are the same?!
-            import math
-            print(f"{len(batch['input_ids'][0])=}")
-            #print(f"{len(batch['input_ids'][1])=}")
-            #seq_length = len(batch["input_ids"][0])
-            seq_length = self.config.data.max_length
-
-            sp_world_size = groups._get_sequence_parallel_world_size()
-            sp_rank = groups._get_sequence_parallel_rank()
-            chunk_len = math.ceil(seq_length / sp_world_size)
-            print(f"{seq_length=}")
-            print(f"{chunk_len=}")
-
-            #import sys; sys.exit(0)
-
-            for k in batch.keys():
-                if sp_world_size > 1 and k in ["input_ids", "position_ids"]: # , "labels"]:
-                #if sp_world_size > 1 and k in ["input_ids"]:
-                    batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
-                else:
-                    batch[k] = batch[k].to(self.device)
-                print(f"{k} {batch[k].shape=}")
-            #import sys; sys.exit(0)
-
-
-        for k in batch.keys():
-            print_rank0(f"after sp: {k}: {batch[k].shape=}")
-            print_rank0(f"after sp: {k}: {batch[k]=}")
 
         self.model.train()
-        loss = self.loss(batch)
 
-        #print_rank(f"{self.train_batch_idx}: {loss.grad=}")
-        print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
-        print_rank(f"{self.train_batch_idx}: {loss=}")
-        exit()
+        # gather DL batches into super-batches
+        # XXX: at the moment assuming DL gives us a nice max_length chunks that are already padded
+        # for the general case may need to massage the concatenated DL samples and remove padding and then repad at the end.
+        if self.config.sequence_parallel_size > 1:
+            from deepspeed.utils import groups
+            sp_group = groups._get_sequence_parallel_group()
+            sp_world_size = groups._get_sequence_parallel_world_size()
+            sp_rank = groups._get_sequence_parallel_rank()
 
-        self.model.backward(loss)
+            from collections import defaultdict
+            micro_batches = defaultdict(dict)
+            for k in batch.keys():
+                batch[k] = batch[k].to(self.device)
+                print_rank0(f"before gather: {k}: {batch[k].shape=}")
+                print_rank0(f"before gather: {k}: {batch[k]=}")
+                with torch.no_grad():
+                    tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.config.sequence_parallel_size)]
+                    dist.all_gather(tensor_list, batch[k], group=sp_group)
+                    # gathering on the data dimension
+                    # will be concatenating and later splitting again for the more general case
+                    # batch[k] = torch.cat(tensor_list, dim=1)
+                    for rank, tensor in enumerate(tensor_list):
+                        micro_batches[rank][k] = tensor
+                print_rank0(f"after gather: {k}: {batch[k].shape=}")
+                print_rank0(f"after gather: {k}: {batch[k]=}")
 
-        # #w = self.model.module.model.layers[0].self_attn.q_proj.weight
-        # w = self.model.module.lm_head.weight
-        from deepspeed.utils import safe_get_full_grad
-        print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
-        print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+            # we need to chunk twice - each time on SP size level
+            # - the first time is because we artifically made the seqlen SP-times longer
+            # - the second time is because of the Ulysses algorithm
+            for sub_step_id in range(self.config.sequence_parallel_size):
+                batch = micro_batches[sub_step_id]
 
-        # for n,p in self.model.module.named_parameters():
-        #     if p.requires_grad:
-        #         print_rank(f"{n}: {p.numel()}")
+                print_rank0(batch)
 
-        #exit()
-        self.model.step()
+                # XXX: probably need to do padding so that all sequence chunks are the same?!
+                import math
+                print(f"{len(batch['input_ids'][0])=}")
+                seq_length = self.config.data.max_length
+
+                chunk_len = math.ceil(seq_length / sp_world_size)
+                print(f"{seq_length=}")
+                print(f"{chunk_len=}")
+
+                for k in batch.keys():
+                    # we are not chunking labels!
+                    if k in ["input_ids", "position_ids"]:
+                        batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
+                    else:
+                        batch[k] = batch[k].to(self.device)
+
+                    print_rank0(f"after sp: {k}: {batch[k].shape=}")
+                    print_rank0(f"after sp: {k}: {batch[k]=}")
+
+                loss = self.loss(batch)
+
+                print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss.requires_grad=}")
+                print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss=}")
+
+                self.model.backward(loss)
+
+                # from deepspeed.utils import safe_get_full_grad
+                # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+                # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+
+                # #w = self.model.module.model.layers[0].self_attn.q_proj.weight
+                # w = self.model.module.lm_head.weight
+                from deepspeed.utils import safe_get_full_grad
+                print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+                print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+
+                self.model.step()
+
+                #exit()
+
+
+        # if 1:
+        #     # XXX: probably need to do padding so that all sequence chunks are the same?!
+        #     import math
+        #     print(f"{len(batch['input_ids'][0])=}")
+        #     #print(f"{len(batch['input_ids'][1])=}")
+        #     #seq_length = len(batch["input_ids"][0])
+        #     seq_length = self.config.data.max_length
+
+        #     sp_world_size = groups._get_sequence_parallel_world_size()
+        #     sp_rank = groups._get_sequence_parallel_rank()
+        #     chunk_len = math.ceil(seq_length / sp_world_size)
+        #     print(f"{seq_length=}")
+        #     print(f"{chunk_len=}")
+
+        #     # this is the original chunking logic
+        #     for k in batch.keys():
+        #         if sp_world_size > 1 and k in ["input_ids", "position_ids"]: # , "labels"]:
+        #         #if sp_world_size > 1 and k in ["input_ids"]:
+        #             batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
+        #         else:
+        #             batch[k] = batch[k].to(self.device)
+        #         print(f"{k} {batch[k].shape=}")
+
+
+        else:
+            # non-sp original version
+            self.model.train()
+            loss = self.loss(batch)
+            print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
+            print_rank(f"{self.train_batch_idx}: {loss=}")
+
+            self.model.backward(loss)
+            self.model.step()
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
