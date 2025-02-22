@@ -92,7 +92,7 @@ class MLPSpeculator(nn.Module):
     ...
     Args
     ----
-    emb_dim : int
+    input_hidden_dim : int
         Dimensionality of the input vector from the base model.
     inner_dim : List[int]
         Latent dimensionality of the speculator model.
@@ -113,38 +113,66 @@ class MLPSpeculator(nn.Module):
 
         self.config = config
         self.n_predict = config.n_predict
-        self.emb_dim = config.emb_dim
+        self.input_hidden_dim = config.input_hidden_dim
         inner_dim = [int(i) for i in config.inner_dim.split(".")]
         self.inner_dim = inner_dim
+        emb_dim = [int(i) for i in config.emb_dim.split(".")]
+        self.emb_dim = emb_dim
+        proj_dim = [int(i) for i in config.proj_dim.split(".")]
+        self.proj_dim = proj_dim
+
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
+        self.activation = nn.GELU()
 
-        self.emb = nn.ModuleList(
-            [
-                nn.Embedding(self.vocab_size, self.inner_dim[0])
-                for _ in range(self.n_predict)
-            ]
-        )
-        self.proj = nn.ModuleList(
-            [
-                nn.Linear(
-                    (self.emb_dim if i == 0 else self.inner_dim[0]),
-                    self.inner_dim[0],
-                    bias=False,
-                )
-                for i in range(self.n_predict)
-            ]
-        )
-        self.head = nn.ModuleList(
-            [
-                nn.Linear(self.inner_dim[-1], self.vocab_size, bias=False)
-                for _ in range(self.n_predict)
-            ]
-        )
+        embs = []
+        for n_i in range(self.n_predict):
+            if not self.tie_weights or n_i == 0:
+                seqs = [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+                for i in range(1, len(self.emb_dim)):
+                    print(f"ADDING ANOTHER EMB {i}")
+                    seqs.append(
+                        LayerNormParameterized(
+                            self.emb_dim[i],
+                            elementwise_shift=True,
+                            elementwise_scale=True,
+                        )
+                    )
+                    seqs.append(self.activation)
+                    seqs.append(
+                        nn.Linear(self.emb_dim[i - 1], self.emb_dim[i], bias=False)
+                    )
+                embs.append(nn.Sequential(*seqs))
+        self.emb = nn.ModuleList(embs)
+
+        projs = []
+        for n_i in range(self.n_predict):
+            if not self.tie_weights or n_i <= 1:
+                seqs = [
+                    nn.Linear(
+                        (self.input_hidden_dim if n_i == 0 else self.inner_dim[-1]),
+                        self.proj_dim[0],
+                        bias=False,
+                    )
+                ]
+                for i in range(1, len(self.proj_dim)):
+                    print(f"ADDING ANOTHER PROJ {i}")
+                    seqs.append(
+                        LayerNormParameterized(
+                            self.proj_dim[i],
+                            elementwise_shift=True,
+                            elementwise_scale=True,
+                        )
+                    )
+                    seqs.append(self.activation)
+                    seqs.append(
+                        nn.Linear(self.proj_dim[i - 1], self.proj_dim[i], bias=False)
+                    )
+                projs.append(nn.Sequential(*seqs))
+        self.proj = nn.ModuleList(projs)
 
         lns = []
-        self.activation = nn.GELU()
         for n_i in range(self.n_predict):
             if not self.tie_weights or n_i == 0:
                 seqs = [
@@ -155,6 +183,7 @@ class MLPSpeculator(nn.Module):
                     )
                 ]
                 for i in range(1, len(self.inner_dim)):
+                    print(f"ADDING ANOTHER LN {i}")
                     seqs.append(self.activation)
                     seqs.append(
                         nn.Linear(self.inner_dim[i - 1], self.inner_dim[i], bias=False)
@@ -170,13 +199,19 @@ class MLPSpeculator(nn.Module):
         self.ln = nn.ModuleList(lns)
         if self.scale_input:
             self.ln0 = LayerNormParameterized(
-                self.emb_dim, elementwise_shift=False, elementwise_scale=False
+                self.input_hidden_dim, elementwise_shift=False, elementwise_scale=False
             )
+
+        self.head = nn.ModuleList(
+            [
+                nn.Linear(self.inner_dim[-1], self.vocab_size, bias=False)
+                for _ in range(self.n_predict)
+            ]
+        )
+
         # Weights ensure that state_0 accounts for 50% of state magnitude by final head in expectation
         self.state_weight = 0.5 ** (0.5 / self.n_predict)
-        self.emb_weight = math.sqrt(
-            (1 - self.state_weight**2) * (self.inner_dim[0] / 2)
-        )
+        self.emb_weight = math.sqrt((1 - self.state_weight**2) * (self.emb_dim[-1] / 2))
 
         # Handle weight tying as specified
         if self.tie_weights:
@@ -184,9 +219,9 @@ class MLPSpeculator(nn.Module):
                 self.n_predict > 1
             ), "You cannot tie weights between stages when only 1 exists"
 
-            for emb in self.emb:
-                emb.weight = self.emb[0].weight
-
+            # for emb in self.emb:
+            #     emb.weight = self.emb[0].weight
+            #
             for head in self.head:
                 head.weight = self.head[0].weight
 
@@ -195,8 +230,8 @@ class MLPSpeculator(nn.Module):
             #     ln.bias = self.ln[0].bias
 
             # Since first proj has different size, allow different initial proj from base into model
-            for i in range(2, self.n_predict):
-                self.proj[i].weight = self.proj[1].weight
+            # for i in range(2, self.n_predict):
+            #     self.proj[i].weight = self.proj[1].weight
 
     def reset_parameters(
         self,
@@ -350,16 +385,16 @@ class MLPSpeculator(nn.Module):
             state = self.ln0(state) / (2**0.5)
 
         for i in range(self.n_predict):
-            z = self.emb[i](inds[:, i : i + state.size(1)])  # b n d
-            state = self.proj[i](state)
+            actual_i = 0 if self.tie_weights else i
+            actual_proj_i = 1 if self.tie_weights and i >= 2 else i
+
+            z = self.emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
+            state = self.proj[actual_proj_i](state)
             # Weighted add of state_weight*state and emb_weight*z
             # Let subsequent LN take care of denominator
             # state_weight is close to 1, so shouldn't be any precision issues
             state = torch.add(state, z, alpha=self.emb_weight / self.state_weight)
-            if self.tie_weights:
-                state = self.activation(self.ln[0](state))  # b n d
-            else:
-                state = self.activation(self.ln[i](state))  # b n d
+            state = self.activation(self.ln[actual_i](state))  # b n d
             out.append(self.head[i](state))  # b n v
 
         return torch.stack(out, dim=0)  # h b n v

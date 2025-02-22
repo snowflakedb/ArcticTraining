@@ -63,6 +63,8 @@ def MLPSpeculatorParser():
     group.add_argument("--zero_stage", type=int, default=2)
 
     group.add_argument("--speculator_width", type=str, default="4096")
+    group.add_argument("--emb_dim", type=str, default="4096")
+    group.add_argument("--proj_dim", type=str, default="4096")
     group.add_argument("--n_speculator_heads", type=int, default=3)
 
     group.add_argument("--speculator_tie_weights", action="store_true", default=False)
@@ -139,6 +141,8 @@ if __name__ == "__main__":
 
     config = MLPSpeculatorTrainConfig(
         speculator_width=args.speculator_width,
+        proj_dim=args.proj_dim,
+        emb_dim=args.emb_dim,
         n_speculator_heads=args.n_speculator_heads,
         speculator_tie_weights=args.speculator_tie_weights,
         speculator_scale_input=args.speculator_scale_input,
@@ -164,7 +168,7 @@ if __name__ == "__main__":
                 "stage3_max_live_parameters": 3.000000e07,
                 "stage3_prefetch_bucket_size": 5e8,
                 "reduce_bucket_size": 2.5e8,
-                "memory_efficient_linear": False,
+                "memory_efficient_linear": True,
             }
         },
         gradient_accumulation_steps=gradient_accumulation_steps,

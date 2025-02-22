@@ -9,6 +9,8 @@ from arctic_training.config import Config
 # Configs used for training the model
 class MLPSpeculatorTrainConfig(Config):
     speculator_width: str = "3072"
+    proj_dim: str = "3072"
+    emb_dim: str = "3072"
     n_speculator_heads: int = 3
     speculator_tie_weights: bool = False
     speculator_scale_input: bool = False
@@ -34,7 +36,7 @@ class MLPSpeculatorConfig:
     ...
     Args
     ----
-    emb_dim : int
+    input_hidden_dim : int
         Dimensionality of the input vector from the base model.
     inner_dim : str
         Latent dimensionality of the speculator model.
@@ -53,8 +55,10 @@ class MLPSpeculatorConfig:
     def __init__(
         self,
         base_model_name_or_path,
-        emb_dim,
+        input_hidden_dim,
         inner_dim,
+        proj_dim,
+        emb_dim,
         vocab_size,
         n_predict,
         tie_weights=False,
@@ -63,8 +67,10 @@ class MLPSpeculatorConfig:
         self.architectures = ["MLPSpeculatorPreTrainedModel"]
         self.base_model_name_or_path = base_model_name_or_path
 
-        self.emb_dim = emb_dim
+        self.input_hidden_dim = input_hidden_dim
         self.inner_dim = inner_dim
+        self.proj_dim = proj_dim
+        self.emb_dim = emb_dim
         self.model_type = "mlp_speculator"
 
         self.n_candidates = n_predict

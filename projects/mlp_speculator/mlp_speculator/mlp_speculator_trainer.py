@@ -45,6 +45,8 @@ class MLPSpeculatorTrainer(SFTTrainer):
             config.model.name_or_path,
             hidden_size,
             config.speculator_width,
+            config.proj_dim,
+            config.emb_dim,
             vocab_size,
             config.n_speculator_heads,
             tie_weights=config.speculator_tie_weights,
