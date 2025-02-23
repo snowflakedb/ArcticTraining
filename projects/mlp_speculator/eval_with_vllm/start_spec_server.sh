@@ -17,7 +17,7 @@ if [ ! -d $1 ]
 then
   aws s3 sync s3://ml-dev-sfc-or-dev-misc1-k8s/yak/users/jaelee/spec/$1 $1
 fi
-vllm serve /home/yak/jaeseong/Meta-Llama-3.1-8B-Instruct --swap_space 16 --disable-log-requests --enable-chunked-prefill --speculative_model $1 --use-v2-block-manager --num-speculative-tokens $2
+vllm serve /home/yak/jaeseong/Meta-Llama-3.1-8B-Instruct --swap_space 16 --disable-log-requests --enable-chunked-prefill --speculative_model $1 --use-v2-block-manager --num-speculative-tokens $2 --gpu-memory-utilization 0.7
 
 #vllm serve /home/yak/jaeseong/Llama-3.3-70B-Instruct --swap_space 16 --disable-log-requests --enable-chunked-prefill --speculative_model /checkpoint/speculator/llama-3.3-70b/5-heads/Feb-11 --use-v2-block-manager --num-speculative-tokens 5 --tensor-parallel-size 4
 

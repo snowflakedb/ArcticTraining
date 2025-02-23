@@ -197,6 +197,7 @@ class MLPSpeculator(nn.Module):
                     )
                 lns.append(nn.Sequential(*seqs))
         self.ln = nn.ModuleList(lns)
+
         if self.scale_input:
             self.ln0 = LayerNormParameterized(
                 self.input_hidden_dim, elementwise_shift=False, elementwise_scale=False
@@ -269,17 +270,31 @@ class MLPSpeculator(nn.Module):
             elif "from_model" in method:
                 print(f"INITIALIZING {n} from model")
                 if isinstance(m, nn.Embedding):
+                    weight_factor = m.weight.shape[-1] // emb_weight.shape[-1]
+                    if weight_factor > 1:
+                        emb_weight = emb_weight.repeat(1, weight_factor)
                     m.weight.data.copy_(emb_weight)
                 if isinstance(m, nn.Linear):
                     if "head" in n:
+                        weight_factor = m.weight.shape[-1] // lm_head_weight.shape[-1]
+                        if weight_factor > 1:
+                            lm_head_weight = (
+                                lm_head_weight.repeat(1, weight_factor) / weight_factor
+                            )
                         m.weight.data.copy_(lm_head_weight)
                     else:
                         nn.init.normal_(m.weight, 0, 1 / math.sqrt(min(m.weight.shape)))
                         if method == "from_model_else_ones":
                             print(f"INITIALIZING {n} from model adding ones")
-                            m.weight.data.add_(
-                                torch.eye(m.weight.size(1), device=m.weight.device)
+                            one_weights = torch.eye(
+                                min(m.weight.shape), device=m.weight.device
                             )
+                            weight_factor = m.weight.shape[0] // m.weight.shape[1]
+                            if weight_factor == 0:
+                                raise NotImplementedError
+                            if weight_factor > 1:
+                                one_weights = one_weights.repeat(weight_factor, 1)
+                            m.weight.data.add_(one_weights)
 
     def generate_suffixes(
         self,
