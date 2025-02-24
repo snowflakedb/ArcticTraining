@@ -28,7 +28,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
-    from arctic_training.trainer import Trainer
+    from arctic_training.trainer.trainer import Trainer
 
 
 class OptimizerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
