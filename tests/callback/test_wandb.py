@@ -33,6 +33,7 @@ def test_wandb_callback():
 
     os.environ["WANDB_MODE"] = "offline"
 
+    # TODO: Make a DummyTrainer class that can be used in multiple tests
     class DummyTrainer:
         config = SimpleNamespace(model_dump=lambda: {}, wandb=wandb_config)
         model = SimpleNamespace(lr_scheduler=SimpleNamespace(get_last_lr=lambda: [0.1]))
