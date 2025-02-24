@@ -36,6 +36,7 @@ from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.callback.wandb import init_wandb_project_cb
 from arctic_training.callback.wandb import log_wandb_loss_cb
+from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
@@ -117,6 +118,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         post_loss_log_cb,
         init_wandb_project_cb,
         log_wandb_loss_cb,
+        teardown_wandb_cb,
     ]
     """
     A list of callbacks for the trainer. Callbacks are specified as tuples of a

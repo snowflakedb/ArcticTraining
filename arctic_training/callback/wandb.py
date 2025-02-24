@@ -43,5 +43,11 @@ def log_wandb_loss(self: "Trainer", loss: torch.Tensor) -> torch.Tensor:
     return loss
 
 
+def teardown_wandb(self: "Trainer") -> None:
+    if self.wandb_experiment is not None:
+        self.wandb_experiment.finish()
+
+
 init_wandb_project_cb = ("post-init", init_wandb_project)
 log_wandb_loss_cb = ("post-loss", log_wandb_loss)
+teardown_wandb_cb = ("post-train", teardown_wandb)
