@@ -47,6 +47,7 @@ def test_wandb_callback():
     log_wandb_loss(trainer, expected_loss)
     teardown_wandb(trainer)
 
+    print(list(Path("./").iterdir()))  # debug
     output_path = list(Path("./wandb/").glob("offline-run-*/run-*.wandb"))[0]
     assert output_path, "No wandb file found"
 
