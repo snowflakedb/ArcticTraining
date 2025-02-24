@@ -19,7 +19,7 @@ from typing import Type
 
 from pydantic import Field
 
-from arctic_training.config import BaseConfig
+from arctic_training.config.base import BaseConfig
 from arctic_training.registry import get_registered_checkpoint_engine
 
 if TYPE_CHECKING:

@@ -12,12 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from .base import BaseConfig
-from .checkpoint import CheckpointConfig
-from .data import DataConfig
-from .model import ModelConfig
-from .optimizer import OptimizerConfig
-from .scheduler import SchedulerConfig
-from .tokenizer import TokenizerConfig
-from .trainer import TrainerConfig

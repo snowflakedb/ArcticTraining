@@ -12,6 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from .adam_factory import FusedAdamOptimizerFactory
-from .factory import OptimizerFactory

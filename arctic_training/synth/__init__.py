@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .callers import CortexSynth
-from .callers import VllmSynth
-from .cli import main
-from .openai_callers import AzureOpenAISynth
-from .openai_callers import OpenAISynth
+from arctic_training.synth.callers import CortexSynth
+from arctic_training.synth.callers import VllmSynth
+from arctic_training.synth.cli import main
+from arctic_training.synth.openai_callers import AzureOpenAISynth
+from arctic_training.synth.openai_callers import OpenAISynth

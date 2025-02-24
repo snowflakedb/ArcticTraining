@@ -21,8 +21,9 @@ from typing import Any
 import jsonlines
 from tqdm.auto import tqdm
 
-from .utils import import_error
-from .utils import pass_function
+from arctic_training.synth.base_caller import BatchProcessor
+from arctic_training.synth.utils import import_error
+from arctic_training.synth.utils import pass_function
 
 try:
     from vllm import LLM
@@ -35,8 +36,6 @@ try:
     from snowflake import connector
 except ImportError:
     connector = import_error
-
-from .base_caller import BatchProcessor
 
 
 class InMemoryBatchProcessor(BatchProcessor):
