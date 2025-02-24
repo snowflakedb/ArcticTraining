@@ -52,7 +52,7 @@ def test_wandb_callback():
     assert output_path, "No wandb file found"
 
     content = subprocess.check_output(
-        f"wandb sync --view --verbose {output_path} | grep 'train/loss' -A 1 | tail"
+        f"WANDB_MODE='offline' wandb sync --view --verbose {output_path} | grep 'train/loss' -A 1 | tail"
         " -n 1",
         shell=True,
         env=os.environ,
