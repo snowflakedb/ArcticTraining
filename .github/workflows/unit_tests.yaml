@@ -26,4 +26,4 @@ jobs:
       - name: Unit Tests
         run: |
           cd tests
-          python -m pytest . -m "not gpu" -s -v -k "wandb"
+          python -m pytest . -m "not gpu" -s -v

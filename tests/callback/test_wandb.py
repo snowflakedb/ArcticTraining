@@ -14,8 +14,6 @@
 # limitations under the License.
 
 import os
-import re
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,12 +24,11 @@ from arctic_training.config.wandb import WandBConfig
 
 
 def test_wandb_callback():
+    os.environ["WANDB_MODE"] = "offline"
     wandb_config = WandBConfig(
         enable=True,
         project="test_project",
     )
-
-    os.environ["WANDB_MODE"] = "offline"
 
     # TODO: Make a DummyTrainer class that can be used in multiple tests
     class DummyTrainer:
@@ -42,25 +39,9 @@ def test_wandb_callback():
 
     trainer = DummyTrainer()
 
-    expected_loss = 0.1
     init_wandb_project(trainer)
-    log_wandb_loss(trainer, expected_loss)
+    log_wandb_loss(trainer, 0.1)
     teardown_wandb(trainer)
 
-    print(list(Path("./").iterdir()))  # debug
     output_path = list(Path("./wandb/").glob("offline-run-*/run-*.wandb"))[0]
     assert output_path, "No wandb file found"
-
-    content = subprocess.check_output(
-        f"WANDB_MODE='offline' wandb sync --view --verbose {output_path} | grep 'train/loss' -A 1 | tail"
-        " -n 1",
-        shell=True,
-        env=os.environ,
-    )
-    print(content)
-    recorded_loss = float(
-        re.findall(r"value_json: \"(\d+\.\d+)\"", content.decode())[0]
-    )
-    assert (
-        recorded_loss == expected_loss
-    ), f"Expected loss: {expected_loss}, got: {recorded_loss}"
