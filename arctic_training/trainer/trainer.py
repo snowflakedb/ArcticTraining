@@ -29,7 +29,7 @@ from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
-from wandb.sdk.wandb_run import Run as WandBRun
+from wandb.sdk.wandb_run import Run as WandbRun
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
@@ -152,7 +152,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.world_size = config.world_size
         self.global_rank = config.global_rank
         self.training_finished = False
-        self.experiment: Optional[WandBRun] = None
+        self.wandb_experiment: Optional[WandbRun] = None
 
         self._set_seeds(self.config.seed)
 

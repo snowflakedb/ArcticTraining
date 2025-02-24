@@ -26,16 +26,14 @@ if TYPE_CHECKING:
 def init_wandb_project(self: "Trainer") -> None:
     if self.global_rank == 0 and self.config.wandb.enable:
         # Note: wandb.init() is not type annotated so we need to use type: ignore
-        self.experiment = wandb.init(  # type: ignore
+        self.wandb_experiment = wandb.init(  # type: ignore
             project=self.config.wandb.project, config=self.config.model_dump()
         )
-        print(type(self.experiment))
-        exit()
 
 
 def log_wandb_loss(self: "Trainer", loss: torch.Tensor) -> torch.Tensor:
-    if self.experiment is not None:
-        self.experiment.log(
+    if self.wandb_experiment is not None:
+        self.wandb_experiment.log(
             {
                 "train/loss": loss,
                 "train/lr": self.model.lr_scheduler.get_last_lr()[0],
