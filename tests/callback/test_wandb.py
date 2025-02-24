@@ -57,6 +57,7 @@ def test_wandb_callback():
         shell=True,
         env=os.environ,
     )
+    print(content)
     recorded_loss = float(
         re.findall(r"value_json: \"(\d+\.\d+)\"", content.decode())[0]
     )
