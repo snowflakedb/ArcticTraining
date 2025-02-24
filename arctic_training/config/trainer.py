@@ -360,6 +360,8 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
     trainer_type = config_dict.get("type", TRAINER_DEFAULT)
     config_dict["type"] = trainer_type
 
+    if "code" in config_dict:
+        user_provided_code_path = True
     trainer_script = config_dict.get("code", CUSTOM_CODE_DEFAULT)
     config_dict["code"] = trainer_script
 
@@ -368,6 +370,8 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
         script_path = config_dir / script_path
     script_path = script_path.resolve()
 
+    if user_provided_code_path and not script_path.exists():
+        raise ValueError(f"Provided code path {script_path} does not exist.")
     if script_path.exists():
         module_name = "custom_trainer"
         script_dir = str(script_path.parent)
