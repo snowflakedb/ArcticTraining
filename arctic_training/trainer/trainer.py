@@ -19,6 +19,7 @@ from abc import abstractmethod
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Tuple
 
 import deepspeed
@@ -28,6 +29,7 @@ from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
+from wandb.sdk.wandb_run import Run as WandBRun
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
@@ -150,6 +152,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.world_size = config.world_size
         self.global_rank = config.global_rank
         self.training_finished = False
+        self.experiment: Optional[WandBRun] = None
 
         self._set_seeds(self.config.seed)
 
