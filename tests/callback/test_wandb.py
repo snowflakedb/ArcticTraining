@@ -54,6 +54,7 @@ def test_wandb_callback():
         f"wandb sync --view --verbose {output_path} | grep 'train/loss' -A 1 | tail"
         " -n 1",
         shell=True,
+        env=os.environ,
     )
     recorded_loss = float(
         re.findall(r"value_json: \"(\d+\.\d+)\"", content.decode())[0]
