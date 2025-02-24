@@ -32,6 +32,8 @@ from transformers import set_seed
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
+from arctic_training.callback.wandb import init_wandb_project_cb
+from arctic_training.callback.wandb import log_wandb_loss_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
@@ -109,7 +111,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     used as the default if the type is not explicitly set in the YAML config.
     """
 
-    callbacks: List[Tuple[str, Callable]] = [post_loss_log_cb]
+    callbacks: List[Tuple[str, Callable]] = [
+        post_loss_log_cb,
+        init_wandb_project_cb,
+        log_wandb_loss_cb,
+    ]
     """
     A list of callbacks for the trainer. Callbacks are specified as tuples of a
     string indicating where the callback should be placed and a callable that
