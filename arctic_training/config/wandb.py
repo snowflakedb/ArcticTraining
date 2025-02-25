@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from typing import Optional
+
 from arctic_training.config.base import BaseConfig
 
 
