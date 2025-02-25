@@ -39,6 +39,7 @@ dependencies = [
     "torch",
     "tqdm",
     "transformers==4.47.0",
+    "wandb",
 ]
 
 # Optional development dependencies
