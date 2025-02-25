@@ -22,13 +22,9 @@ def pytest_configure(config):
     # TODO: Make it so that cpu and gpu tests can be run with a single command.
     # This requires some work with tearing down/setting up dist environments
     # that have not been worked out yet.
-    if not config.option.markexpr:
-        config.option.markexpr = "cpu"
-    if "gpu" in config.option.markexpr and "cpu" in config.option.markexpr:
-        pytest.fail("Cannot run tests with both 'gpu' and 'cpu' marks")
-    if "cpu" in config.option.markexpr:
+    if "not gpu" in config.option.markexpr:
         _setup_cpu_dist()
-    if "gpu" in config.option.markexpr:
+    else:
         _setup_gpu_dist()
 
 
@@ -76,4 +72,4 @@ def pytest_collection_modifyitems(config, items):
 # Load helper functions automatically for all tests
 @pytest.fixture(scope="session", autouse=True)
 def helpers_code_path() -> None:
-    from . import test_helpers  # noqa: F401
+    from . import helpers  # noqa: F401

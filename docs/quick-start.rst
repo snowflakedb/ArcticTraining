@@ -59,10 +59,8 @@ that uses a different loss function:
 
 .. code-block:: python
 
-   from arctic_training import register
    from arctic_training import SFTTrainer
 
-   @register
    class CustomTrainer(SFTTrainer):
        name = "my_custom_trainer"
 
@@ -70,11 +68,11 @@ that uses a different loss function:
            # Custom loss function implementation
            return loss
 
-Remember to register this new trainer using the ``@register`` decorator so that
-it can be used in training recipes. By default, ArcticTraining looks for a
-``train.py`` in the current working directory to find custom trainers. You can
-also specify a custom path to the trainers with the ``code`` field in your
-training recipe:
+This new trainer will be automatically registered with ArcticTraining when the
+script containing the declaration of ``CustomTrainer`` is imported. By default,
+ArcticTraining looks for a ``train.py`` in the current working directory to find
+custom trainers. You can also specify a custom path to the trainers with the
+``code`` field in your training recipe:
 
 .. code-block:: yaml
 

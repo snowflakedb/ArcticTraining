@@ -34,7 +34,7 @@ from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
-from arctic_training.config import BaseConfig
+from arctic_training.config.base import BaseConfig
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.data import DataConfig
 from arctic_training.config.enums import DType
@@ -44,20 +44,17 @@ from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.config.wandb import WandBConfig
-from arctic_training.registry.checkpoint import get_registered_checkpoint_engine
-from arctic_training.registry.data import get_registered_data_factory
-from arctic_training.registry.model import get_registered_model_factory
-from arctic_training.registry.optimizer import get_registered_optimizer_factory
-from arctic_training.registry.scheduler import get_registered_scheduler_factory
-from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
-from arctic_training.registry.trainer import get_registered_trainer
-from arctic_training.registry.utils import _get_class_attr_type_hints
-from arctic_training.utils import get_local_rank
-from arctic_training.utils import get_world_size
+from arctic_training.registry import _get_class_attr_type_hints
+from arctic_training.registry import get_registered_checkpoint_engine
+from arctic_training.registry import get_registered_data_factory
+from arctic_training.registry import get_registered_model_factory
+from arctic_training.registry import get_registered_optimizer_factory
+from arctic_training.registry import get_registered_scheduler_factory
+from arctic_training.registry import get_registered_tokenizer_factory
+from arctic_training.registry import get_registered_trainer
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
-
 
 TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
@@ -124,9 +121,6 @@ class TrainerConfig(BaseConfig):
     """ Maximum number of training iterations. """
 
     eval_frequency: int = Field(default=0, ge=0)
-
-    global_rank: int = Field(default_factory=get_local_rank, exclude=True)
-    world_size: int = Field(default_factory=get_world_size, exclude=True)
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """

@@ -14,37 +14,74 @@
 # limitations under the License.
 
 from functools import partial
+from typing import Any
+from typing import Dict
 
-from datasets import Dataset
 from datasets import load_dataset
+from pydantic import model_validator
+from typing_extensions import Self
 
+from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
-from arctic_training.registry import register
+from arctic_training.data.utils import DatasetType
+from arctic_training.logging import logger
+from arctic_training.registry import get_registered_data_source
 
 
-@register
-class UltraChat200K(DataSource):
+class HFDataSourceConfig(DataSourceConfig):
+    dataset_name: str = ""
+    """ Name of the dataset to load. """
+
+    kwargs: Dict[str, Any] = {}
+    """ Keyword arguments to pass to the datasets.load_dataset function. """
+
+    @model_validator(mode="after")
+    def set_dataset_name(self) -> Self:
+        if self.dataset_name == "":
+            try:
+                data_source = get_registered_data_source(name=self.type)
+                logger.warning(
+                    f"No dataset name was provided for {data_source.name}. Auto-filling"
+                    " value based on selected dataset for backwargs compatibility."
+                    " However this feature will be removed in a future version of"
+                    " ArcticTraining."
+                )
+                if data_source.name == "huggingface":
+                    raise ValueError(
+                        "Must provide a dataset name for HuggingFace data sources."
+                    )
+                self.dataset_name = data_source.name
+            except ValueError as e:
+                logger.error(
+                    "No dataset name was provided and failed to infer one from data"
+                    f" source type {self.type}."
+                )
+                raise e
+        return self
+
+
+class HFDataSource(DataSource):
+    """Base DataSource class for loading data with HuggingFace datasets library."""
+
+    name = "huggingface"
+    config: HFDataSourceConfig
+
+    def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
+        return load_dataset(config.dataset_name, split=split, **config.kwargs)
+
+
+class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        return load_dataset(
-            "HuggingFaceH4/ultrachat_200k",
-            split="test_sft" if eval else "train_sft",
-            num_proc=num_proc,
-        ).select_columns(["messages"])
+    def pre_load_callback(self, split: str) -> str:
+        split_map = {"train": "train_sft", "test": "test_sft"}
+        return split_map.get(split, split)
 
 
-@register
-class SlimOrca(DataSource):
+class SlimOrca(HFDataSource):
     name = "Open-Orca/SlimOrca"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset("Open-Orca/SlimOrca", split="train", num_proc=num_proc)
-
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         def process_example(example):
             return {
                 "messages": [
@@ -60,18 +97,17 @@ class SlimOrca(DataSource):
                 ]
             }
 
-        return dataset.map(process_example, num_proc=num_proc, desc="Loading slim orca")
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading slim orca",
+        )
 
 
-@register
-class MetaMathQA(DataSource):
+class MetaMathQA(HFDataSource):
     name = "meta-math/MetaMathQA"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset("meta-math/MetaMathQA", split="train", num_proc=num_proc)
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(
                 self.instruct_format_conversation,
@@ -81,7 +117,7 @@ class MetaMathQA(DataSource):
             ),
             desc="Loading meta-math",
         )
-        return formatted_dataset.select_columns(["messages"])
+        return formatted_dataset
 
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
@@ -95,20 +131,10 @@ class MetaMathQA(DataSource):
         }
 
 
-@register
-class MagicoderOSSInstruct75k(DataSource):
+class MagicoderOSSInstruct75k(HFDataSource):
     name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset(
-            "ise-uiuc/Magicoder-OSS-Instruct-75K",
-            split="train",
-            num_proc=num_proc,
-        )
-
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(
                 self.instruct_format_conversation,
@@ -118,7 +144,7 @@ class MagicoderOSSInstruct75k(DataSource):
             ),
             desc="Loading magicoder",
         )
-        return formatted_dataset.select_columns(["messages"])
+        return formatted_dataset
 
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
@@ -132,20 +158,15 @@ class MagicoderOSSInstruct75k(DataSource):
         }
 
 
-@register
-class LMSysChat1M(DataSource):
+class LMSysChat1M(HFDataSource):
     name = "lmsys/lmsys-chat-1m"
-    data_factory_type = "sft"
 
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        if eval:
-            assert False, "Test split does not exist."
-        dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", num_proc=num_proc)
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(self.vicuna_format_conversation, source_name="LMSYS-CHAT-1M"),
             desc="Loading lmsys",
         )
-        return formatted_dataset.select_columns(["messages"])
+        return formatted_dataset
 
     @staticmethod
     def vicuna_format_conversation(example, source_name):

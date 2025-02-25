@@ -22,12 +22,15 @@ from typing import Tuple
 import numpy as np
 import torch
 from datasets import Dataset
+from torch.utils.data import DataLoader
+from torch.utils.data import RandomSampler
 from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
+from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
-from arctic_training.registry import register
+from arctic_training.data.utils import DatasetType
 
 IGNORE_INDEX = -100
 
@@ -153,26 +156,18 @@ class DataCollatorForCausalLM:
 
 
 def packing_sft_dataset(
-    dataset: Dataset,
+    dataset: DatasetType,
     seed: int,
     rank: int,
     max_length: int,
     always_max_length: bool,
-) -> Dataset:
+) -> DatasetType:
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
-    train_dataset: Dict[str, List] = {
-        "input_ids": [],
-        "labels": [],
-        "position_ids": [],
-        "attention_mask": [],
-    }
-    example: Dict[str, List] = {
-        "input_ids": [],
-        "labels": [],
-        "position_ids": [],
-        "attention_mask": [],
-    }
+    ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
+    example: Dict[str, List] = {key: [] for key in ds_keys}
+
     # pack multiple samples into one sample
     # for data in dataset:
     # TODO: make it multi-process?
@@ -184,50 +179,92 @@ def packing_sft_dataset(
         desc="Packing data",
         disable=rank != 0,
     ):
-        input_ids = data["input_ids"]
-        attention_mask = data["attention_mask"]
-        labels = data["labels"]
+        input_ids, attention_mask, labels = (
+            data["input_ids"],
+            data["attention_mask"],
+            data["labels"],
+        )
 
-        # TODO: reconcile differences with `always_max_length` option Samyam added
         if (
             not always_max_length
             and len(example["input_ids"]) + len(input_ids) > max_length
         ) or len(example["input_ids"]) > max_length:
-            train_dataset["input_ids"].append(example["input_ids"])
-            train_dataset["labels"].append(example["labels"])
-            train_dataset["position_ids"].append(example["position_ids"])
-            train_dataset["attention_mask"].append(example["attention_mask"])
+            for key in train_dataset.keys():
+                train_dataset[key].append(example[key])
 
-            example = {
-                "input_ids": [],
-                "labels": [],
-                "position_ids": [],
-                "attention_mask": [],
-            }
+            example = {key: [] for key in ds_keys}
 
         example["input_ids"].extend(input_ids)
         example["labels"].extend(labels)
         example["position_ids"].extend(list(range(len(input_ids))))
         example["attention_mask"].extend(attention_mask)
+
     # add the last example
     if example["input_ids"]:
-        train_dataset["input_ids"].append(example["input_ids"])
-        train_dataset["labels"].append(example["labels"])
-        train_dataset["position_ids"].append(example["position_ids"])
-        train_dataset["attention_mask"].append(example["attention_mask"])
+        for key in train_dataset.keys():
+            train_dataset[key].append(example[key])
 
     return Dataset.from_dict(train_dataset)
 
 
-@register
+class SFTDataConfig(DataConfig):
+    max_length: int = 8192
+    """ Maximum length of the input sequence. """
+
+    mask_inputs: bool = True
+    """ Whether to mask the input sequence. """
+
+    always_max_length: bool = False
+    """
+    If this is turned on, each batch will be filled up to the max length by
+    appending samples until the total length matches the max length. It might
+    cause the last sample to be truncated.
+    """
+
+
+def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
+    dataset = dataset.filter(
+        lambda x: len(x["input_ids"]) <= self.config.max_length,
+        num_proc=self.config.num_proc,
+        desc="Filtering dataset by max length",
+    )
+    if len(dataset) < 1:
+        raise ValueError(
+            f"No data left after filtering by max length {self.config.max_length} in"
+            f" {self.__class__.__name__}. Consider increasing the `max_length`."
+        )
+    return dataset
+
+
+def pack_dataset(self, dataset: DatasetType) -> DatasetType:
+    dataset = packing_sft_dataset(
+        dataset,
+        seed=self.config.seed,
+        rank=self.global_rank,
+        max_length=self.config.max_length,
+        always_max_length=self.config.always_max_length,
+    )
+    if len(dataset) < 1:
+        raise ValueError(
+            f"No data left after packing dataset samples in {self.__class__.__name__}"
+        )
+    return dataset
+
+
 class SFTDataFactory(DataFactory):
     name = "sft"
+    config: SFTDataConfig
+    callbacks = [
+        ("post-load", filter_dataset_length),
+        ("post-load", pack_dataset),
+    ]
 
-    def tokenize_fn(
-        self,
-        trainer,
-        dataset: Dataset,
-    ) -> Dataset:
+    def process(self, dataset: DatasetType) -> DatasetType:
+        if "messages" not in dataset.column_names:
+            raise ValueError(
+                "Dataset must have 'messages' column to tokenize for SFTDataFactory."
+            )
+        dataset = dataset.select_columns(["messages"])
         # sft based tokenization,
         # we assume the messages are in the format of:
         # {'role': '...', 'content': '...'}
@@ -269,6 +306,7 @@ class SFTDataFactory(DataFactory):
             return_offsets_mapping=mask_inputs,
             add_special_tokens=False,
         )
+
         if mask_inputs:
             assistant_ranges = cls.get_assistant_start_end_indices(
                 messages, conversation_text
@@ -278,14 +316,9 @@ class SFTDataFactory(DataFactory):
             conversation_ids["labels"] = labels
             # compare_messages_with_labels(split_list_by_specific_num(conversation_ids["labels"]), messages, tokenizer)
             del conversation_ids["offset_mapping"]
-
         else:
-            conversation_ids = tokenizer(
-                conversation_text,
-                return_offsets_mapping=mask_inputs,
-                add_special_tokens=False,
-            )
             conversation_ids["labels"] = conversation_ids["input_ids"]
+
         return conversation_ids
 
     @staticmethod
@@ -335,21 +368,12 @@ class SFTDataFactory(DataFactory):
                     output.append(IGNORE_INDEX)
         return output
 
-    def modify_dataset(self, dataset: Dataset) -> Dataset:
-        dataset = dataset.filter(
-            lambda x: len(x["input_ids"]) <= self.config.max_length,
-            num_proc=self.config.num_proc,
-        )
-        dataset = packing_sft_dataset(
+    def create_dataloader(self, dataset: DatasetType) -> DataLoader:
+        return DataLoader(
             dataset,
-            seed=self.config.seed,
-            rank=self.global_rank,
-            max_length=self.config.max_length,
-            always_max_length=self.config.always_max_length,
+            collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),
+            batch_size=self.micro_batch_size,
+            sampler=RandomSampler(dataset),
+            num_workers=self.config.num_proc,
+            drop_last=True,
         )
-        return dataset
-
-    # TODO: this should be implemented differently
-    @staticmethod
-    def collate_fn(tokenizer):
-        return DataCollatorForCausalLM(tokenizer)

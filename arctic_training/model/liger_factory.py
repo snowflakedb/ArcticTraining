@@ -14,10 +14,8 @@
 # limitations under the License.
 
 from arctic_training.model.hf_factory import HFModelFactory
-from arctic_training.registry import register
 
 
-@register
 class LigerModelFactory(HFModelFactory):
     name = "liger"
 

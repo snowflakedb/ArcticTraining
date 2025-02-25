@@ -19,7 +19,7 @@ from typing import Type
 from pydantic import Field
 
 from arctic_training.config.base import BaseConfig
-from arctic_training.registry.scheduler import get_registered_scheduler_factory
+from arctic_training.registry import get_registered_scheduler_factory
 
 if TYPE_CHECKING:
     from arctic_training.scheduler.factory import SchedulerFactory
@@ -37,4 +37,4 @@ class SchedulerConfig(BaseConfig):
 
     @property
     def factory(self) -> Type["SchedulerFactory"]:
-        return get_registered_scheduler_factory(self.type)
+        return get_registered_scheduler_factory(name=self.type)

@@ -14,21 +14,19 @@
 # limitations under the License.
 
 from datasets import Dataset
-from datasets import load_dataset
+from datasets import IterableDataset
 from deepspeed.ops.adam import DeepSpeedCPUAdam
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
-from arctic_training import register
 from arctic_training.data.factory import DataFactory
-from arctic_training.data.source import DataSource
+from arctic_training.data.hf_source import SlimOrca
+from arctic_training.data.hf_source import UltraChat200K
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
-from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.scheduler.factory import SchedulerFactory
 
 
-@register
 class RandomWeightHFModelFactory(HFModelFactory):
     name = "random-weight-hf"
 
@@ -40,24 +38,33 @@ class RandomWeightHFModelFactory(HFModelFactory):
         )
 
 
-@register
-class UltraChat200KTruncated(DataSource):
+def modify_config_for_truncated_data(self):
+    self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
+    self.config.dataset_name = self.name.removesuffix(  # Set to the real dataset name
+        "-truncated"
+    )
+
+
+def sample_data_for_truncated_dataset(self, dataset: IterableDataset) -> Dataset:
+    return Dataset.from_list(list(dataset.take(20)), features=dataset.features)
+
+
+class UltraChat200KTruncated(UltraChat200K):
     name = "HuggingFaceH4/ultrachat_200k-truncated"
-    data_factory_type = "sft"
-
-    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
-        streamed_data = load_dataset(
-            "HuggingFaceH4/ultrachat_200k",
-            split="test_sft" if eval else "train_sft",
-            streaming=True,
-        )
-        subset = Dataset.from_list(
-            list(streamed_data.take(20)), features=streamed_data.features
-        )
-        return subset.select_columns(["messages"])
+    callbacks = [
+        ("post-init", modify_config_for_truncated_data),
+        ("post-load", sample_data_for_truncated_dataset),
+    ]
 
 
-@register
+class SlimOrcaTruncated(SlimOrca):
+    name = "Open-Orca/SlimOrca-truncated"
+    callbacks = [
+        ("post-init", modify_config_for_truncated_data),
+        ("post-load", sample_data_for_truncated_dataset),
+    ]
+
+
 class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
     name = "cpu-adam"
 
@@ -72,29 +79,16 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
         )
 
 
-@register
-class NoOpOptimizerFactory(OptimizerFactory):
-    name = "noop"
-
-    def create_optimizer(self, model, optimizer_config):
-        return None
-
-
-@register
 class NoOpDataFactory(DataFactory):
     name = "noop"
 
     def __call__(self):
         return None, None
 
-    def tokenize_fn(self):
-        pass
-
-    def collate_fn(self):
-        pass
+    def tokenize(self, tokenizer, dataset):
+        return dataset
 
 
-@register
 class NoOpSchedulerFactory(SchedulerFactory):
     name = "noop"
 

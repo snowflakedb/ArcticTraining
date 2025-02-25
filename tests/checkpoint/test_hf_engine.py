@@ -13,14 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
 from utils import models_are_equal
 
 from arctic_training.config.trainer import get_config
-from arctic_training.registry.trainer import get_registered_trainer
+from arctic_training.registry import get_registered_trainer
 
 
-@pytest.mark.cpu
 def test_hf_engine(tmp_path):
     config_dict = {
         "type": "sft",

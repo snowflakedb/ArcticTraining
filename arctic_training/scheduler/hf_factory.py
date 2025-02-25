@@ -18,7 +18,6 @@ from typing import Any
 from transformers import get_scheduler
 
 from arctic_training.config.scheduler import SchedulerConfig
-from arctic_training.registry import register
 from arctic_training.scheduler.factory import SchedulerFactory
 
 
@@ -26,7 +25,6 @@ class HFSchedulerConfig(SchedulerConfig):
     name: str = "linear"
 
 
-@register
 class HFSchedulerFactory(SchedulerFactory):
     name = "huggingface"
     config: HFSchedulerConfig

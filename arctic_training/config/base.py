@@ -15,14 +15,20 @@
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
+from pydantic import Field
 
 from arctic_training.logging import logger
+from arctic_training.utils import get_local_rank
+from arctic_training.utils import get_world_size
 
 
 class BaseConfig(BaseModel):
     def __init__(self, **data):
         logger.info(f"Initializing {self.__class__.__name__}")
         super().__init__(**data)
+
+    global_rank: int = Field(default_factory=get_local_rank, exclude=True)
+    world_size: int = Field(default_factory=get_world_size, exclude=True)
 
     model_config = ConfigDict(
         extra="forbid",

@@ -13,22 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
-import torch
+import hashlib
+from typing import Any
+from typing import Union
 
-from arctic_training.config.model import ModelConfig
+from datasets import Dataset
+from datasets import IterableDataset
+
+DatasetType = Union[Dataset, IterableDataset]
 
 
-@pytest.mark.parametrize(
-    "dtype_list",
-    [
-        (torch.float16, "torch.float16", "fp16", "float16", "half"),
-        (torch.float32, "torch.float32", "fp32", "float32", "float"),
-        (torch.bfloat16, "torch.bfloat16", "bf16", "bfloat16", "bfloat"),
-    ],
-)
-def test_dtype_field(dtype_list):
-    for dtype in dtype_list:
-        config = ModelConfig(type="sft", name_or_path="model-name", dtype=dtype)
-        assert config.dtype == dtype_list[0]
-        assert config.model_dump()["dtype"] == dtype_list[0]
+def calculate_hash_from_args(*args: Any) -> str:
+    hash_str = ""
+    for arg in args:
+        try:
+            hash_str += str(arg)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to convert {arg} to string when calculating cache path."
+                f" Error: {e}"
+            )
+    return hashlib.md5(hash_str.encode()).hexdigest()
