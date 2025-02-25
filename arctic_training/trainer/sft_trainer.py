@@ -72,7 +72,7 @@ class SFTTrainer(Trainer):
 
             # XXX: stick into the trainer object
             sp_group = groups._get_sequence_parallel_group()
-
+            sp_world_size = groups._get_sequence_parallel_world_size()
             # we need the differentiable all_gather, which is the functional version of it
             import torch.distributed.nn.functional
             tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
@@ -80,8 +80,8 @@ class SFTTrainer(Trainer):
             logits = torch.cat(tensor_list, dim=1)
             print_rank(f"after cat: {logits.shape=}")
 
-            loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
-            print_rank(f"{loss=}")
+            loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size) / sp_world_size
+            print_rank0(f"intermediary {loss.item()*sp_world_size=}")
 
         return loss
 
