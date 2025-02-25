@@ -252,10 +252,10 @@ class UlyssesAttentionHF(torch.nn.Module):
         # [batch_size, num_heads, seqlen, head_size]
         # UA expects:
         # [seqlen, batch_size, num_heads, head_size]
-        # print(f"{query.shape=}")
-        # print(f"{key.shape=}")
-        # print(f"{value.shape=}")
-        # print(f"{self.required_input_shape=}")
+        # print_rank0(f"{query.shape=}")
+        # print_rank0(f"{key.shape=}")
+        # print_rank0(f"{value.shape=}")
+        # print_rank0(f"{self.required_input_shape=}")
 
         print_rank0(f"forward 1 {query.shape=}")
         print_rank0(f"forward 1 {key.shape=}")
@@ -337,12 +337,12 @@ class UlyssesAttentionHF(torch.nn.Module):
         output = self._partition_global_sequence(context_layer)
         # returns: [sl_l bs em]
 
-        print(f"1 {output.shape=}")
+        print_rank0(f"1 {output.shape=}")
         output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
-        print(f"2 {output.shape=}")
+        print_rank0(f"2 {output.shape=}")
 
         output = output.reshape([*output.shape[:2], -1])
-        print(f"3 {output.shape=}")
+        print_rank0(f"3 {output.shape=}")
         if attn_weights is not None:
             print_rank0(f"{attn_weights.shape=}")
 
@@ -429,9 +429,9 @@ class LlamaAttentionNew(torch.nn.Module):
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        print(f"{query_states.shape=}")
-        print(f"{key_states.shape=}")
-        print(f"{value_states.shape=}")
+        print_rank0(f"{query_states.shape=}")
+        print_rank0(f"{key_states.shape=}")
+        print_rank0(f"{value_states.shape=}")
 
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
@@ -623,7 +623,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
-        transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
+        #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
         # XXX: find a place for this code
         if self.config.sequence_parallel_size == 1:
@@ -634,8 +634,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             from transformers import AutoConfig
             from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-            print(f"MPU INIT on rank {torch.distributed.get_rank()}")
-            print(f"MBS  {self.config.micro_batch_size}")
+            print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
+            print_rank0(f"MBS  {self.config.micro_batch_size}")
             mpu.initialize_model_parallel(sequence_parallel_size=self.config.sequence_parallel_size)
 
             # we don't have the model yet at this stage
@@ -810,9 +810,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # import q
         from deepspeed.utils import groups
         # q(self.global_rank)
-        # print(f"{groups._get_sequence_parallel_group()=}")
-        # print(f"{groups._get_sequence_parallel_rank()=}")
-        # print(f"{groups._get_sequence_parallel_world_size()=}")
+        # print_rank0(f"{groups._get_sequence_parallel_group()=}")
+        # print_rank0(f"{groups._get_sequence_parallel_rank()=}")
+        # print_rank0(f"{groups._get_sequence_parallel_world_size()=}")
         #dist.barrier()
         #import time
         #time.sleep(5)
@@ -830,7 +830,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # )
 
         # if self.global_rank == 0:
-        #     print(batch)
+        #     print_rank0(batch)
 
 
 
@@ -874,12 +874,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
                 # XXX: probably need to do padding so that all sequence chunks are the same?!
                 import math
-                print(f"{len(batch['input_ids'][0])=}")
+                print_rank0(f"{len(batch['input_ids'][0])=}")
                 seq_length = self.config.data.max_length
 
                 chunk_len = math.ceil(seq_length / sp_world_size)
-                print(f"{seq_length=}")
-                print(f"{chunk_len=}")
+                print_rank0(f"{seq_length=}")
+                print_rank0(f"{chunk_len=}")
 
                 for k in batch.keys():
                     # we are not chunking labels!
@@ -921,16 +921,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # if 1:
         #     # XXX: probably need to do padding so that all sequence chunks are the same?!
         #     import math
-        #     print(f"{len(batch['input_ids'][0])=}")
-        #     #print(f"{len(batch['input_ids'][1])=}")
+        #     print_rank0(f"{len(batch['input_ids'][0])=}")
+        #     #print_rank0(f"{len(batch['input_ids'][1])=}")
         #     #seq_length = len(batch["input_ids"][0])
         #     seq_length = self.config.data.max_length
 
         #     sp_world_size = groups._get_sequence_parallel_world_size()
         #     sp_rank = groups._get_sequence_parallel_rank()
         #     chunk_len = math.ceil(seq_length / sp_world_size)
-        #     print(f"{seq_length=}")
-        #     print(f"{chunk_len=}")
+        #     print_rank0(f"{seq_length=}")
+        #     print_rank0(f"{chunk_len=}")
 
         #     # this is the original chunking logic
         #     for k in batch.keys():
@@ -939,7 +939,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         #             batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
         #         else:
         #             batch[k] = batch[k].to(self.device)
-        #         print(f"{k} {batch[k].shape=}")
+        #         print_rank0(f"{k} {batch[k].shape=}")
 
 
         else:

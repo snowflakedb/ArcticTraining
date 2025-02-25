@@ -6,12 +6,16 @@ def exit():
     """useful when one wants to debug dump something and exit cleanly fast"""
     sys.exit()
 
-def print_rank(*msg):
+def print_rank(*msg, skip=True):
     """print something on all global ranks with [rank] prefix"""
+    if skip == True:
+        return
     global_rank = dist.get_rank()
     print(f"[{global_rank}]", *msg)
 
-def print_rank0(*msg):
+def print_rank0(*msg, skip=True):
+    if skip == True:
+        return
     """print something only on rank 0"""
     global_rank = dist.get_rank()
     if global_rank == 0:
@@ -20,8 +24,8 @@ def print_rank0(*msg):
 
 def debug_gathered_tensor(tensor, group, name=None, dim=1):
     """gather a tensor across ranks of the given group and dump its shape and norm
-    
-    
+
+
     Arguments:
         tensor: tensor to gather
         group: process group to gather on
@@ -39,6 +43,6 @@ def debug_gathered_tensor(tensor, group, name=None, dim=1):
 
     # concatenate on any dimension since we are just doing norm on everything
     gathered_tensor = torch.cat(tensor_list, dim=dim)
-    print_rank0(f"{prefix}: shape: {gathered_tensor.shape}")      
-    print_rank0(f"{prefix}: norm:  {torch.norm(gathered_tensor)}")      
-    #print_rank0(f"{prefix}:  {gathered_tensor}")      
+    print_rank0(f"{prefix}: shape: {gathered_tensor.shape}")
+    print_rank0(f"{prefix}: norm:  {torch.norm(gathered_tensor)}")
+    #print_rank0(f"{prefix}:  {gathered_tensor}")
