@@ -23,7 +23,7 @@ from loguru import logger
 from tqdm import tqdm
 from typing_extensions import TYPE_CHECKING
 
-from .utils import get_local_rank
+from arctic_training.utils import get_local_rank
 
 if TYPE_CHECKING:
     from arctic_training.config.logger import LoggerConfig

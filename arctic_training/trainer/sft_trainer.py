@@ -24,10 +24,9 @@ from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
-from arctic_training.registry import register
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
-from arctic_training.trainer import Trainer
+from arctic_training.trainer.trainer import Trainer
 
 
 def to_device(batch: Dict, device: str) -> Dict:
@@ -37,7 +36,6 @@ def to_device(batch: Dict, device: str) -> Dict:
     return output
 
 
-@register
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory

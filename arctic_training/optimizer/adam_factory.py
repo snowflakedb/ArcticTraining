@@ -27,10 +27,8 @@ from typing import List
 from transformers import PreTrainedModel
 
 from arctic_training.optimizer.factory import OptimizerFactory
-from arctic_training.registry import register
 
 
-@register
 class FusedAdamOptimizerFactory(OptimizerFactory):
     name = "fusedadam"
 

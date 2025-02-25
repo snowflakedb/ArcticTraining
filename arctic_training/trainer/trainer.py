@@ -19,6 +19,7 @@ from abc import abstractmethod
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Tuple
 
 import deepspeed
@@ -28,16 +29,24 @@ from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
+from wandb.sdk.wandb_run import Run as WandbRun
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
+from arctic_training.callback.wandb import init_wandb_project_cb
+from arctic_training.callback.wandb import log_wandb_loss_cb
+from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 
@@ -47,7 +56,7 @@ except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
 
-class Trainer(ABC, CallbackMixin):
+class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base Trainer class."""
 
     name: str
@@ -105,13 +114,34 @@ class Trainer(ABC, CallbackMixin):
     used as the default if the type is not explicitly set in the YAML config.
     """
 
-    callbacks: List[Tuple[str, Callable]] = [post_loss_log_cb]
+    callbacks: List[Tuple[str, Callable]] = [
+        post_loss_log_cb,
+        init_wandb_project_cb,
+        log_wandb_loss_cb,
+        teardown_wandb_cb,
+    ]
     """
     A list of callbacks for the trainer. Callbacks are specified as tuples of a
     string indicating where the callback should be placed and a callable that
     implements the callback. Callback events for the trainer include `pre-` and
     `post-` for `init`, `train`, `epoch`, `step`, and `checkpoint`.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", TrainerConfig)
+        _validate_class_attribute_type(cls, "data_factory", DataFactory)
+        _validate_class_attribute_type(cls, "model_factory", ModelFactory)
+        _validate_class_attribute_type(cls, "checkpoint_engine", CheckpointEngine)
+        _validate_class_attribute_type(cls, "optimizer_factory", OptimizerFactory)
+        _validate_class_attribute_type(cls, "scheduler_factory", SchedulerFactory)
+        _validate_class_attribute_type(cls, "tokenizer_factory", TokenizerFactory)
+        _validate_class_method(cls, "loss", ["self", "batch"])
+        _validate_class_method(cls, "step", ["self", "batch"])
+        _validate_class_method(cls, "epoch", ["self"])
+        _validate_class_method(cls, "train", ["self"])
+        _validate_class_method(cls, "checkpoint", ["self"])
 
     def __init__(self, config: TrainerConfig) -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
@@ -124,6 +154,7 @@ class Trainer(ABC, CallbackMixin):
         self.world_size = config.world_size
         self.global_rank = config.global_rank
         self.training_finished = False
+        self.wandb_experiment: Optional[WandbRun] = None
 
         self._set_seeds(self.config.seed)
 

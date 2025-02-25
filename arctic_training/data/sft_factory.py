@@ -31,7 +31,6 @@ from transformers import PreTrainedTokenizerBase
 from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
-from arctic_training.registry import register
 
 IGNORE_INDEX = -100
 
@@ -252,7 +251,6 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     return dataset
 
 
-@register
 class SFTDataFactory(DataFactory):
     name = "sft"
     config: SFTDataConfig

@@ -23,12 +23,16 @@ from transformers import PreTrainedTokenizer
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
 
-class TokenizerFactory(ABC, CallbackMixin):
+class TokenizerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base class for all tokenizer factories."""
 
     name: str
@@ -42,6 +46,12 @@ class TokenizerFactory(ABC, CallbackMixin):
     The configuration class for the tokenizer factory. This is used to validate
     the configuration passed to the factory.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", TokenizerConfig)
+        _validate_class_method(cls, "create_tokenizer", ["self"])
 
     def __init__(
         self, trainer: "Trainer", tokenizer_config: Optional[TokenizerConfig] = None

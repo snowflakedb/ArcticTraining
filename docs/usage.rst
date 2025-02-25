@@ -42,9 +42,8 @@ these steps:
 
    .. code-block:: python
 
-      from arctic_training import SFTTrainer, register
+      from arctic_training import SFTTrainer
 
-      @register
       class CustomTrainer(SFTTrainer):
           name = "my_custom_trainer"
 
@@ -52,11 +51,12 @@ these steps:
               # Custom loss function implementation
               return loss
 
-   Remember to register this new trainer using the ``@register`` decorator so
-   that it can be used in training recipes. By default, ArcticTraining looks for
-   a ``train.py`` in the directory where the YAML training recipe is located to
-   find custom trainers. You can also specify a custom path to the trainers with
-   the ``code`` field in your training recipe:
+   This new trainer will be automatically registered with ArcticTraining when
+   the script containing the declaration of ``CustomTrainer`` is imported. By
+   default, ArcticTraining looks for a ``train.py`` in the directory where the
+   YAML training recipe is located to find custom trainers. You can also specify
+   a custom path to the trainers with the ``code`` field in your training
+   recipe:
 
    .. code-block:: yaml
 
@@ -70,13 +70,11 @@ these steps:
 
    You may also wish to create a new model factory, data factory, etc. to
    accompany your new trainer. This can also be done in the same python script
-   and will automatically be registered with the trainer:
+   and these classes will automatically be registered as well:
 
    .. code-block:: python
 
-      from arctic_training import register
-      from arctic_training.model import HFModelFactory
-      from arctic_training import SFTTrainer
+      from arctic_training import HFModelFactory, SFTTrainer
 
       class CustomModelFactory(HFModelFactory):
           name = "my_custom_model_factory"
@@ -85,7 +83,6 @@ these steps:
               # Custom model implementation
               return model
 
-      @register
       class CustomTrainer(SFTTrainer):
           name = "my_custom_trainer"
           model_factory: CustomModelFactory
@@ -120,10 +117,7 @@ API:
 
 .. code-block:: python
 
-    from arctic_training import register
-    from arctic_training.model import HFModelFactory
-    from arctic_training import SFTTrainer
-    from arctic_training import get_config
+    from arctic_training import HFModelFactory, SFTTrainer, get_config
 
     class CustomModelFactory(HFModelFactory):
         name = "my_custom_model_factory"
@@ -132,7 +126,6 @@ API:
             # Custom model implementation
             return model
 
-    @register
     class CustomTrainer(SFTTrainer):
         name = "my_custom_trainer"
         model_factory: CustomModelFactory
