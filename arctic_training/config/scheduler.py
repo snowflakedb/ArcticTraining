@@ -14,9 +14,11 @@
 # limitations under the License.
 
 from typing import TYPE_CHECKING
+from typing import Optional
 from typing import Type
 
 from pydantic import Field
+from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.registry import get_registered_scheduler_factory
@@ -32,8 +34,18 @@ class SchedulerConfig(BaseConfig):
     warmup_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
     """ The fraction of total training steps used for linear learning rate warmup. """
 
-    learning_rate: float = Field(default=5e-4, ge=0.0, alias="lr")
-    """ The initial learning rate. """
+    learning_rate: Optional[float] = Field(default=None, alias="lr")
+    """ The initial learning rate. Deprecated in favor of `optimizer.learning_rate`. """
+
+    @field_validator("learning_rate", mode="after")
+    @classmethod
+    def _deprecated_learning_rate(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None:
+            raise ValueError(
+                "scheduler.learning_rate is deprecated. Use optimizer.learning_rate"
+                " instead."
+            )
+        return value
 
     @property
     def factory(self) -> Type["SchedulerFactory"]:
