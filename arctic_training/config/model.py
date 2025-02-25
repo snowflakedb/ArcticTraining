@@ -21,10 +21,13 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
+import peft
+from peft import PeftConfig
 from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.config.enums import DType
+from arctic_training.logging import logger
 from arctic_training.registry import get_registered_model_factory
 
 if TYPE_CHECKING:
@@ -50,12 +53,31 @@ class ModelConfig(BaseConfig):
     disable_activation_checkpoint: bool = False
     """ Disable the use of activation checkpointing. """
 
-    peft_config: Dict[str, Any] = {}
-    """ Configuration for the PEFT scheduler. """
+    peft_config: Optional[PeftConfig] = None
+    """ Configuration for Parameter Efficient Fine Tuning. """
 
     @property
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(name=self.type)
+
+    @field_validator("peft_config", mode="before")
+    @classmethod
+    def get_peft_config_type(
+        cls, value: Union[None, Dict[str, Any]]
+    ) -> Optional[PeftConfig]:
+        if value is None:
+            return value
+
+        if "peft_type" in value:
+            peft_type = value.pop("peft_type").capitalize()
+        else:
+            logger.warning(
+                "No 'peft_type' specified in PEFT config. Defaulting to 'Lora'."
+            )
+            peft_type = "Lora"
+
+        config_cls = getattr(peft, f"{peft_type}Config")
+        return config_cls(**value)
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:
