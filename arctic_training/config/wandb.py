@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+
 from arctic_training.config.base import BaseConfig
 
 
@@ -20,5 +22,11 @@ class WandBConfig(BaseConfig):
     enable: bool = False
     """ Whether to enable Weights and Biases logging. """
 
-    project: str = "arctic-training"
+    entity: Optional[str] = None
+    """ Weights and Biases entity name. """
+
+    project: Optional[str] = "arctic-training"
     """ Weights and Biases project name. """
+
+    name: Optional[str] = None
+    """ Weights and Biases run name. """
