@@ -16,6 +16,7 @@
 from typing import TYPE_CHECKING
 
 import torch
+
 import wandb
 
 if TYPE_CHECKING:
@@ -26,7 +27,10 @@ def init_wandb_project(self: "Trainer") -> None:
     if self.global_rank == 0 and self.config.wandb.enable:
         # Note: wandb.init() is not type annotated so we need to use type: ignore
         self.wandb_experiment = wandb.init(  # type: ignore
-            project=self.config.wandb.project, config=self.config.model_dump()
+            entity=self.config.wandb.entity,
+            project=self.config.wandb.project,
+            name=self.config.wandb.name,
+            config=self.config.model_dump(),
         )
 
 
