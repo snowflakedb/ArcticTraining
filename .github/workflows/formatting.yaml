@@ -22,7 +22,5 @@ jobs:
       - name: Environment print
         run: pip list
       - name: Formatting checks
-        continue-on-error: true
         run: |
           pre-commit run --all-files
-          git diff
