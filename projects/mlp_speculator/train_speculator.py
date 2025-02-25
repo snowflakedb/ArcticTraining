@@ -88,6 +88,7 @@ def MLPSpeculatorParser():
     group.add_argument("--loss_type", type=str, default="")
     group.add_argument("--ctc_loss_weight", type=float, default=0.0)
     group.add_argument("--freeze_layers", type=str, default="")
+    group.add_argument("--method", type=str, default="sum_rnn")
     group.add_argument("--auto_resume", action="store_true", default=False)
     group.add_argument(
         "--param_init_method",
@@ -141,6 +142,7 @@ if __name__ == "__main__":
 
     config = MLPSpeculatorTrainConfig(
         speculator_width=args.speculator_width,
+        method=args.method,
         proj_dim=args.proj_dim,
         emb_dim=args.emb_dim,
         n_speculator_heads=args.n_speculator_heads,

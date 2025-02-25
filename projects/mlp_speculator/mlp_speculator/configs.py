@@ -27,6 +27,7 @@ class MLPSpeculatorTrainConfig(Config):
     freeze_layers: list = []
     weighted_sum: bool = False
     param_init_method: str = "zeros"
+    method: str = "sum_rnn"
 
 
 # Configs used for savings model checkpoint for inference
@@ -63,6 +64,7 @@ class MLPSpeculatorConfig:
         n_predict,
         tie_weights=False,
         scale_input=False,
+        method="sum_rnn",
     ):
         self.architectures = ["MLPSpeculatorPreTrainedModel"]
         self.base_model_name_or_path = base_model_name_or_path
@@ -83,6 +85,7 @@ class MLPSpeculatorConfig:
         self.torch_dtype = "bfloat16"
         self.transformers_version = transformers.__version__
         self.vocab_size = vocab_size
+        self.method = method
 
     def save(self, output_dir):
         save_path = os.path.join(output_dir, "config.json")

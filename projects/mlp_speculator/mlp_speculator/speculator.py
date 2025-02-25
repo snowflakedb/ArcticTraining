@@ -124,79 +124,142 @@ class MLPSpeculator(nn.Module):
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
+        self.method = config.method
         self.activation = nn.GELU()
 
-        embs = []
-        for n_i in range(self.n_predict):
-            if not self.tie_weights or n_i == 0:
-                seqs = [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-                for i in range(1, len(self.emb_dim)):
-                    print(f"ADDING ANOTHER EMB {i}")
-                    seqs.append(
+        if self.method == "sum_rnn":
+            embs = []
+            for n_i in range(self.n_predict):
+                if not self.tie_weights or n_i == 0:
+                    seqs = [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+                    for i in range(1, len(self.emb_dim)):
+                        print(f"ADDING ANOTHER EMB {i}")
+                        seqs.append(
+                            LayerNormParameterized(
+                                self.emb_dim[i],
+                                elementwise_shift=True,
+                                elementwise_scale=True,
+                            )
+                        )
+                        seqs.append(self.activation)
+                        seqs.append(
+                            nn.Linear(self.emb_dim[i - 1], self.emb_dim[i], bias=False)
+                        )
+                    embs.append(nn.Sequential(*seqs))
+            self.emb = nn.ModuleList(embs)
+
+            projs = []
+            for n_i in range(self.n_predict):
+                if not self.tie_weights or n_i <= 1:
+                    seqs = [
+                        nn.Linear(
+                            (self.input_hidden_dim if n_i == 0 else self.inner_dim[-1]),
+                            self.proj_dim[0],
+                            bias=False,
+                        )
+                    ]
+                    for i in range(1, len(self.proj_dim)):
+                        print(f"ADDING ANOTHER PROJ {i}")
+                        seqs.append(
+                            LayerNormParameterized(
+                                self.proj_dim[i],
+                                elementwise_shift=True,
+                                elementwise_scale=True,
+                            )
+                        )
+                        seqs.append(self.activation)
+                        seqs.append(
+                            nn.Linear(
+                                self.proj_dim[i - 1], self.proj_dim[i], bias=False
+                            )
+                        )
+                    projs.append(nn.Sequential(*seqs))
+            self.proj = nn.ModuleList(projs)
+
+            lns = []
+            for n_i in range(self.n_predict):
+                if not self.tie_weights or n_i == 0:
+                    seqs = [
                         LayerNormParameterized(
-                            self.emb_dim[i],
+                            self.inner_dim[0],
                             elementwise_shift=True,
                             elementwise_scale=True,
                         )
-                    )
-                    seqs.append(self.activation)
-                    seqs.append(
-                        nn.Linear(self.emb_dim[i - 1], self.emb_dim[i], bias=False)
-                    )
-                embs.append(nn.Sequential(*seqs))
-        self.emb = nn.ModuleList(embs)
+                    ]
+                    for i in range(1, len(self.inner_dim)):
+                        print(f"ADDING ANOTHER LN {i}")
+                        seqs.append(self.activation)
+                        seqs.append(
+                            nn.Linear(
+                                self.inner_dim[i - 1], self.inner_dim[i], bias=False
+                            )
+                        )
+                        seqs.append(
+                            LayerNormParameterized(
+                                self.inner_dim[i],
+                                elementwise_shift=True,
+                                elementwise_scale=True,
+                            )
+                        )
+                    lns.append(nn.Sequential(*seqs))
+            self.ln = nn.ModuleList(lns)
 
-        projs = []
-        for n_i in range(self.n_predict):
-            if not self.tie_weights or n_i <= 1:
-                seqs = [
-                    nn.Linear(
-                        (self.input_hidden_dim if n_i == 0 else self.inner_dim[-1]),
-                        self.proj_dim[0],
-                        bias=False,
-                    )
+        elif self.method == "sum_lstm":
+            assert self.tie_weights
+            self.forget_emb = nn.ModuleList(
+                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+            )
+            self.input_emb = nn.ModuleList(
+                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+            )
+            self.cell_emb = nn.ModuleList(
+                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+            )
+            self.output_emb = nn.ModuleList(
+                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+            )
+            self.forget_proj = nn.ModuleList(
+                [
+                    nn.Linear(self.input_hidden_dim, self.proj_dim[0], bias=False),
+                    nn.Linear(self.inner_dim[-1], self.proj_dim[0], bias=False),
                 ]
-                for i in range(1, len(self.proj_dim)):
-                    print(f"ADDING ANOTHER PROJ {i}")
-                    seqs.append(
-                        LayerNormParameterized(
-                            self.proj_dim[i],
-                            elementwise_shift=True,
-                            elementwise_scale=True,
-                        )
-                    )
-                    seqs.append(self.activation)
-                    seqs.append(
-                        nn.Linear(self.proj_dim[i - 1], self.proj_dim[i], bias=False)
-                    )
-                projs.append(nn.Sequential(*seqs))
-        self.proj = nn.ModuleList(projs)
-
-        lns = []
-        for n_i in range(self.n_predict):
-            if not self.tie_weights or n_i == 0:
-                seqs = [
+            )
+            self.input_proj = nn.ModuleList(
+                [
+                    nn.Linear(self.input_hidden_dim, self.proj_dim[0], bias=False),
+                    nn.Linear(self.inner_dim[-1], self.proj_dim[0], bias=False),
+                ]
+            )
+            self.cell_proj = nn.ModuleList(
+                [
+                    nn.Linear(self.input_hidden_dim, self.proj_dim[0], bias=False),
+                    nn.Linear(self.inner_dim[-1], self.proj_dim[0], bias=False),
+                ]
+            )
+            self.output_proj = nn.ModuleList(
+                [
+                    nn.Linear(self.input_hidden_dim, self.proj_dim[0], bias=False),
+                    nn.Linear(self.inner_dim[-1], self.proj_dim[0], bias=False),
+                ]
+            )
+            self.cell_ln = nn.ModuleList(
+                [
                     LayerNormParameterized(
                         self.inner_dim[0],
                         elementwise_shift=True,
                         elementwise_scale=True,
                     )
                 ]
-                for i in range(1, len(self.inner_dim)):
-                    print(f"ADDING ANOTHER LN {i}")
-                    seqs.append(self.activation)
-                    seqs.append(
-                        nn.Linear(self.inner_dim[i - 1], self.inner_dim[i], bias=False)
+            )
+            self.state_ln = nn.ModuleList(
+                [
+                    LayerNormParameterized(
+                        self.inner_dim[0],
+                        elementwise_shift=True,
+                        elementwise_scale=True,
                     )
-                    seqs.append(
-                        LayerNormParameterized(
-                            self.inner_dim[i],
-                            elementwise_shift=True,
-                            elementwise_scale=True,
-                        )
-                    )
-                lns.append(nn.Sequential(*seqs))
-        self.ln = nn.ModuleList(lns)
+                ]
+            )
 
         if self.scale_input:
             self.ln0 = LayerNormParameterized(
@@ -399,17 +462,69 @@ class MLPSpeculator(nn.Module):
         if self.scale_input:
             state = self.ln0(state) / (2**0.5)
 
-        for i in range(self.n_predict):
-            actual_i = 0 if self.tie_weights else i
-            actual_proj_i = 1 if self.tie_weights and i >= 2 else i
+        state_shapes = list(state.shape)
+        state_shapes[-1] = self.inner_dim[-1]
+        if self.method == "sum_lstm":
+            cell_state = torch.zeros(
+                state_shapes, device=state.device, dtype=state.dtype
+            )
+            for i in range(self.n_predict):
+                prev_state = state
+                actual_i = 0 if self.tie_weights else i
+                actual_proj_i = 1 if self.tie_weights and i >= 2 else i
 
-            z = self.emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
-            state = self.proj[actual_proj_i](state)
-            # Weighted add of state_weight*state and emb_weight*z
-            # Let subsequent LN take care of denominator
-            # state_weight is close to 1, so shouldn't be any precision issues
-            state = torch.add(state, z, alpha=self.emb_weight / self.state_weight)
-            state = self.activation(self.ln[actual_i](state))  # b n d
-            out.append(self.head[i](state))  # b n v
+                z = self.forget_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
+                state = self.forget_proj[actual_proj_i](prev_state)
+                forget_gate = torch.sigmoid(
+                    torch.add(state, z, alpha=self.emb_weight / self.state_weight)
+                )
+
+                z = self.input_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
+                state = self.input_proj[actual_proj_i](prev_state)
+                input_gate = torch.sigmoid(
+                    torch.add(state, z, alpha=self.emb_weight / self.state_weight)
+                )
+
+                z = self.cell_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
+                state = self.cell_proj[actual_proj_i](prev_state)
+                cell_candidate = torch.add(
+                    state, z, alpha=self.emb_weight / self.state_weight
+                )
+                cell_candidate = self.activation(
+                    self.cell_ln[actual_i](cell_candidate)
+                )  # b n d
+                cell_candidate = cell_candidate * input_gate
+
+                z = self.output_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
+                state = self.output_proj[actual_proj_i](prev_state)
+                output_gate = torch.sigmoid(
+                    torch.add(state, z, alpha=self.emb_weight / self.state_weight)
+                )
+
+                cell_state = cell_state * forget_gate
+                cell_state = cell_state + cell_candidate
+
+                state_candidate = self.activation(self.state_ln[actual_i](cell_state))
+                state = state_candidate * output_gate
+
+                # Weighted add of state_weight*state and emb_weight*z
+                # Let subsequent LN take care of denominator
+                # state_weight is close to 1, so shouldn't be any precision issues
+                out.append(self.head[i](state))  # b n v
+
+        else:
+            assert self.method == "sum_rnn"
+            for i in range(self.n_predict):
+                actual_i = 0 if self.tie_weights else i
+                actual_proj_i = 1 if self.tie_weights and i >= 2 else i
+
+                z = self.emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
+                state = self.proj[actual_proj_i](state)
+                # Weighted add of state_weight*state and emb_weight*z
+                # Let subsequent LN take care of denominator
+                # state_weight is close to 1, so shouldn't be any precision issues
+                state = torch.add(state, z, alpha=self.emb_weight / self.state_weight)
+                state = self.activation(self.ln[actual_i](state))  # b n d
+                out.append(self.head[i](state))  # b n v
 
         return torch.stack(out, dim=0)  # h b n v
