@@ -63,6 +63,7 @@ testing = [
 ]
 
 formatting = [
+    "flake8-black",
     "pre-commit",
 ]
 
