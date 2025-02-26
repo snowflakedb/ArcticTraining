@@ -60,6 +60,7 @@ def test_peft_model(model_name: str):
         "name_or_path": model_name,
         "peft_config": {
             "peft_type": "Lora",
+            "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
         },
     }
     config = ModelConfig(**config_dict)
