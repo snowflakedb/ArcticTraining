@@ -59,7 +59,7 @@ def test_peft_model(model_name: str):
         "type": "random-weight-hf",
         "name_or_path": model_name,
         "peft_config": {
-            "peft_type": "lora",
+            "peft_type": "Lora",
         },
     }
     config = ModelConfig(**config_dict)
