@@ -52,34 +52,120 @@ class SFTTrainer(Trainer):
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
         else:
-            # XXX: this would be the same not just for SFT so probably should abstract it away
+
+            # gather DL batches into super-batches
+            # XXX: at the moment assuming DL gives us a nice max_length chunks that are already padded
+            # for the general case may need to massage the concatenated DL samples and remove padding and then repad at the end.
             from deepspeed.utils import groups
-            import torch.distributed as dist
             import torch
-
-            # because we have to gather logits from all sp ranks we have to do the loss function ourselves
-            # therefore remove labels to avoid an attempt to calculate loss by transformers
-            labels = batch.pop("labels")
-            outputs = self.model(**batch, use_cache=False)
-
-            logits = outputs.logits
-            print_rank(f"{torch.norm(logits)=}")
-            print_rank(f"{logits.shape=}")
-            #print_rank(f"{logits.dtype=}")
-            print_rank(f"{labels.shape=}")
-
-            # XXX: stick into the trainer object
+            import deepspeed.comm as dist
             sp_group = groups._get_sequence_parallel_group()
             sp_world_size = groups._get_sequence_parallel_world_size()
-            # we need the differentiable all_gather, which is the functional version of it
-            import torch.distributed.nn.functional
-            tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
-            # concatenate on the seqlen dimension
-            logits = torch.cat(tensor_list, dim=1)
-            print_rank(f"after cat: {logits.shape=}")
+            sp_rank = groups._get_sequence_parallel_rank()
 
-            loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size) / sp_world_size
-            print_rank0(f"intermediary {loss.item()*sp_world_size=}")
+            from collections import defaultdict
+            micro_batches = defaultdict(dict)
+            for k in batch.keys():
+                batch[k] = batch[k].to(self.device)
+                print_rank0(f"before gather: {k}: {batch[k].shape=}")
+                print_rank0(f"before gather: {k}: {batch[k]=}")
+                with torch.no_grad():
+                    tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.config.sequence_parallel_size)]
+                    dist.all_gather(tensor_list, batch[k], group=sp_group)
+                    # gathering on the data dimension
+                    # will be concatenating and later splitting again for the more general case
+                    # batch[k] = torch.cat(tensor_list, dim=1)
+                    for rank, tensor in enumerate(tensor_list):
+                        micro_batches[rank][k] = tensor
+                print_rank0(f"after gather: {k}: {batch[k].shape=}")
+                print_rank0(f"after gather: {k}: {batch[k]=}")
+
+            loss_aggregate = 0
+            # we need to chunk twice - each time on SP size level
+            # - the first time is because we artifically made the seqlen SP-times longer
+            # - the second time is because of the Ulysses algorithm
+
+            self.model.set_gradient_accumulation_boundary(False)
+
+
+            for sub_step_id in range(self.config.sequence_parallel_size):
+                batch = micro_batches[sub_step_id]
+
+                print_rank0(batch)
+
+                # XXX: probably need to do padding so that all sequence chunks are the same?!
+                import math
+                print_rank0(f"{len(batch['input_ids'][0])=}")
+                seq_length = self.config.data.max_length
+
+                chunk_len = math.ceil(seq_length / sp_world_size)
+                print_rank0(f"{seq_length=}")
+                print_rank0(f"{chunk_len=}")
+
+                for k in batch.keys():
+                    # we are not chunking labels!
+                    if k in ["input_ids", "position_ids"]:
+                        batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
+                    else:
+                        batch[k] = batch[k].to(self.device)
+
+                    print_rank0(f"after sp: {k}: {batch[k].shape=}")
+                    print_rank0(f"after sp: {k}: {batch[k]=}")
+                #outputs = self.model(**batch, use_cache=False)
+                #loss = outputs.loss
+
+                # XXX: this would be the same not just for SFT so probably should abstract it away
+                from deepspeed.utils import groups
+                import torch.distributed as dist
+                import torch
+
+                # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+                # therefore remove labels to avoid an attempt to calculate loss by transformers
+                labels = batch.pop("labels")
+                outputs = self.model(**batch, use_cache=False)
+
+                logits = outputs.logits
+                print_rank(f"{torch.norm(logits)=}")
+                print_rank(f"{logits.shape=}")
+                #print_rank(f"{logits.dtype=}")
+                print_rank(f"{labels.shape=}")
+
+                # XXX: stick into the trainer object
+                sp_group = groups._get_sequence_parallel_group()
+                sp_world_size = groups._get_sequence_parallel_world_size()
+                # we need the differentiable all_gather, which is the functional version of it
+                import torch.distributed.nn.functional
+                tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
+                # concatenate on the seqlen dimension
+                logits = torch.cat(tensor_list, dim=1)
+                print_rank(f"after cat: {logits.shape=}")
+
+                loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size) #/ sp_world_size
+                print_rank0(f"intermediary {loss.item()*sp_world_size=}")
+
+
+
+                #loss = self.loss(batch)
+                loss_aggregate += loss.item()*sp_world_size
+
+                print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss.requires_grad=}")
+                print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss=}")
+
+                avg_loss = self.model.backward(loss)
+                print_rank0(f"zero loss: {avg_loss}")
+
+                # from deepspeed.utils import safe_get_full_grad
+                # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+                # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+
+                # #w = self.model.module.model.layers[0].self_attn.q_proj.weight
+                # w = self.model.module.lm_head.weight
+                from deepspeed.utils import safe_get_full_grad
+                print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+                print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+
+            self.model.set_gradient_accumulation_boundary(True)
+
 
         return loss
 

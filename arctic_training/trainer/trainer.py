@@ -843,90 +843,22 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # if self.global_rank == 0:
         #     print_rank0(batch)
 
-
-
-
         self.model.train()
+        if self.config.sequence_parallel_size == 1:
+        #     avg_loss = self.model.backward(loss)
 
-        # gather DL batches into super-batches
-        # XXX: at the moment assuming DL gives us a nice max_length chunks that are already padded
-        # for the general case may need to massage the concatenated DL samples and remove padding and then repad at the end.
-        if self.config.sequence_parallel_size > 1:
-            from deepspeed.utils import groups
-            sp_group = groups._get_sequence_parallel_group()
-            sp_world_size = groups._get_sequence_parallel_world_size()
-            sp_rank = groups._get_sequence_parallel_rank()
+            loss = self.loss(batch)
+            self.model.backward(loss)
+        else:
+            # sp will do backward inside loss 
+            loss = self.loss(batch)
 
-            from collections import defaultdict
-            micro_batches = defaultdict(dict)
-            for k in batch.keys():
-                batch[k] = batch[k].to(self.device)
-                print_rank0(f"before gather: {k}: {batch[k].shape=}")
-                print_rank0(f"before gather: {k}: {batch[k]=}")
-                with torch.no_grad():
-                    tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.config.sequence_parallel_size)]
-                    dist.all_gather(tensor_list, batch[k], group=sp_group)
-                    # gathering on the data dimension
-                    # will be concatenating and later splitting again for the more general case
-                    # batch[k] = torch.cat(tensor_list, dim=1)
-                    for rank, tensor in enumerate(tensor_list):
-                        micro_batches[rank][k] = tensor
-                print_rank0(f"after gather: {k}: {batch[k].shape=}")
-                print_rank0(f"after gather: {k}: {batch[k]=}")
+        self.model.step()
 
-            loss_aggregate = 0
-            # we need to chunk twice - each time on SP size level
-            # - the first time is because we artifically made the seqlen SP-times longer
-            # - the second time is because of the Ulysses algorithm
-            for sub_step_id in range(self.config.sequence_parallel_size):
-                batch = micro_batches[sub_step_id]
-
-                print_rank0(batch)
-
-                # XXX: probably need to do padding so that all sequence chunks are the same?!
-                import math
-                print_rank0(f"{len(batch['input_ids'][0])=}")
-                seq_length = self.config.data.max_length
-
-                chunk_len = math.ceil(seq_length / sp_world_size)
-                print_rank0(f"{seq_length=}")
-                print_rank0(f"{chunk_len=}")
-
-                for k in batch.keys():
-                    # we are not chunking labels!
-                    if k in ["input_ids", "position_ids"]:
-                        batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
-                    else:
-                        batch[k] = batch[k].to(self.device)
-
-                    print_rank0(f"after sp: {k}: {batch[k].shape=}")
-                    print_rank0(f"after sp: {k}: {batch[k]=}")
-
-                loss = self.loss(batch)
-                loss_aggregate += loss.item()*sp_world_size
-
-                print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss.requires_grad=}")
-                print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss=}")
-
-                avg_loss = self.model.backward(loss)
-                print_rank0(f"zero loss: {avg_loss}")
-
-                # from deepspeed.utils import safe_get_full_grad
-                # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
-                # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
-
-                # #w = self.model.module.model.layers[0].self_attn.q_proj.weight
-                # w = self.model.module.lm_head.weight
-                from deepspeed.utils import safe_get_full_grad
-                print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
-                print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
-
-            self.model.step()
-
-            # should loss be averaged over sp sub-steps and logged as such?
-            loss = loss_aggregate / sp_world_size
-            print_rank0(f"averaged loss = {loss}")
-            #exit()
+            # # should loss be averaged over sp sub-steps and logged as such?
+            # loss = loss_aggregate / sp_world_size
+            # print_rank0(f"averaged loss = {loss}")
+            # #exit()
 
 
         # if 1:
@@ -953,27 +885,29 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         #         print_rank0(f"{k} {batch[k].shape=}")
 
 
-        else:
-            # non-sp original version
-            self.model.train()
-            loss = self.loss(batch)
-            print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
-            print_rank(f"{self.train_batch_idx}: {loss=}")
+        # else:
+        #     # non-sp original version
+        #     self.model.train()
+        #     # XXX: fixme
+        #     #self.global_step = self.model.global_steps
+        #     loss = self.loss(batch)
+        #     print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
+        #     print_rank(f"{self.train_batch_idx}: {loss=}")
 
-            #self.model.backward(loss)
-            avg_loss = self.model.backward(loss)
-            print_rank0(f"zero loss: {avg_loss}")
+        #     #self.model.backward(loss)
+        #     avg_loss = self.model.backward(loss)
+        #     print_rank0(f"zero loss: {avg_loss}")
 
-            from deepspeed.utils import safe_get_full_grad
-            print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
-            print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+        #     from deepspeed.utils import safe_get_full_grad
+        #     print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+        #     print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
 
-            self.model.step()
+        #     self.model.step()
 
-        print_rank0(f"{torch.norm(self.model.lm_head.weight)=}")
-        print_rank0(f"{torch.norm(self.model.model.layers[0].self_attn.q_proj.weight)=}")
-        print_rank(f"end loss = {loss}")
-        #exit()
+        # print_rank0(f"{torch.norm(self.model.lm_head.weight)=}")
+        # print_rank0(f"{torch.norm(self.model.model.layers[0].self_attn.q_proj.weight)=}")
+        # print_rank(f"end loss = {loss}")
+        # #exit()
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
