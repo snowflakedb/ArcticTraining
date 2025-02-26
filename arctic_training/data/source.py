@@ -93,7 +93,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def trainer(self) -> Trainer:
         return self.data_factory.trainer
-    
+
     @property
     def data_factory(self) -> DataFactory:
         return self._data_factory
@@ -109,7 +109,9 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def cache_path_args(self) -> Dict:
         cache_path_args = self.config.model_dump()
-        cache_path_args["_tokenizer_path_or_name"] = self.trainer.config.tokenizer["name_or_path"]
+        cache_path_args["_tokenizer_path_or_name"] = (
+            self.trainer.config.tokenizer.name_or_path
+        )
         return self.config.model_dump()
 
     @callback_wrapper("load")
