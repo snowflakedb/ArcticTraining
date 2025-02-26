@@ -47,6 +47,7 @@ class SFTTrainer(Trainer):
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
+        batch["labels"] = batch["labels"].type(torch.LongTensor)
         outputs = self.model(**batch, use_cache=False)
         loss = outputs.loss
         return loss
