@@ -179,7 +179,6 @@ class LMSysChat1M(HFDataSource):
             "messages": messages,
         }
 
-@register
 class ultrafeedback_binarized(HFDataSource):
     name = "HuggingFaceH4/ultrafeedback_binarized"
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:

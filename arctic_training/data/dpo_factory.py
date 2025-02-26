@@ -83,49 +83,15 @@ def _adjust_prompt_length(
     return min_len
 
 
-
-
 def add_bos_token_if_needed(
-    bos_token_id,
-    prompt_len_input_ids,
-    prompt_tokens,
-    chosen_prompt_len_input_ids,
-    chosen_tokens,
-    rejected_prompt_len_input_ids,
-    rejected_tokens,
-) -> Tuple:
-    if bos_token_id is not None:
-        if (
-            prompt_len_input_ids == 0
-            or bos_token_id != prompt_tokens["prompt_input_ids"][0]
-        ):
-            prompt_tokens["prompt_input_ids"] = [bos_token_id] + prompt_tokens[
-                "prompt_input_ids"
-            ]
-            prompt_tokens["prompt_attention_mask"] = [1] + prompt_tokens[
-                "prompt_attention_mask"
-            ]
-        if (
-            chosen_prompt_len_input_ids == 0
-            or bos_token_id != chosen_tokens["prompt_input_ids"][0]
-        ):
-            chosen_tokens["prompt_input_ids"] = [bos_token_id] + chosen_tokens[
-                "prompt_input_ids"
-            ]
-            chosen_tokens["prompt_attention_mask"] = [1] + chosen_tokens[
-                "prompt_attention_mask"
-            ]
-        if (
-            rejected_prompt_len_input_ids == 0
-            or bos_token_id != rejected_tokens["prompt_input_ids"][0]
-        ):
-            rejected_tokens["prompt_input_ids"] = [bos_token_id] + rejected_tokens[
-                "prompt_input_ids"
-            ]
-            rejected_tokens["prompt_attention_mask"] = [1] + rejected_tokens[
-                "prompt_attention_mask"
-            ]
-    return prompt_tokens, chosen_tokens, rejected_tokens
+    bos_token_id: Union[None, int],
+    tokens: Dict[str, List[int]],
+) -> Dict[str, List[int]]:
+    len_input_ids = len(tokens["prompt_input_ids"])
+    if bos_token_id is not None and (len_input_ids == 0 or bos_token_id != tokens["prompt_token_ids"][0]):
+        tokens["prompt_input_ids"].insert(0, bos_token_id)
+        tokens["prompt_attention_mask"].insert(0, 1)
+    return tokens
 
 def _build_sequence_tokens(tokens, prefix: str) -> None:
     sequence_tokens = {
@@ -180,7 +146,6 @@ class DataCollatorForPref:
         return rt
 
 
-@register
 class DPODataFactory(DataFactory):
     name = "dpo"
     config: DPODataConfig
@@ -192,17 +157,11 @@ class DPODataFactory(DataFactory):
         return chosen_text
 
     def process(self, dataset: DatasetType) -> DatasetType:
-        if "prompt" not in dataset.column_names:
+        missing_columns = [c for c in ("prompt", "chosen", "rejected") if c not in dataset.column_names]
+        if len(missing_columns) > 0:
             raise ValueError(
-                "Dataset must have 'prompt' column to tokenize for SFTDataFactory."
-            )
-        if "chosen" not in dataset.column_names:
-            raise ValueError(
-                "Dataset must have 'chosen' column to tokenize for SFTDataFactory."
-            )
-        if "rejected" not in dataset.column_names:
-            raise ValueError(
-                "Dataset must have 'rejected' column to tokenize for SFTDataFactory."
+                f"Dataset must have 'prompt', 'chosen', and 'rejected' columns to tokenizer for DPODataFactory.
+                  Missing the following columns: {missing_columns}"
             )
         dataset = dataset.select_columns(["prompt", "chosen", "rejected"])
         # sft based tokenization,
@@ -210,9 +169,6 @@ class DPODataFactory(DataFactory):
         # {'role': '...', 'content': '...'}
         # datasets = datasets.select(range(100, 1100))
         dataset = dataset.select(range(len(dataset)))
-        # datasets.disable_caching()
-        # tmp = tokenize_messages(datasets[0]["messages"][:2], tokenizer, mask_inputs=mask_inputs)
-        # import pdb; pdb.set_trace()
         return dataset.map(
             lambda ex: {
                 **self.tokenize_messages(
@@ -364,12 +320,9 @@ class DPODataFactory(DataFactory):
             prompt_tokens, chosen_tokens, rejected_tokens
         )
 
-        prompt_tokens, chosen_tokens, rejected_tokens = add_bos_token_if_needed(
-            tokenizer.bos_token_id, prompt_len_input_ids,
-            prompt_tokens, len(chosen_tokens["prompt_input_ids"]), chosen_tokens,
-            len(rejected_tokens["prompt_input_ids"]), rejected_tokens,
-        )
-
+        prompt_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, prompt_tokens)
+        chosen_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, chosen_tokens)
+        rejected_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, rejected_tokens)
 
         chosen_tokens, rejected_tokens, prompt_tokens = self._truncate_tokens(
             chosen_tokens, rejected_tokens, prompt_tokens
@@ -377,15 +330,15 @@ class DPODataFactory(DataFactory):
         chosen_tokens = _build_sequence_tokens(chosen_tokens, "chosen")
         rejected_tokens = _build_sequence_tokens(rejected_tokens, "rejected")
 
-        batch = {}
+        row = {}
         for data in [prompt_tokens, chosen_tokens, rejected_tokens]:
             for k, v in data.items():
-                batch[k] = v
-        batch['prompt_text'] = prompt_text
-        batch['chosen_text'] = chosen_text
-        batch['reject_text'] = reject_text
+                row[k] = v
+        row['prompt_text'] = prompt_text
+        row['chosen_text'] = chosen_text
+        row['reject_text'] = reject_text
 
-        return batch
+        return row
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         return DataLoader(
