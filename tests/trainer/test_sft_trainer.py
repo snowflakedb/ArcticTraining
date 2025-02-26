@@ -28,8 +28,7 @@ def test_sft_trainer():
         "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-            "attn_implementation": "eager",
+            "name_or_path": "hf-internal-testing/tiny-random-OPTForCausalLM",
         },
         "data": {
             "max_length": 2048,
@@ -52,8 +51,7 @@ def test_sft_trainer_cpu():
         "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-            "attn_implementation": "eager",
+            "name_or_path": "hf-internal-testing/tiny-random-OPTForCausalLM",
             "dtype": "float32",
         },
         "data": {

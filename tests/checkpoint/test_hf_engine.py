@@ -25,8 +25,7 @@ def test_hf_engine(tmp_path):
         "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-            "attn_implementation": "eager",
+            "name_or_path": "hf-internal-testing/tiny-random-OPTForCausalLM",
             "dtype": "float32",
         },
         "data": {
