@@ -18,6 +18,7 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
+from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 
 
@@ -27,7 +28,7 @@ class HFModelFactory(ModelFactory):
     def create_config(self):
         return AutoConfig.from_pretrained(self.config.name_or_path)
 
-    def create_model(self, model_config):
+    def create_model(self, model_config) -> PreTrainedModel:
         return AutoModelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,
@@ -51,8 +52,13 @@ class HFModelFactory(ModelFactory):
         return model
 
     def post_create_model_callback(self, model):
-        if self.config.peft_config:
+        if self.config.peft_config is not None:
             model = get_peft_model(model, self.config.peft_config)
+            trainable_params, all_params = model.get_nb_trainable_parameters()
+            logger.info(
+                f"Applied PEFT config to model: Total params: {all_params}, Trainable"
+                f" params: {trainable_params} ({100*trainable_params/all_params:.2f}%)"
+            )
 
         if not self.config.disable_activation_checkpoint:
             model.gradient_checkpointing_enable()

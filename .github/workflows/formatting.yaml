@@ -17,10 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
       - name: Install
         run: python scripts/install_deps.py formatting
       - name: Environment print
         run: pip list
       - name: Formatting checks
         run: |
-          pre-commit run --all-files
+          pre-commit run --all-files --show-diff-on-failure
