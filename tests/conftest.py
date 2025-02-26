@@ -73,3 +73,8 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture(scope="session", autouse=True)
 def helpers_code_path() -> None:
     from . import helpers  # noqa: F401
+
+
+@pytest.fixture(scope="session")
+def model_name() -> str:
+    return "hf-internal-testing/tiny-random-Olmo2ForCausalLM"
