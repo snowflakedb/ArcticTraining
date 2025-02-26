@@ -32,6 +32,7 @@ from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
+from arctic_training.trainer.trainer import Trainer
 
 
 class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -90,6 +91,10 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         return dataset
 
     @property
+    def trainer(self) -> Trainer:
+        return self.data_factory.trainer
+    
+    @property
     def data_factory(self) -> DataFactory:
         return self._data_factory
 
@@ -103,6 +108,8 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     @property
     def cache_path_args(self) -> Dict:
+        cache_path_args = self.config.model_dump()
+        cache_path_args["_tokenizer_path_or_name"] = self.trainer.config.tokenizer["name_or_path"]
         return self.config.model_dump()
 
     @callback_wrapper("load")
