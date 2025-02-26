@@ -20,7 +20,7 @@ from arctic_training.registry import get_registered_trainer
 
 
 @pytest.mark.gpu
-def test_sft_trainer():
+def test_sft_trainer(model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
@@ -28,7 +28,7 @@ def test_sft_trainer():
         "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "hf-internal-testing/tiny-random-OPTForCausalLM",
+            "name_or_path": model_name,
         },
         "data": {
             "max_length": 2048,
@@ -43,7 +43,7 @@ def test_sft_trainer():
     assert trainer.global_step > 0, "Training did not run"
 
 
-def test_sft_trainer_cpu():
+def test_sft_trainer_cpu(model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
@@ -51,7 +51,7 @@ def test_sft_trainer_cpu():
         "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "hf-internal-testing/tiny-random-OPTForCausalLM",
+            "name_or_path": model_name,
             "dtype": "float32",
         },
         "data": {

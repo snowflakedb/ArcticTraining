@@ -19,13 +19,13 @@ from arctic_training.config.trainer import get_config
 from arctic_training.registry import get_registered_trainer
 
 
-def test_hf_engine(tmp_path):
+def test_hf_engine(tmp_path, model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "hf-internal-testing/tiny-random-OPTForCausalLM",
+            "name_or_path": model_name,
             "dtype": "float32",
         },
         "data": {
