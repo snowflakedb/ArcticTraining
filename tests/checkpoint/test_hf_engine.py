@@ -25,7 +25,7 @@ def test_hf_engine(tmp_path):
         "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
+            "name_or_path": "hf-internal-testing/tiny-random-LlamaForCausalLM",
             "attn_implementation": "eager",
             "dtype": "float32",
         },
