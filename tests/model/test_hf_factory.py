@@ -25,7 +25,7 @@ from arctic_training.config.model import ModelConfig
 
 
 @pytest.mark.parametrize(
-    "peft_type, config_cls", [("lora", LoraConfig), ("vera", VeraConfig)]
+    "peft_type, config_cls", [("Lora", LoraConfig), ("Vera", VeraConfig)]
 )
 def test_peft_config(model_name: str, peft_type: str, config_cls: PeftConfig):
     config_dict = {
@@ -40,6 +40,18 @@ def test_peft_config(model_name: str, peft_type: str, config_cls: PeftConfig):
     assert isinstance(
         config.peft_config, config_cls
     ), f"Expected {config_cls} PEFT config type but got {type(config.peft_config)}"
+
+
+def test_peft_config_fail(model_name: str):
+    config_dict = {
+        "type": "random-weight-hf",
+        "name_or_path": model_name,
+        "peft_config": {
+            "peft_type": "invalid",
+        },
+    }
+    with pytest.raises(ValueError):
+        _ = ModelConfig(**config_dict)
 
 
 def test_peft_model(model_name: str):
