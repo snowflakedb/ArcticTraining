@@ -33,6 +33,7 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
+from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
@@ -83,6 +84,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             cache_path = self._get_processed_data_cache_path(data_sources)
             if self.config.use_data_cache and cache_path.exists():
+                logger.info(f"Loading from cache path {cache_path.as_posix()}")
                 return load_from_disk(cache_path.as_posix())
 
             dataset = self.load(data_sources, split=split)
