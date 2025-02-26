@@ -27,16 +27,21 @@ def sft_data_factory(training_sources):
         "type": "sft",
         "sources": training_sources,
     }
-    config = SFTDataConfig(**config_dict)
+    data_config = SFTDataConfig(**config_dict)
 
     # We just need an object that specifies the tokenizer and micro batch size
     # for SFT data loading. We don't need to actually run the trainer.
+    model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
     dummy_trainer = SimpleNamespace(
-        config=SimpleNamespace(micro_batch_size=1),
-        tokenizer=AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM-135M-Instruct"),
+        config=SimpleNamespace(
+            micro_batch_size=1,
+            data=data_config,
+            tokenizer=SimpleNamespace(name_or_path=model_name),
+        ),
+        tokenizer=AutoTokenizer.from_pretrained(model_name),
     )
 
-    return config.factory(dummy_trainer, config)
+    return data_config.factory(dummy_trainer)
 
 
 @pytest.mark.parametrize(
