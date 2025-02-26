@@ -27,10 +27,10 @@ from arctic_training.config.model import ModelConfig
 @pytest.mark.parametrize(
     "peft_type, config_cls", [("lora", LoraConfig), ("vera", VeraConfig)]
 )
-def test_peft_config(peft_type: str, config_cls: PeftConfig):
+def test_peft_config(model_name: str, peft_type: str, config_cls: PeftConfig):
     config_dict = {
         "type": "random-weight-hf",
-        "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
+        "name_or_path": model_name,
         "peft_config": {
             "peft_type": peft_type,
         },
@@ -42,10 +42,10 @@ def test_peft_config(peft_type: str, config_cls: PeftConfig):
     ), f"Expected {config_cls} PEFT config type but got {type(config.peft_config)}"
 
 
-def test_peft_model():
+def test_peft_model(model_name: str):
     config_dict = {
         "type": "random-weight-hf",
-        "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
+        "name_or_path": model_name,
         "peft_config": {
             "peft_type": "lora",
         },

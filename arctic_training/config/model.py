@@ -27,7 +27,6 @@ from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.config.enums import DType
-from arctic_training.logging import logger
 from arctic_training.registry import get_registered_model_factory
 
 if TYPE_CHECKING:
@@ -68,13 +67,20 @@ class ModelConfig(BaseConfig):
         if value is None:
             return value
 
-        if "peft_type" in value:
-            peft_type = value.pop("peft_type").capitalize()
-        else:
-            logger.warning(
-                "No 'peft_type' specified in PEFT config. Defaulting to 'Lora'."
+        if "peft_type" not in value:
+            raise ValueError("No 'peft_type' specified in PEFT config.")
+        peft_type = value.pop("peft_type")
+
+        valid_peft_types = [
+            key.removesuffix("Config")
+            for key in peft.__dict__.keys()
+            if key.endswith("Config")
+        ]
+        if peft_type not in valid_peft_types:
+            raise ValueError(
+                f"PEFT type {peft_type} config not found. Valid PEFT types are:"
+                f" {valid_peft_types}"
             )
-            peft_type = "Lora"
 
         config_cls = getattr(peft, f"{peft_type}Config")
         return config_cls(**value)
