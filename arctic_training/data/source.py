@@ -27,6 +27,7 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
+from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
@@ -58,6 +59,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self, split: str, cache_path: Optional[Path] = None) -> DatasetType:
         disable_caching()
         if cache_path is not None and cache_path.exists():
+            logger.info(f"Loading from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
         dataset = self.load(self.config, split)
