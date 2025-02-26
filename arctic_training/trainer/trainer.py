@@ -289,9 +289,11 @@ class UlyssesAttentionHF(torch.nn.Module):
         query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
         # returns: [sl bs hc_l hs]
 
-        query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs')
-        key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs')
-        value_layer = rearrange(value_layer, 'sl bs hc_l hs -> bs hc_l sl hs')
+        query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
+        key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
+        value_layer = rearrange(value_layer, 'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
+
+        #query_layer = query_layer.reshape(query_layer.shape).contiguous()
 
         print_rank0(f"{query_layer.shape=}")
         print_rank0(f"{key_layer.shape=}")
@@ -428,7 +430,10 @@ class LlamaAttentionNew(torch.nn.Module):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
-
+        # [2, 0, -1, 128]
+        #print_rank(f"{hidden_states.shape=}", ranks=[0,3], skip=False)
+        #print_rank(f"{hidden_shape=}", ranks=[0,3], skip=False)
+        #print_rank(f"{self.head_dim=}", ranks=[0,3], skip=False)
 
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
@@ -634,7 +639,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
-        #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
+        transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
         # XXX: find a place for this code
         if self.config.sequence_parallel_size == 1:
@@ -850,7 +855,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             loss = self.loss(batch)
             self.model.backward(loss)
         else:
-            # sp will do backward inside loss 
+            # sp will do backward inside loss
             loss = self.loss(batch)
 
         self.model.step()

@@ -47,8 +47,10 @@ class SFTTrainer(Trainer):
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
-
+        import torch
         if self.config.sequence_parallel_size == 1:
+            # XXX: weird
+            batch["labels"] = batch["labels"].type(torch.LongTensor)
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
         else:
@@ -67,8 +69,8 @@ class SFTTrainer(Trainer):
             micro_batches = defaultdict(dict)
             for k in batch.keys():
                 batch[k] = batch[k].to(self.device)
-                print_rank0(f"before gather: {k}: {batch[k].shape=}")
-                print_rank0(f"before gather: {k}: {batch[k]=}")
+                #print_rank0(f"before gather: {k}: {batch[k].shape=}")
+                #print_rank0(f"before gather: {k}: {batch[k]=}")
                 with torch.no_grad():
                     tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.config.sequence_parallel_size)]
                     dist.all_gather(tensor_list, batch[k], group=sp_group)
@@ -77,8 +79,8 @@ class SFTTrainer(Trainer):
                     # batch[k] = torch.cat(tensor_list, dim=1)
                     for rank, tensor in enumerate(tensor_list):
                         micro_batches[rank][k] = tensor
-                print_rank0(f"after gather: {k}: {batch[k].shape=}")
-                print_rank0(f"after gather: {k}: {batch[k]=}")
+                #print_rank0(f"after gather: {k}: {batch[k].shape=}")
+                #print_rank0(f"after gather: {k}: {batch[k]=}")
 
             loss_aggregate = 0
             # we need to chunk twice - each time on SP size level
@@ -109,8 +111,8 @@ class SFTTrainer(Trainer):
                     else:
                         batch[k] = batch[k].to(self.device)
 
-                    print_rank0(f"after sp: {k}: {batch[k].shape=}")
-                    print_rank0(f"after sp: {k}: {batch[k]=}")
+                    #print_rank0(f"after sp: {k}: {batch[k].shape=}")
+                    #print_rank0(f"after sp: {k}: {batch[k]=}")
                 #outputs = self.model(**batch, use_cache=False)
                 #loss = outputs.loss
 
@@ -121,7 +123,7 @@ class SFTTrainer(Trainer):
 
                 # because we have to gather logits from all sp ranks we have to do the loss function ourselves
                 # therefore remove labels to avoid an attempt to calculate loss by transformers
-                labels = batch.pop("labels")
+                labels = batch.pop("labels").type(torch.LongTensor)
                 outputs = self.model(**batch, use_cache=False)
 
                 logits = outputs.logits
