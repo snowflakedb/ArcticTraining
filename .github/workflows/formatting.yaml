@@ -35,8 +35,14 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-
-      - name: Install
-        run: python scripts/install_deps.py formatting
+      - name: Setup environment
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install -r requirements.txt
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+          python scripts/install_deps.py formatting
       - name: Environment print
         run: pip list
       - name: Formatting checks
