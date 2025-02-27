@@ -68,7 +68,13 @@ class HFDataSource(DataSource):
     config: HFDataSourceConfig
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
-        return load_dataset(config.dataset_name, split=split, **config.kwargs)
+        # return load_dataset(config.dataset_name, split=split, **config.kwargs)
+        dataset = load_dataset(
+            config.dataset_name, split=split, streaming=True, **config.kwargs
+        )
+        from datasets import Dataset
+
+        return Dataset.from_list(list(dataset.take(100)), features=dataset.features)
 
 
 class UltraChat200K(HFDataSource):
@@ -179,13 +185,18 @@ class LMSysChat1M(HFDataSource):
             "messages": messages,
         }
 
+
 class ultrafeedback_binarized(HFDataSource):
     name = "HuggingFaceH4/ultrafeedback_binarized"
+
+    def pre_load_callback(self, split: str) -> str:
+        split_map = {"train": "train_prefs", "test": "test_prefs"}
+        return split_map.get(split, split)
+
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         dataset = dataset.select_columns(["chosen", "rejected"])
         formatted_dataset = dataset.map(
-            self.split_prompt_content,
-            desc="Loading ultrafeedback binarized"
+            self.split_prompt_content, desc="Loading ultrafeedback binarized"
         )
         return formatted_dataset
 

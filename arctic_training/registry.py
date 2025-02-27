@@ -93,7 +93,6 @@ class RegistryMeta(ABCMeta):
         # Register subclass
         base_type: str = root_base.__name__
         registry_name = class_dict["name"]
-        print(f"Check registry: {registry_name}")
         if base_type not in mcs._registry:
             mcs._registry[base_type] = {}
         if registry_name in mcs._registry[base_type]:

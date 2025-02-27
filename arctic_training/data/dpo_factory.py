@@ -13,29 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from typing import Dict
 from typing import List
-from typing import Optional
 from typing import Tuple
 from typing import Union
 
-import numpy as np
 import torch
-from datasets import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import RandomSampler
-from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
-from arctic_training.data.utils import DatasetType
-from arctic_training.registry import register
 from arctic_training.data.sft_factory import pad
+from arctic_training.data.utils import DatasetType
 
 IGNORE_INDEX = -100
+
 
 class DPODataConfig(DataConfig):
     max_length: int = 8192
@@ -55,11 +50,12 @@ class DPODataConfig(DataConfig):
     """
     dpo_prompt_truncation_mode: str = "keep_start"
 
+
 def _adjust_prompt_length(
     prompt_token,
     chosen_token,
     rejected_token,
-) -> List[int]:
+) -> int:
     c_len = len(chosen_token["prompt_input_ids"])
     r_len = len(rejected_token["prompt_input_ids"])
     min_len = min(c_len, r_len)
@@ -78,7 +74,8 @@ def _adjust_prompt_length(
     num_diff_len = abs(c_len - r_len)
     if num_diff_tokens > 1 or num_diff_len > 1:
         raise ValueError(
-            "Chosen and rejected prompt_input_ids might only differ on the last token due to tokenizer merge ops."
+            "Chosen and rejected prompt_input_ids might only differ on the last token"
+            " due to tokenizer merge ops."
         )
 
     return min_len
@@ -89,12 +86,15 @@ def add_bos_token_if_needed(
     tokens: Dict[str, List[int]],
 ) -> Dict[str, List[int]]:
     len_input_ids = len(tokens["prompt_input_ids"])
-    if bos_token_id is not None and (len_input_ids == 0 or bos_token_id != tokens["prompt_token_ids"][0]):
+    if bos_token_id is not None and (
+        len_input_ids == 0 or bos_token_id != tokens["prompt_input_ids"][0]
+    ):
         tokens["prompt_input_ids"].insert(0, bos_token_id)
         tokens["prompt_attention_mask"].insert(0, 1)
     return tokens
 
-def _build_sequence_tokens(tokens, prefix: str) -> None:
+
+def _build_sequence_tokens(tokens, prefix: str) -> Dict:
     sequence_tokens = {
         f"{prefix}_{k}": tokens[f"prompt_{k}"] + tokens[k]
         for k in ["input_ids", "attention_mask"]
@@ -136,14 +136,14 @@ class DataCollatorForPref:
         attention_mask = pad(attention_mask, padding_value=0)
 
         rt = {
-                "input_ids": input_ids,
-                "labels": labels,
-                "attention_mask": attention_mask,
-                "prompt": [example["prompt_input_ids"] for example in instances],
-                "prompt_text": prompt_text,
-                "chosen_text": chosen_text,
-                "rejected_text": rejected_text,
-            }
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": attention_mask,
+            "prompt": [example["prompt_input_ids"] for example in instances],
+            "prompt_text": prompt_text,
+            "chosen_text": chosen_text,
+            "rejected_text": rejected_text,
+        }
         return rt
 
 
@@ -158,16 +158,16 @@ class DPODataFactory(DataFactory):
         return chosen_text
 
     def process(self, dataset: DatasetType) -> DatasetType:
-        missing_columns = [c for c in ("prompt", "chosen", "rejected") if c not in dataset.column_names]
+        missing_columns = [
+            c for c in ("prompt", "chosen", "rejected") if c not in dataset.column_names
+        ]
         if len(missing_columns) > 0:
             raise ValueError(
-                f"Dataset must have 'prompt', 'chosen', and 'rejected' columns to tokenizer for DPODataFactory. Missing the following columns: {missing_columns}"
+                "Dataset must have 'prompt', 'chosen', and 'rejected' columns to"
+                " tokenizer for DPODataFactory. Missing the following columns:"
+                f" {missing_columns}"
             )
         dataset = dataset.select_columns(["prompt", "chosen", "rejected"])
-        # sft based tokenization,
-        # we assume the messages are in the format of:
-        # {'role': '...', 'content': '...'}
-        # datasets = datasets.select(range(100, 1100))
         dataset = dataset.select(range(len(dataset)))
         return dataset.map(
             lambda ex: {
@@ -183,13 +183,8 @@ class DPODataFactory(DataFactory):
             desc="Tokenizing messages",
         )
 
-
-
     def process_prompt(self, tokenizer, prompt_text: str):
-        prompt_ids = tokenizer(
-            prompt_text,
-            add_special_tokens=False
-        )
+        prompt_ids = tokenizer(prompt_text, add_special_tokens=False)
         return {f"prompt_{k}": v for k, v in prompt_ids.items()}
 
     def process_answer(self, tokenizer, prompt, answer):
@@ -229,23 +224,25 @@ class DPODataFactory(DataFactory):
                 "Prompt input ids and attention mask should have the same length."
             )
         return {
-                "prompt_input_ids": prompt_input_ids,
-                "prompt_attention_mask": prompt_attention_mask,
-                "input_ids": answer_input_ids,
-                "attention_mask": answer_attention_mask,
-            }
+            "prompt_input_ids": prompt_input_ids,
+            "prompt_attention_mask": prompt_attention_mask,
+            "input_ids": answer_input_ids,
+            "attention_mask": answer_attention_mask,
+        }
 
     def _truncate_tokens(
         self,
         chosen_tokens,
         rejected_tokens,
         prompt_tokens,
-    ) -> None:
+    ) -> Tuple[Dict[str, List[int]], Dict[str, List[int]], Dict[str, List[int]]]:
         """
         Truncates the tokens in chosen, rejected, and prompt sequences to ensure they fit within the maximum length constraints.
         """
         if self.config.dpo_prompt_truncation_mode not in ["keep_start", "keep_end"]:
-            raise ValueError(f"Invalid truncation mode: {self.config.dpo_prompt_truncation_mode}")
+            raise ValueError(
+                f"Invalid truncation mode: {self.config.dpo_prompt_truncation_mode}"
+            )
 
         longer_response_length = max(
             len(chosen_tokens["input_ids"]), len(rejected_tokens["input_ids"])
@@ -259,10 +256,14 @@ class DPODataFactory(DataFactory):
             ):
                 if self.config.dpo_prompt_truncation_mode == "keep_start":
                     for k in ["prompt_input_ids", "prompt_attention_mask"]:
-                        answer_tokens[k] = answer_tokens[k][: self.config.max_prompt_length]
+                        answer_tokens[k] = answer_tokens[k][
+                            : self.config.max_prompt_length
+                        ]
                 elif self.config.dpo_prompt_truncation_mode == "keep_end":
                     for k in ["prompt_input_ids", "prompt_attention_mask"]:
-                        answer_tokens[k] = answer_tokens[k][-self.config.max_prompt_length :]
+                        answer_tokens[k] = answer_tokens[k][
+                            -self.config.max_prompt_length :
+                        ]
 
         # if that's still too long, truncate the response from the end
         for answer_tokens in [chosen_tokens, rejected_tokens]:
@@ -277,12 +278,8 @@ class DPODataFactory(DataFactory):
 
         return chosen_tokens, rejected_tokens, prompt_tokens
 
-
-
-
-    @classmethod
     def tokenize_messages(
-        cls,
+        self,
         prompt: List[Dict[str, str]],
         chosen: List[Dict[str, str]],
         rejected: List[Dict[str, str]],
@@ -303,26 +300,28 @@ class DPODataFactory(DataFactory):
             mask_inputs (Bool):
                 boolean value
         """
-
         prompt_text = self.convert_text(tokenizer, prompt)
-        chosen_text_full = self.convert_text(tokenizer, prompt+chosen)
-        rejcted_text_full =self.convert_text(tokenizer, prompt+rejected)
-        chosen_text = chosen_text_full[len(prompt_text):]
-        reject_text = rejcted_text_full[len(prompt_text):]
+        chosen_text_full = self.convert_text(tokenizer, prompt + chosen)
+        rejcted_text_full = self.convert_text(tokenizer, prompt + rejected)
+        chosen_text = chosen_text_full[len(prompt_text) :]
+        reject_text = rejcted_text_full[len(prompt_text) :]
 
         # Some tokenizer may merge the end of end and start of the answer
         # It will make inconsistant between chosen and rejected prompt part
-        prompt_tokens = self.process_prompt(tokenizer, prompt)
+        prompt_tokens = self.process_prompt(tokenizer, prompt_text)
         chosen_tokens = self.process_answer(tokenizer, prompt_text, chosen_text)
         rejected_tokens = self.process_answer(tokenizer, prompt_text, reject_text)
 
-        prompt_len_input_ids = _adjust_prompt_length(
-            prompt_tokens, chosen_tokens, rejected_tokens
-        )
+        # This is being dropped on the floor - problem?
+        # prompt_len_input_ids = _adjust_prompt_length(
+        #    prompt_tokens, chosen_tokens, rejected_tokens
+        # )
 
         prompt_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, prompt_tokens)
         chosen_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, chosen_tokens)
-        rejected_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, rejected_tokens)
+        rejected_tokens = add_bos_token_if_needed(
+            tokenizer.bos_token_id, rejected_tokens
+        )
 
         chosen_tokens, rejected_tokens, prompt_tokens = self._truncate_tokens(
             chosen_tokens, rejected_tokens, prompt_tokens
@@ -334,9 +333,9 @@ class DPODataFactory(DataFactory):
         for data in [prompt_tokens, chosen_tokens, rejected_tokens]:
             for k, v in data.items():
                 row[k] = v
-        row['prompt_text'] = prompt_text
-        row['chosen_text'] = chosen_text
-        row['reject_text'] = reject_text
+        row["prompt_text"] = prompt_text
+        row["chosen_text"] = chosen_text
+        row["rejected_text"] = reject_text
 
         return row
 
