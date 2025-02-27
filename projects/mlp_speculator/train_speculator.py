@@ -90,6 +90,7 @@ def MLPSpeculatorParser():
     group.add_argument("--freeze_layers", type=str, default="")
     group.add_argument("--method", type=str, default="sum_rnn")
     group.add_argument("--auto_resume", action="store_true", default=False)
+    group.add_argument("--tie_lstm_embs", action="store_true", default=False)
     group.add_argument(
         "--param_init_method",
         type=str,
@@ -140,9 +141,33 @@ if __name__ == "__main__":
             // torch.distributed.get_world_size()
         )
 
+    checkpoints = [
+        {
+            "type": "mlp_speculator",
+            "output_dir": args.output_path,
+            "save_every_n_steps": args.checkpoint_interval,
+            "save_every_n_epochs": 1,
+            "save_end_of_training": True,
+            "auto_resume": args.auto_resume,
+            "checkpoint_dir": args.checkpoint_path,
+        }
+    ]
+    if not args.auto_resume and args.checkpoint_path:
+        checkpoints.append(
+            {
+                "type": "deepspeed",
+                "output_dir": args.checkpoint_path,
+                "save_every_n_steps": args.checkpoint_interval,
+                "save_every_n_epochs": 1,
+                "save_end_of_training": False,
+                "auto_resume": True,
+            }
+        )
+
     config = MLPSpeculatorTrainConfig(
         speculator_width=args.speculator_width,
         method=args.method,
+        tie_lstm_embs=args.tie_lstm_embs,
         proj_dim=args.proj_dim,
         emb_dim=args.emb_dim,
         n_speculator_heads=args.n_speculator_heads,
@@ -181,17 +206,7 @@ if __name__ == "__main__":
         train_iters=args.train_iters,
         data=data_config,
         model=model_config,
-        checkpoint=[
-            {
-                "type": "mlp_speculator",
-                "output_dir": args.output_path,
-                "save_every_n_steps": args.checkpoint_interval,
-                "save_every_n_epochs": 1,
-                "save_end_of_training": True,
-                "auto_resume": args.auto_resume,
-                "checkpoint_dir": args.checkpoint_path,
-            }
-        ],
+        checkpoint=checkpoints,
     )
 
     logger.info(f"Config: {pprint.pformat(config,indent=1)}")

@@ -124,6 +124,7 @@ class MLPSpeculator(nn.Module):
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
+        self.tie_lstm_embs = config.tie_lstm_embs
         self.method = config.method
         self.activation = nn.GELU()
 
@@ -209,15 +210,19 @@ class MLPSpeculator(nn.Module):
             self.forget_emb = nn.ModuleList(
                 [nn.Embedding(self.vocab_size, self.emb_dim[0])]
             )
-            self.input_emb = nn.ModuleList(
-                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-            )
-            self.cell_emb = nn.ModuleList(
-                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-            )
-            self.output_emb = nn.ModuleList(
-                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-            )
+            if self.tie_lstm_embs:
+                print("TYING LSTM EMBS!!!!!")
+                self.input_emb = self.cell_emb = self.output_emb = self.forget_emb
+            else:
+                self.input_emb = nn.ModuleList(
+                    [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+                )
+                self.cell_emb = nn.ModuleList(
+                    [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+                )
+                self.output_emb = nn.ModuleList(
+                    [nn.Embedding(self.vocab_size, self.emb_dim[0])]
+                )
             self.forget_proj = nn.ModuleList(
                 [
                     nn.Linear(self.input_hidden_dim, self.proj_dim[0], bias=False),
@@ -278,10 +283,10 @@ class MLPSpeculator(nn.Module):
         self.emb_weight = math.sqrt((1 - self.state_weight**2) * (self.emb_dim[-1] / 2))
 
         # Handle weight tying as specified
-        if self.tie_weights:
-            assert (
-                self.n_predict > 1
-            ), "You cannot tie weights between stages when only 1 exists"
+        if self.tie_weights and self.n_predict > 1:
+            # assert (
+            #     self.n_predict > 1
+            # ), "You cannot tie weights between stages when only 1 exists"
 
             # for emb in self.emb:
             #     emb.weight = self.emb[0].weight

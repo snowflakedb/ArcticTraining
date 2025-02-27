@@ -28,6 +28,7 @@ class MLPSpeculatorTrainConfig(Config):
     weighted_sum: bool = False
     param_init_method: str = "zeros"
     method: str = "sum_rnn"
+    tie_lstm_embs: bool = False
 
 
 # Configs used for savings model checkpoint for inference
@@ -65,6 +66,7 @@ class MLPSpeculatorConfig:
         tie_weights=False,
         scale_input=False,
         method="sum_rnn",
+        tie_lstm_embs=False,
     ):
         self.architectures = ["MLPSpeculatorPreTrainedModel"]
         self.base_model_name_or_path = base_model_name_or_path
@@ -80,6 +82,7 @@ class MLPSpeculatorConfig:
 
         self.scale_input = scale_input
         self.tie_weights = tie_weights
+        self.tie_lstm_embs = tie_lstm_embs
         self.top_k_tokens_per_head = [1 for i in range(self.n_predict)]
 
         self.torch_dtype = "bfloat16"

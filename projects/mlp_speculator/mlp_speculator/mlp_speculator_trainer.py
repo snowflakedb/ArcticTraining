@@ -52,6 +52,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
             tie_weights=config.speculator_tie_weights,
             scale_input=config.speculator_scale_input,
             method=config.method,
+            tie_lstm_embs=config.tie_lstm_embs,
         )
 
         model.speculator = MLPSpeculator(speculator_config)
