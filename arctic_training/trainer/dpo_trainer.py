@@ -27,7 +27,8 @@ from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.registry import register
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
-from arctic_training.trainer import Trainer
+from arctic_training.trainer.trainer import Trainer
+from arctic_training.config.trainer import TrainerConfig
 
 
 
@@ -73,7 +74,8 @@ def get_logprobs(
 
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
 
-class DPOTrainerConfig:
+class DPOTrainerConfig(TrainerConfig):
+    type: str = "dpo"
     ref_model: ModelConfig
     beta: float
     ignore_label_index: int = -100
