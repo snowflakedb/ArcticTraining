@@ -24,8 +24,8 @@ jobs:
       - name: Get latest dependency versions
         id: get_latest_versions
         run: |
-          torch_version=$(python -m pip index versions torch --index-url https://download.pytorch.org/whl/cpu | awk '{print $3}' | sed 's/,//')
-          deepspeed_version=$(python -m pip index versions deepspeed | awk '{print $3}' | sed 's/,//')
+          torch_version=$(python -m pip index versions torch --index-url https://download.pytorch.org/whl/cpu | awk '{print $3}' | sed 's/[,\n]//g')
+          deepspeed_version=$(python -m pip index versions deepspeed | awk '{print $3}' | sed 's/[,\n]//g')
           versions="torch-$torch_version-deepspeed-$deepspeed_version"
           echo "versions=$versions" >> $GITHUB_OUTPUT
       - name: Restore cached virtualenv
