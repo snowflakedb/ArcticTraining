@@ -14,24 +14,28 @@
 # limitations under the License.
 
 from typing import Dict
-from typing import Union
 from typing import Tuple
+from typing import Union
+from typing import cast
 
+import deepspeed
 import torch
+import torch.nn.functional as F
+from pydantic import ValidationInfo
+from pydantic import field_validator
 
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
+from arctic_training.config.model import ModelConfig
+from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.dpo_factory import DPODataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
-from arctic_training.config.model import ModelConfig
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
-from arctic_training.registry import register
+from arctic_training.registry import get_registered_model_factory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
-from arctic_training.config.trainer import TrainerConfig
-
 
 
 def to_device(batch: Dict, device: str) -> Dict:
@@ -42,11 +46,9 @@ def to_device(batch: Dict, device: str) -> Dict:
     return output
 
 
-
 def get_logprobs(
-        logits: torch.Tensor, labels: torch.Tensor,
-        ignore_label_index: int
-    ) -> Tuple[float, float]:
+    logits: torch.Tensor, labels: torch.Tensor, ignore_label_index: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """Compute the log probabilities of the given labels under the given logits.
 
     Args:
@@ -60,7 +62,8 @@ def get_logprobs(
     """
     if logits.shape[:-1] != labels.shape:
         raise ValueError(
-            f"Logits (batch and sequence length dim) {logits.shape[:-1]} and labels must have the same shape {labels.shape}."
+            f"Logits (batch and sequence length dim) {logits.shape[:-1]} and labels"
+            f" must have the same shape {labels.shape}."
         )
 
     labels = labels[:, 1:].clone()
@@ -76,6 +79,7 @@ def get_logprobs(
 
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
 
+
 class DPOTrainerConfig(TrainerConfig):
     ref_model: ModelConfig
     beta: float
@@ -83,13 +87,35 @@ class DPOTrainerConfig(TrainerConfig):
     label_smoothing: float = 0.0
     """ Model configuration. """
 
-def init_ref_model(self: Trainer):
-    ref_model_factory = self.config.ref_model.factory(trainer=self, config=self.config.ref_model) # Be explicit about which model config to use
+    @field_validator("ref_model", mode="before")
+    @classmethod
+    def init_ref_model_config(
+        cls, v: Union[Dict, ModelConfig], info: ValidationInfo
+    ) -> ModelConfig:
+        subconfig = cls._get_subconfig_object(
+            v=v,
+            info=info,
+            get_class_fn=get_registered_model_factory,
+            attr_name="ref_model_factory",
+        )
+        return cast(ModelConfig, subconfig)
+
+
+def init_ref_model(self: "DPOTrainer"):
+    ref_model_factory = self.config.ref_model.factory(
+        trainer=self, model_config=self.config.ref_model
+    )  # Be explicit about which model config to use
     self.ref_model = ref_model_factory()
+    self.ref_model, *_ = deepspeed.initialize(
+        model=self.model,
+        config=self.config.deepspeed,
+    )
+
 
 class DPOTrainer(Trainer):
     name = "dpo"
     config: DPOTrainerConfig
+    data_factory: DPODataFactory
     model_factory: Union[HFModelFactory, LigerModelFactory]
     ref_model_factory: Union[HFModelFactory, LigerModelFactory]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
@@ -97,6 +123,7 @@ class DPOTrainer(Trainer):
     scheduler_factory: HFSchedulerFactory
     tokenizer_factory: HFTokenizerFactory
     callbacks = [("post-init", init_ref_model)]
+    ref_model: torch.nn.Module
 
     def forward_model(
         self, batch: Dict[str, torch.Tensor]
@@ -107,22 +134,24 @@ class DPOTrainer(Trainer):
             use_cache=False,
         )
         logits = outputs.logits
-        logprobs, completion_sizes = get_logprobs(logits, batch["labels"],
-            self.config.ignore_label_index)
+        logprobs, completion_sizes = get_logprobs(
+            logits, batch["labels"], self.config.ignore_label_index
+        )
         return logits, logprobs, completion_sizes
 
-    def forword_reference_model(
+    def forward_reference_model(
         self, batch: Dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         with torch.no_grad():
-            output = self.reference_model(
+            output = self.ref_model(
                 input_ids=batch["input_ids"],
                 attention_mask=batch["attention_mask"],
                 use_cache=False,
             )
             logits = output.logits
-            logprobs, completion_sizes = get_logprobs(logits, batch["labels"],
-            self.config.ignore_label_index)
+            logprobs, completion_sizes = get_logprobs(
+                logits, batch["labels"], self.config.ignore_label_index
+            )
         return logits.detach(), logprobs.detach(), completion_sizes.detach()
 
     def dpo_loss(
@@ -148,8 +177,7 @@ class DPOTrainer(Trainer):
         logits = pi_logratios - ref_logratios
 
         losses = (
-            -F.logsigmoid(self.config.beta * logits)
-            * (1 - self.config.label_smoothing)
+            -F.logsigmoid(self.config.beta * logits) * (1 - self.config.label_smoothing)
             - F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
         )
 
@@ -162,12 +190,12 @@ class DPOTrainer(Trainer):
 
         return losses, chosen_rewards, rejected_rewards
 
-
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
-        ref_logits, ref_logprobs, _ = self.forword_reference_model(batch)
+        ref_logits, ref_logprobs, _ = self.forward_reference_model(batch)
         logits, logprobs, _ = self.forward_model(batch)
         losses, chosen_rewards, rejected_rewards = self.dpo_loss(logprobs, ref_logprobs)
-        reward_acc = (chosen_rewards > rejected_rewards).float().mean()
+        # This is being dropped. Problem?
+        # reward_acc = (chosen_rewards > rejected_rewards).float().mean()
         # chosen_rewards.mean(), rejected_rewards.mean(), reward_acc
         return losses.mean()

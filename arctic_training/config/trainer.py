@@ -184,7 +184,6 @@ class TrainerConfig(BaseConfig):
                 f" {[cls.__name__ for cls in attribute_type_hints]}."
             )
 
-        print(attr_cls.__dict__)
         # Make sure the `type` field is set in the config dict
         config_dict["type"] = attr_cls.name
 
