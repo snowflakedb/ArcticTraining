@@ -68,13 +68,7 @@ class HFDataSource(DataSource):
     config: HFDataSourceConfig
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
-        # return load_dataset(config.dataset_name, split=split, **config.kwargs)
-        dataset = load_dataset(
-            config.dataset_name, split=split, streaming=True, **config.kwargs
-        )
-        from datasets import Dataset
-
-        return Dataset.from_list(list(dataset.take(100)), features=dataset.features)
+        return load_dataset(config.dataset_name, split=split, **config.kwargs)
 
 
 class UltraChat200K(HFDataSource):
