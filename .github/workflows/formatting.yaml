@@ -25,16 +25,12 @@ jobs:
         uses: actions/cache@v4
         with:
           key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-
           path: .venv
       - name: Restore cached pre-commit environment
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            pre-commit-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-
       - name: Setup environment
         run: |
           python -m venv .venv

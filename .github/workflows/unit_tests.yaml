@@ -24,24 +24,20 @@ jobs:
       - name: Get latest dependency versions
         id: get_latest_versions
         run: |
-          torch_version=$(python -m pip index versions torch --index-url https://download.pytorch.org/whl/cpu | awk '{print $3}')
-          deepspeed_version=$(python -m pip index versions deepspeed | awk '{print $3}')
+          torch_version=$(python -m pip index versions torch --index-url https://download.pytorch.org/whl/cpu | awk '{print $3}' | sed 's/,//')
+          deepspeed_version=$(python -m pip index versions deepspeed | awk '{print $3}' | sed 's/,//')
           versions="torch-$torch_version-deepspeed-$deepspeed_version"
           echo "versions=$versions" >> $GITHUB_OUTPUT
       - name: Restore cached virtualenv
         uses: actions/cache@v4
         with:
           key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-
           path: .venv
       - name: Restore cached torch extensions
         uses: actions/cache@v4
         with:
           path: ~/.cache/torch_extensions
           key: torch-extensions-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}
-          restore-keys: |
-            torch-extensions-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-
       - name: Setup environment
         run: |
           python -m venv .venv
