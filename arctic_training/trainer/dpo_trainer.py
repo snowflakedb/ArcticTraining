@@ -15,6 +15,7 @@
 
 from typing import Dict
 from typing import Union
+from typing import Tuple
 
 import torch
 
@@ -23,6 +24,7 @@ from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.dpo_factory import DPODataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
+from arctic_training.config.model import ModelConfig
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.registry import register
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
@@ -75,13 +77,15 @@ def get_logprobs(
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
 
 class DPOTrainerConfig(TrainerConfig):
-    type: str = "dpo"
     ref_model: ModelConfig
     beta: float
     ignore_label_index: int = -100
     label_smoothing: float = 0.0
     """ Model configuration. """
 
+def init_ref_model(self: Trainer):
+    ref_model_factory = self.config.ref_model.factory(trainer=self, config=self.config.ref_model) # Be explicit about which model config to use
+    self.ref_model = ref_model_factory()
 
 class DPOTrainer(Trainer):
     name = "dpo"
@@ -93,11 +97,6 @@ class DPOTrainer(Trainer):
     scheduler_factory: HFSchedulerFactory
     tokenizer_factory: HFTokenizerFactory
     callbacks = [("post-init", init_ref_model)]
-
-
-    def init_ref_model(self):
-        ref_model_factory = self.config.ref_model.factory(trainer=self, config=self.config.ref_model) # Be explicit about which model config to use
-        self.ref_model = ref_model_factory()
 
     def forward_model(
         self, batch: Dict[str, torch.Tensor]

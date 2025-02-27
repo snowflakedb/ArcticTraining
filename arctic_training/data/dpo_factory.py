@@ -18,6 +18,7 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import Union
 
 import numpy as np
 import torch
@@ -138,7 +139,7 @@ class DataCollatorForPref:
                 "input_ids": input_ids,
                 "labels": labels,
                 "attention_mask": attention_mask,
-                "prompt": [example["prompt_input_ids"] for example in instances]
+                "prompt": [example["prompt_input_ids"] for example in instances],
                 "prompt_text": prompt_text,
                 "chosen_text": chosen_text,
                 "rejected_text": rejected_text,
@@ -160,8 +161,7 @@ class DPODataFactory(DataFactory):
         missing_columns = [c for c in ("prompt", "chosen", "rejected") if c not in dataset.column_names]
         if len(missing_columns) > 0:
             raise ValueError(
-                f"Dataset must have 'prompt', 'chosen', and 'rejected' columns to tokenizer for DPODataFactory.
-                  Missing the following columns: {missing_columns}"
+                f"Dataset must have 'prompt', 'chosen', and 'rejected' columns to tokenizer for DPODataFactory. Missing the following columns: {missing_columns}"
             )
         dataset = dataset.select_columns(["prompt", "chosen", "rejected"])
         # sft based tokenization,
