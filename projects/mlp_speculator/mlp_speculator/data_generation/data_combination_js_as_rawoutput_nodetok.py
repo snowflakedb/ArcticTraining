@@ -7,6 +7,8 @@ from tqdm.auto import tqdm
 
 location = "llama3.1_gen_mlpspec_nodetok"
 save_location = "llama3.1_gen_mlpspec_nodetok_disk"
+location = "swiftkv_llama33_gen_mlpspec_nodetok_hf"
+save_location = "swiftkv_llama33_gen_mlpspec_nodetok_disk"
 total_data = {
     "input_ids": [],
     "labels": [],

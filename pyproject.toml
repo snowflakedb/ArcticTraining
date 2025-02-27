@@ -20,12 +20,13 @@ keywords = ["llm", "training"]
 dependencies = [
     "pydantic>=2.0",
     "datasets",
-    "transformers",
+    "transformers==4.47",
     "torch",
     "loguru",
     "peft",
     "deepspeed",
     "tqdm",
+    "compressed_tensors",
 ]
 
 # Optional development dependencies
