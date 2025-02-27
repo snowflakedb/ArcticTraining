@@ -17,10 +17,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install
-        run: python scripts/install_deps.py formatting
+      - uses: actions/setup-python@v5
+        id: setup_python
+        with:
+          python-version: '3.12'
+      - name: Restore cached virtualenv
+        uses: actions/cache@v4
+        with:
+          key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          path: .venv
+      - name: Restore cached pre-commit environment
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Setup environment
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+          python scripts/install_deps.py formatting
       - name: Environment print
         run: pip list
       - name: Formatting checks
         run: |
-          pre-commit run --all-files
+          pre-commit run --all-files --show-diff-on-failure

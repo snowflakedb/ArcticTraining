@@ -27,10 +27,12 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
+from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
+from arctic_training.trainer.trainer import Trainer
 
 
 class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -58,6 +60,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self, split: str, cache_path: Optional[Path] = None) -> DatasetType:
         disable_caching()
         if cache_path is not None and cache_path.exists():
+            logger.info(f"Loading from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
         dataset = self.load(self.config, split)
@@ -88,6 +91,10 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         return dataset
 
     @property
+    def trainer(self) -> Trainer:
+        return self.data_factory.trainer
+
+    @property
     def data_factory(self) -> DataFactory:
         return self._data_factory
 
@@ -101,6 +108,10 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     @property
     def cache_path_args(self) -> Dict:
+        cache_path_args = self.config.model_dump()
+        cache_path_args["_tokenizer_path_or_name"] = (
+            self.trainer.config.tokenizer.name_or_path
+        )
         return self.config.model_dump()
 
     @callback_wrapper("load")
