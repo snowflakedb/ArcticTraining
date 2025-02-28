@@ -79,9 +79,28 @@ class HFCheckpointEngine(CheckpointEngine):
         model_to_save = model.module if hasattr(model, "module") else model
         ckpt_count = self._get_ckpt_count(model)
 
+        # For PEFT models, we assume that trainable params will fit into memory
+        if self.trainer.config.model.peft_config is not None:
+            for k, v in model_to_save.named_parameters():
+                if v.requires_grad:
+                    v_p = self._get_param(v)
+                    if model.global_rank == 0:
+                        output_state_dict[k] = v_p
+            if model.global_rank == 0:
+                model.save_pretrained(
+                    self.checkpoint_dir,
+                    state_dict=output_state_dict,
+                    safe_serialization=True,
+                    max_shard_size="4GB",
+                )
+            return
+
         for k, v in model_to_save.named_parameters():
             v_p = self._get_param(v)
             if model.global_rank == 0:
+                if not v.requires_grad:
+                    continue
+                print("SAVING", k, v_p.numel())
                 output_state_dict[k] = v_p
 
                 so_far_params += v_p.numel()
