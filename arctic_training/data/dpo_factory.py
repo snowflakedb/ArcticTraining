@@ -48,7 +48,7 @@ class DPODataConfig(DataConfig):
     appending samples until the total length matches the max length. It might
     cause the last sample to be truncated.
     """
-    
+
     dpo_prompt_truncation_mode: str = "keep_start"
 
 
