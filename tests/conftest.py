@@ -14,11 +14,18 @@
 # limitations under the License.
 
 import os
+import sys
+from pathlib import Path
 
 import pytest
 
 
 def pytest_configure(config):
+    # allow having multiple repository checkouts and not needing to remember to rerun
+    # 'pip install .' when switching between checkouts and running tests.
+    git_repo_path = str(Path(__file__).resolve().parents[1])
+    sys.path.insert(0, git_repo_path)
+
     # TODO: Make it so that cpu and gpu tests can be run with a single command.
     # This requires some work with tearing down/setting up dist environments
     # that have not been worked out yet.
