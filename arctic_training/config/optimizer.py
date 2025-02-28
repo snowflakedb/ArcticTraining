@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from arctic_training.optimizer.factory import OptimizerFactory
 
 
-from arctic_training.registry.optimizer import get_registered_optimizer_factory
+from arctic_training.registry import get_registered_optimizer_factory
 
 
 class OptimizerConfig(BaseConfig):
@@ -43,4 +43,4 @@ class OptimizerConfig(BaseConfig):
 
     @property
     def factory(self) -> Type["OptimizerFactory"]:
-        return get_registered_optimizer_factory(self.type)
+        return get_registered_optimizer_factory(name=self.type)

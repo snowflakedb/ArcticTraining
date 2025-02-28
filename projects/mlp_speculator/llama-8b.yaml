@@ -36,10 +36,10 @@ logger:
 scheduler:
   name: cosine
   warmup_ratio: 0.05
-  lr: 1e-3
 optimizer:
   betas: [0.9,0.999]
   weight_decay: 0.1
+  lr: 1e-3
 exit_iteration: 11
 checkpoint:
   - type: deepspeed

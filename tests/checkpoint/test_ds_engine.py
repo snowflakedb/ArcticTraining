@@ -13,23 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
 from utils import models_are_equal
 
 from arctic_training.config.trainer import get_config
-from arctic_training.registry.trainer import get_registered_trainer
+from arctic_training.registry import get_registered_trainer
 
 
-@pytest.mark.cpu
-def test_ds_engine(tmp_path):
+def test_ds_engine(tmp_path, model_name):
     config_dict = {
         "type": "sft",
         "exit_iteration": 2,
         "skip_validation": True,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
-            "attn_implementation": "eager",
+            "name_or_path": model_name,
             "dtype": "float32",
         },
         "data": {

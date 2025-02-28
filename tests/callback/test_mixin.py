@@ -148,7 +148,6 @@ def post_callback(base_cls, method_name):
     return callback_one_arg_fn
 
 
-@pytest.mark.cpu
 @pytest.mark.parametrize(
     "base_cls", [SubClass, SubSubClass], ids=["SubClass", "SubSubClass"]
 )

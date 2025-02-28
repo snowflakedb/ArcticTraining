@@ -19,12 +19,11 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
-from arctic_training.registry.tokenizer import get_registered_tokenizer_factory
+from arctic_training.config.base import BaseConfig
+from arctic_training.registry import get_registered_tokenizer_factory
 
 if TYPE_CHECKING:
     from arctic_training.tokenizer.factory import TokenizerFactory
-
-from .base import BaseConfig
 
 
 class TokenizerConfig(BaseConfig):
@@ -36,4 +35,4 @@ class TokenizerConfig(BaseConfig):
 
     @property
     def factory(self) -> Type["TokenizerFactory"]:
-        return get_registered_tokenizer_factory(self.type)
+        return get_registered_tokenizer_factory(name=self.type)

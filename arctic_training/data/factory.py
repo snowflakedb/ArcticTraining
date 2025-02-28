@@ -33,13 +33,18 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
+from arctic_training.logging import logger
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
-    from arctic_training.trainer import Trainer
+    from arctic_training.trainer.trainer import Trainer
 
 
-class DataFactory(ABC, CallbackMixin):
+class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base DataFactory class for loading training and evaluation data."""
 
     name: str
@@ -54,6 +59,15 @@ class DataFactory(ABC, CallbackMixin):
     The type of the DataConfig object that this DataFactory uses. Any
     DataFactory-specific options should be specified in this class.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", DataConfig)
+        _validate_class_method(cls, "load", ["self", "data_sources", "split"])
+        _validate_class_method(cls, "process", ["self", "dataset"])
+        _validate_class_method(cls, "split_data", ["self", "training_data"])
+        _validate_class_method(cls, "create_dataloader", ["self", "dataset"])
 
     def __init__(self, trainer: "Trainer", config: Optional[DataConfig] = None) -> None:
         if config is None:
@@ -70,6 +84,7 @@ class DataFactory(ABC, CallbackMixin):
 
             cache_path = self._get_processed_data_cache_path(data_sources)
             if self.config.use_data_cache and cache_path.exists():
+                logger.info(f"Loading from cache path {cache_path.as_posix()}")
                 return load_from_disk(cache_path.as_posix())
 
             dataset = self.load(data_sources, split=split)
@@ -112,12 +127,12 @@ class DataFactory(ABC, CallbackMixin):
     @property
     def global_rank(self) -> int:
         """The global rank of the current process."""
-        return self.trainer.global_rank
+        return self.config.global_rank
 
     @property
     def world_size(self) -> int:
         """The total number of processes in the world."""
-        return self.trainer.world_size
+        return self.config.world_size
 
     @property
     def cache_path_args(self) -> Dict:

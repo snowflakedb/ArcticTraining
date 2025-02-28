@@ -14,14 +14,13 @@
 # limitations under the License.
 
 import pytest
-import yaml
 
 from arctic_training.config.trainer import get_config
-from arctic_training.registry.trainer import get_registered_trainer
+from arctic_training.registry import get_registered_trainer
 
 
 @pytest.mark.gpu
-def test_sft_trainer(tmp_path):
+def test_sft_trainer(model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
@@ -29,27 +28,22 @@ def test_sft_trainer(tmp_path):
         "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
-            "attn_implementation": "eager",
+            "name_or_path": model_name,
         },
         "data": {
             "max_length": 2048,
             "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
         },
     }
-    config_path = tmp_path / "config.yaml"
-    with open(config_path, "w") as f:
-        f.write(yaml.dump(config_dict))
 
-    config = get_config(config_path)
+    config = get_config(config_dict)
     trainer_cls = get_registered_trainer(config.type)
     trainer = trainer_cls(config)
     trainer.train()
     assert trainer.global_step > 0, "Training did not run"
 
 
-@pytest.mark.cpu
-def test_sft_trainer_cpu(tmp_path):
+def test_sft_trainer_cpu(model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
@@ -57,8 +51,7 @@ def test_sft_trainer_cpu(tmp_path):
         "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
-            "name_or_path": "HuggingFaceTB/SmolLM-135M-Instruct",
-            "attn_implementation": "eager",
+            "name_or_path": model_name,
             "dtype": "float32",
         },
         "data": {
@@ -74,11 +67,8 @@ def test_sft_trainer_cpu(tmp_path):
             "type": "cpu-adam",
         },
     }
-    config_path = tmp_path / "config.yaml"
-    with open(config_path, "w") as f:
-        f.write(yaml.dump(config_dict))
 
-    config = get_config(config_path)
+    config = get_config(config_dict)
     trainer_cls = get_registered_trainer(config.type)
     trainer = trainer_cls(config)
     trainer.train()

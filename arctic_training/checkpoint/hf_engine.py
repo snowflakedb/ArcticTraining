@@ -22,14 +22,12 @@ import deepspeed
 import safetensors as sf
 from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
 
-from arctic_training.checkpoint import CheckpointEngine
-from arctic_training.registry import register
+from arctic_training.checkpoint.engine import CheckpointEngine
 
 # number of parameters per checkpoint shard
 SHARD_SIZE = 2e9
 
 
-@register
 class HFCheckpointEngine(CheckpointEngine):
     name = "huggingface"
 

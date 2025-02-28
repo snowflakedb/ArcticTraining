@@ -24,12 +24,16 @@ import torch
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.checkpoint import CheckpointConfig
+from arctic_training.registry import RegistryMeta
+from arctic_training.registry import _validate_class_attribute_set
+from arctic_training.registry import _validate_class_attribute_type
+from arctic_training.registry import _validate_class_method
 
 if TYPE_CHECKING:
-    from arctic_training.trainer import Trainer
+    from arctic_training.trainer.trainer import Trainer
 
 
-class CheckpointEngine(ABC, CallbackMixin):
+class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base class for all checkpoint engines."""
 
     name: str
@@ -43,6 +47,13 @@ class CheckpointEngine(ABC, CallbackMixin):
     The configuration class for the checkpoint engine. This is used to validate
     the configuration passed to the engine.
     """
+
+    @classmethod
+    def _validate_subclass(cls) -> None:
+        _validate_class_attribute_set(cls, "name")
+        _validate_class_attribute_type(cls, "config", CheckpointConfig)
+        _validate_class_method(cls, "load", ["self", "model"])
+        _validate_class_method(cls, "save", ["self", "model"])
 
     def __init__(self, trainer: "Trainer", config: CheckpointConfig) -> None:
         self._trainer = trainer
