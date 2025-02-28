@@ -101,7 +101,7 @@ class DPOTrainerConfig(TrainerConfig):
         return cast(ModelConfig, subconfig)
 
 
-def init_ref_model(self: "DPOTrainer"):
+def init_ref_model(self: "DPOTrainer") -> None:
     ref_model_factory = self.config.ref_model.factory(
         trainer=self, model_config=self.config.ref_model
     )  # Be explicit about which model config to use
