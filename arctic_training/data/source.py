@@ -112,7 +112,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         cache_path_args["_tokenizer_path_or_name"] = (
             self.trainer.config.tokenizer.name_or_path
         )
-        return self.config.model_dump()
+        return cache_path_args
 
     @callback_wrapper("load")
     @abstractmethod
