@@ -78,7 +78,6 @@ def _adjust_prompt_length(
             " due to tokenizer merge ops."
         )
 
-    return min_len
 
 
 def add_bos_token_if_needed(
@@ -313,9 +312,9 @@ class DPODataFactory(DataFactory):
         rejected_tokens = self.process_answer(tokenizer, prompt_text, reject_text)
 
         # This is being dropped on the floor - problem?
-        # prompt_len_input_ids = _adjust_prompt_length(
-        #    prompt_tokens, chosen_tokens, rejected_tokens
-        # )
+        _adjust_prompt_length(
+           prompt_tokens, chosen_tokens, rejected_tokens
+        )
 
         prompt_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, prompt_tokens)
         chosen_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, chosen_tokens)
