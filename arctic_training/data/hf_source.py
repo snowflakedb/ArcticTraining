@@ -180,7 +180,7 @@ class LMSysChat1M(HFDataSource):
         }
 
 
-class ultrafeedback_binarized(HFDataSource):
+class UltraFeedbackBinarized(HFDataSource):
     name = "HuggingFaceH4/ultrafeedback_binarized"
 
     def pre_load_callback(self, split: str) -> str:

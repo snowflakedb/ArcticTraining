@@ -13,39 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
-
 from arctic_training.config.trainer import get_config
 from arctic_training.registry import get_registered_trainer
 
 
-@pytest.mark.gpu
-def test_sft_trainer(model_name):
+def test_dpo_trainer_cpu(model_name):
     config_dict = {
-        "type": "sft",
-        "skip_validation": True,
-        "exit_iteration": 2,
-        "micro_batch_size": 1,
-        "model": {
-            "type": "random-weight-hf",
-            "name_or_path": model_name,
-        },
-        "data": {
-            "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
-        },
-    }
-
-    config = get_config(config_dict)
-    trainer_cls = get_registered_trainer(config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
-    assert trainer.global_step > 0, "Training did not run"
-
-
-def test_sft_trainer_cpu(model_name):
-    config_dict = {
-        "type": "sft",
+        "type": "dpo",
+        "beta": 0.1,
         "skip_validation": True,
         "exit_iteration": 2,
         "micro_batch_size": 1,
@@ -54,9 +29,14 @@ def test_sft_trainer_cpu(model_name):
             "name_or_path": model_name,
             "dtype": "float32",
         },
+        "ref_model": {
+            "type": "random-weight-hf",
+            "name_or_path": model_name,
+            "dtype": "float32",
+        },
         "data": {
             "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
+            "sources": ["HuggingFaceH4/ultrafeedback_binarized-truncated"],
         },
         "deepspeed": {
             "zero_optimization": {
