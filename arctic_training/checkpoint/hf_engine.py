@@ -98,9 +98,6 @@ class HFCheckpointEngine(CheckpointEngine):
         for k, v in model_to_save.named_parameters():
             v_p = self._get_param(v)
             if model.global_rank == 0:
-                if not v.requires_grad:
-                    continue
-                print("SAVING", k, v_p.numel())
                 output_state_dict[k] = v_p
 
                 so_far_params += v_p.numel()
