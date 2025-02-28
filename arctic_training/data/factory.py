@@ -14,16 +14,13 @@
 # limitations under the License.
 
 from abc import ABC
-from pathlib import Path
 from typing import TYPE_CHECKING
-from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
 
 import torch
 from datasets import concatenate_datasets
-from datasets import load_from_disk
 from torch.utils.data import DataLoader
 from torch.utils.data import RandomSampler
 from transformers import PreTrainedTokenizerBase
@@ -32,8 +29,6 @@ from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
-from arctic_training.data.utils import calculate_hash_from_args
-from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
@@ -81,17 +76,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             data_sources = self._get_data_sources(split=split)
             if len(data_sources) == 0:
                 return None
-
-            cache_path = self._get_processed_data_cache_path(data_sources)
-            if self.config.use_data_cache and cache_path.exists():
-                logger.info(f"Loading from cache path {cache_path.as_posix()}")
-                return load_from_disk(cache_path.as_posix())
-
             dataset = self.load(data_sources, split=split)
             dataset = self._truncate_data(dataset)
-            if self.config.use_data_cache:
-                dataset.save_to_disk(cache_path.as_posix())
-
             return dataset
 
         training_data = get_data_split("train")
@@ -134,28 +120,6 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         """The total number of processes in the world."""
         return self.config.world_size
 
-    @property
-    def cache_path_args(self) -> Dict:
-        cache_path_args = self.config.model_dump()
-        del cache_path_args["sources"]
-        del cache_path_args["eval_sources"]
-        return cache_path_args
-
-    def _get_source_cache_path(self, source: "DataSource") -> Path:
-        hash_str = calculate_hash_from_args(
-            self.cache_path_args, source.cache_path_args
-        )
-        return self.config.cache_dir / hash_str
-
-    def _get_processed_data_cache_path(
-        self, data_source_list: List["DataSource"]
-    ) -> Path:
-        hash_str = calculate_hash_from_args(
-            self.cache_path_args,
-            *[source.cache_path_args for source in data_source_list],
-        )
-        return self.config.cache_dir / hash_str
-
     def _get_data_sources(self, split: str) -> List["DataSource"]:
         if split == "train":
             data_source_configs = self.config.sources
@@ -193,11 +157,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         """Loads data from one or more data sources and concatenates into a single dataset."""
         datasets = []
         for data_source in data_sources:
-            if self.config.use_data_cache:
-                cache_path = self._get_source_cache_path(data_source)
-            else:
-                cache_path = None
-            dataset = data_source(split, cache_path=cache_path)
+            dataset = data_source(split)
             datasets.append(dataset)
         dataset = concatenate_datasets(datasets)
         return dataset
