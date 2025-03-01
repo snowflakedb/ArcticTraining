@@ -22,3 +22,4 @@ def get_local_rank() -> int:
 
 def get_world_size() -> int:
     return int(os.getenv("WORLD_SIZE", 1))
+
