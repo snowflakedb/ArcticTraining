@@ -13,16 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List
 from pathlib import Path
-from arctic_training.data.sft_factory import SFTDataFactory
-from arctic_training.data.sft_factory import SFTDataConfig
-from arctic_training.config.tokenizer import TokenizerConfig
-from typing import Optional
 from types import SimpleNamespace
+from typing import List
+from typing import Optional
+
 from transformers import AutoTokenizer
 
-def create_sft_data_factory(model_name: str, sources: List[str], eval_sources: List[str] = [], cache_dir: Optional[Path] = None) -> SFTDataFactory:
+from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.data.sft_factory import SFTDataConfig
+from arctic_training.data.sft_factory import SFTDataFactory
+
+
+def create_sft_data_factory(
+    model_name: str,
+    sources: List[str],
+    eval_sources: List[str] = [],
+    cache_dir: Optional[Path] = None,
+) -> SFTDataFactory:
     data_config = SFTDataConfig(
         type="sft",
         sources=sources,
