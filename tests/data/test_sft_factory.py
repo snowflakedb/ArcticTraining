@@ -14,16 +14,18 @@
 # limitations under the License.
 
 from types import SimpleNamespace
+from typing import List
 
 import pytest
 from transformers import AutoTokenizer
 
 from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.data.sft_factory import SFTDataConfig
+from arctic_training.data.sft_factory import SFTDataFactory
 
 
 @pytest.fixture(scope="function")
-def sft_data_factory(training_sources):
+def sft_data_factory(model_name:str, training_sources:List[str]) -> SFTDataFactory:
     model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
     data_config = SFTDataConfig(
         type="sft",
@@ -58,7 +60,7 @@ def sft_data_factory(training_sources):
         ),
     ],
 )
-def test_generated_data(sft_data_factory, expected_sum):
+def test_generated_data(sft_data_factory: SFTDataFactory, expected_sum: int):
     training_dataloader, _ = sft_data_factory()
 
     # Quick check that the data is the same as expected. The sum value was

@@ -62,6 +62,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         disable_caching()
         cache_path = self.cache_path(split)
         if self.data_factory.config.use_data_cache and cache_path.exists():
+            print("LOADING CACHE", cache_path)
             logger.info(f"Loading from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
@@ -88,6 +89,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 )
 
         if self.data_factory.config.use_data_cache:
+            print("SAVING CACHE", cache_path)
             dataset.save_to_disk(cache_path.as_posix())
 
         return dataset
