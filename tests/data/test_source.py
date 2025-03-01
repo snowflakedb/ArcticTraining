@@ -14,34 +14,22 @@
 # limitations under the License.
 
 from pathlib import Path
-from types import SimpleNamespace
 
-from arctic_training.config.tokenizer import TokenizerConfig
-from arctic_training.data.sft_factory import SFTDataConfig
+from .utils import create_sft_data_factory
 
 
-def test_cache_path_uniqueness(model_name: str, tmp_path: Path):
+def test_data_source_cache_path_uniqueness(model_name: str, tmp_path: Path):
     data_sources = [
         "HuggingFaceH4/ultrachat_200k",
         "Open-Orca/SlimOrca",
     ]
-    data_config = SFTDataConfig(
-        type="sft",
+    data_factory = create_sft_data_factory(
+        model_name=model_name,
         sources=data_sources,
         eval_sources=data_sources,
-        use_data_cache=True,
         cache_dir=tmp_path,
     )
-    tokenizer_config = TokenizerConfig(type="huggingface", name_or_path=model_name)
 
-    dummy_trainer = SimpleNamespace(
-        config=SimpleNamespace(
-            data=data_config,
-            tokenizer=tokenizer_config,
-        ),
-    )
-
-    data_factory = data_config.factory(trainer=dummy_trainer)
     cache_paths = [
         s.cache_path("train") for s in data_factory._get_data_sources("train")
     ] + [s.cache_path("eval") for s in data_factory._get_data_sources("eval")]
