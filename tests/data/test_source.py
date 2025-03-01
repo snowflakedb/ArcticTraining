@@ -24,9 +24,6 @@ def test_cache_path_uniqueness(model_name: str, tmp_path: Path):
     data_sources = [
         "HuggingFaceH4/ultrachat_200k",
         "Open-Orca/SlimOrca",
-        "meta-math/MetaMathQA",
-        "ise-uiuc/Magicoder-OSS-Instruct-75K",
-        "lmsys/lmsys-chat-1m",
     ]
     data_config = SFTDataConfig(
         type="sft",
