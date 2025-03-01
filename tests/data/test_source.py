@@ -42,9 +42,9 @@ def test_cache_path_uniqueness(model_name: str, tmp_path: Path):
     )
 
     data_factory = data_config.factory(trainer=dummy_trainer)
-    cache_paths = [s.cache_path for s in data_factory._get_data_sources("train")] + [
-        s.cache_path for s in data_factory._get_data_sources("eval")
-    ]
+    cache_paths = [
+        s.cache_path("train") for s in data_factory._get_data_sources("train")
+    ] + [s.cache_path("eval") for s in data_factory._get_data_sources("eval")]
     assert len(cache_paths) == 2 * len(
         data_sources
     ), "Cache paths were not generated for all data sources"

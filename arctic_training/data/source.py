@@ -17,6 +17,7 @@ from abc import ABC
 from abc import abstractmethod
 from pathlib import Path
 from typing import Dict
+from typing import Tuple
 
 from datasets import disable_caching
 from datasets import load_from_disk
@@ -108,7 +109,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         return self.data_factory.global_rank
 
     @property
-    def cache_path_args(self) -> Dict:
+    def cache_path_args(self) -> Tuple[Dict, ...]:
         """Returns a dictionary of config fields that affect the cache path calculation."""
 
         # Some fields in the DataConfig should not affect cache path:
@@ -125,20 +126,20 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
             "train_eval_split",
             "use_data_cache",
         ]
-        cache_path_args = {
-            "data_factory_args": {
+        cache_path_args = (
+            {
                 k: v
                 for k, v in self.data_factory.config.model_dump().items()
                 if k not in exclude_fields
             },
-            "data_source_args": self.config.model_dump(),
-            "tokenizer_factory_args": self.trainer.config.tokenizer.model_dump(),
-        }
+            self.config.model_dump(),
+            self.trainer.config.tokenizer.model_dump(),
+        )
         return cache_path_args
 
     def cache_path(self, split: str) -> Path:
         """Returns the cache path for the data source split."""
-        hash_str = calculate_hash_from_args(split, **self.cache_path_args)
+        hash_str = calculate_hash_from_args(split, *self.cache_path_args)
         return self.data_factory.config.cache_dir / hash_str
 
     @callback_wrapper("load")
