@@ -17,7 +17,7 @@ from abc import ABC
 from abc import abstractmethod
 from pathlib import Path
 from typing import Dict
-from typing import Optional
+from typing import Tuple
 
 from datasets import disable_caching
 from datasets import load_from_disk
@@ -27,6 +27,7 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
+from arctic_training.data.utils import calculate_hash_from_args
 from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
@@ -57,9 +58,10 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._data_factory = data_factory
         self.config = config
 
-    def __call__(self, split: str, cache_path: Optional[Path] = None) -> DatasetType:
+    def __call__(self, split: str) -> DatasetType:
         disable_caching()
-        if cache_path is not None and cache_path.exists():
+        cache_path = self.cache_path(split)
+        if self.data_factory.config.use_data_cache and cache_path.exists():
             logger.info(f"Loading from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
@@ -85,7 +87,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                     f" {self.name} with config {self.config} for split {split}"
                 )
 
-        if cache_path is not None:
+        if self.data_factory.config.use_data_cache:
             dataset.save_to_disk(cache_path.as_posix())
 
         return dataset
@@ -107,12 +109,38 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         return self.data_factory.global_rank
 
     @property
-    def cache_path_args(self) -> Dict:
-        cache_path_args = self.config.model_dump()
-        cache_path_args["_tokenizer_path_or_name"] = (
-            self.trainer.config.tokenizer.name_or_path
+    def cache_path_args(self) -> Tuple[Dict, ...]:
+        """Returns a dictionary of config fields that affect the cache path calculation."""
+
+        # Some fields in the DataConfig should not affect cache path:
+        # - sources / eval_sources: these are captures in the data source cache args
+        # - cache_dir: this is the root of the cache path
+        # - num_proc: does not affect output data
+        # - train_eval_split: this is used after data is loaded/cached
+        # - use_data_cache: does not affect the output data
+        exclude_fields = [
+            "sources",
+            "eval_sources",
+            "cache_dir",
+            "num_proc",
+            "train_eval_split",
+            "use_data_cache",
+        ]
+        cache_path_args = (
+            {
+                k: v
+                for k, v in self.data_factory.config.model_dump().items()
+                if k not in exclude_fields
+            },
+            self.config.model_dump(),
+            self.trainer.config.tokenizer.model_dump(),
         )
-        return self.config.model_dump()
+        return cache_path_args
+
+    def cache_path(self, split: str) -> Path:
+        """Returns the cache path for the data source split."""
+        hash_str = calculate_hash_from_args(split, *self.cache_path_args)
+        return self.data_factory.config.cache_dir / hash_str
 
     @callback_wrapper("load")
     @abstractmethod

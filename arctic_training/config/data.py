@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Tuple
 from typing import Type
 from typing import Union
@@ -75,8 +76,8 @@ class DataConfig(BaseConfig):
     use_data_cache: bool = True
     """ Whether to cache loaded data. """
 
-    cache_processed_data: bool = False
-    """ Whether to cache processed data. """
+    cache_processed_data: Optional[bool] = None
+    """ Deprecated, please use "use_data_cache". """
 
     cache_dir: Path = Path("/tmp/")
     """ Directory to store cached data. """
@@ -84,6 +85,16 @@ class DataConfig(BaseConfig):
     @property
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)
+
+    @field_validator("cache_processed_data", mode="after")
+    @classmethod
+    def deprecate_cache_processed_data(cls, v: Optional[bool]) -> Optional[bool]:
+        if v is not None:
+            logger.warning(
+                "The 'cache_processed_data' field is deprecated. Please use"
+                " 'use_data_cache' instead."
+            )
+        return v
 
     @field_validator("sources", "eval_sources", mode="before")
     def create_source_config_from_name(
