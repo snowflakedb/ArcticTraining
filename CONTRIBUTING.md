@@ -44,14 +44,30 @@ previous `git commit` command.
 A collection of unit tests can be found in the `tests/` directory. Broadly,
 there are two types of tests: CPU-based and GPU-based.
 
-To run the CPU-based tests:
+To run all tests:
 ```bash
-cd tests
-python -m pytest -m cpu
+make test
+```
+or:
+```bash
+pytest tests
 ```
 
-To run the GPU-based tests:
+To run only the CPU-based tests:
 ```bash
-cd tests
-python -m pytest -m gpu
+make test-cpu
+```
+or:
+```bash
+pytest -m "not gpu" tests
+```
+
+To run only the GPU-based tests:
+
+```bash
+make test-gpu
+```
+or:
+```bash
+pytest -m gpu tests
 ```
