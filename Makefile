@@ -1,6 +1,6 @@
 # usage: make help
 
-.PHONY: help format test
+.PHONY: help test test-cpu test-gpu format
 .DEFAULT_GOAL := help
 
 help: ## this help
