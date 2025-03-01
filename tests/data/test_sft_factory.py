@@ -18,25 +18,29 @@ from types import SimpleNamespace
 import pytest
 from transformers import AutoTokenizer
 
+from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.data.sft_factory import SFTDataConfig
 
 
 @pytest.fixture(scope="function")
 def sft_data_factory(training_sources):
-    config_dict = {
-        "type": "sft",
-        "sources": training_sources,
-    }
-    data_config = SFTDataConfig(**config_dict)
+    model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
+    data_config = SFTDataConfig(
+        type="sft",
+        sources=training_sources,
+    )
+    tokenizer_config = TokenizerConfig(
+        type="huggingface",
+        name_or_path=model_name,
+    )
 
     # We just need an object that specifies the tokenizer and micro batch size
     # for SFT data loading. We don't need to actually run the trainer.
-    model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
     dummy_trainer = SimpleNamespace(
         config=SimpleNamespace(
             micro_batch_size=1,
             data=data_config,
-            tokenizer=SimpleNamespace(name_or_path=model_name),
+            tokenizer=tokenizer_config,
         ),
         tokenizer=AutoTokenizer.from_pretrained(model_name),
     )
