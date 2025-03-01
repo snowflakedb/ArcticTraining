@@ -431,19 +431,28 @@ class LlamaAttentionNew(torch.nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
         # [2, 0, -1, 128]
-        #print_rank(f"{hidden_states.shape=}", ranks=[0,3], skip=False)
-        #print_rank(f"{hidden_shape=}", ranks=[0,3], skip=False)
-        #print_rank(f"{self.head_dim=}", ranks=[0,3], skip=False)
-
+        # print_rank(f"{hidden_states.shape=}", ranks=[0,3], skip=False)
+        # print_rank(f"{hidden_shape=}", ranks=[0,3], skip=False)
+        # print_rank(f"{self.head_dim=}", ranks=[0,3], skip=False)
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        print_rank0(f"{query_states.shape=}")
-        print_rank0(f"{key_states.shape=}")
-        print_rank0(f"{value_states.shape=}")
-
+        # print_rank(f"{query_states.shape=}", skip=False)
+        # print_rank(f"{key_states.shape=}", skip=False)
+        # print_rank(f"{value_states.shape=}", skip=False)
+        #query_states = query_states.contiguous()
         cos, sin = position_embeddings
+        # print_rank(f"{cos.shape=}", skip=False)
+        # print_rank(f"{sin.shape=}", skip=False)
+        # cos1 = cos.unsqueeze(1).contiguous()
+        # print_rank(f"{cos1.shape=}", skip=False)
+
+        # q_embed = (query_states * cos1) # + (rotate_half(query_states) * sin)
+
+
+        #exit()
+
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if past_key_value is not None:
@@ -939,6 +948,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         for batch in self.train_batches:
             self.train_batch_idx += 1
 
+            print_rank(f"before gather: : {batch['input_ids'].shape=}", skip=False)
+            print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
+            print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
+                #print_rank0(f"before gather: {k}: {batch[k]=}")
+            #exit()
             self.step(batch)
             if self.early_stop:
                 break

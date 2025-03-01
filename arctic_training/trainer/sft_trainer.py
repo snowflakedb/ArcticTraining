@@ -55,11 +55,14 @@ class SFTTrainer(Trainer):
             loss = outputs.loss
         else:
 
+            if batch["input_ids"].shape != batch["position_ids"].shape:
+                raise ValueError(f'{batch["input_ids"].shape} != {batch["position_ids"].shape} in DataLoader->iter->next, cannot continue with Sequence parallelism')
+
             # gather DL batches into super-batches
-            # XXX: at the moment assuming DL gives us a nice max_length chunks that are already padded
-            # for the general case may need to massage the concatenated DL samples and remove padding and then repad at the end.
+            # Important: DL doesn't always yield max_length batches. Different ranks may have different seqlen and each could be <= max_length (but always divisible by 256)
             from deepspeed.utils import groups
             import torch
+            # XXX: should it be torch.dist? when to use ds dist?
             import deepspeed.comm as dist
             sp_group = groups._get_sequence_parallel_group()
             sp_world_size = groups._get_sequence_parallel_world_size()
@@ -69,7 +72,7 @@ class SFTTrainer(Trainer):
             micro_batches = defaultdict(dict)
             for k in batch.keys():
                 batch[k] = batch[k].to(self.device)
-                #print_rank0(f"before gather: {k}: {batch[k].shape=}")
+                print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
                 #print_rank0(f"before gather: {k}: {batch[k]=}")
                 with torch.no_grad():
                     tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.config.sequence_parallel_size)]
@@ -79,9 +82,9 @@ class SFTTrainer(Trainer):
                     # batch[k] = torch.cat(tensor_list, dim=1)
                     for rank, tensor in enumerate(tensor_list):
                         micro_batches[rank][k] = tensor
-                #print_rank0(f"after gather: {k}: {batch[k].shape=}")
-                #print_rank0(f"after gather: {k}: {batch[k]=}")
-
+                        print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
+                        print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
+            #exit()
             loss_aggregate = 0
             # we need to chunk twice - each time on SP size level
             # - the first time is because we artifically made the seqlen SP-times longer
@@ -97,12 +100,16 @@ class SFTTrainer(Trainer):
 
                 # XXX: probably need to do padding so that all sequence chunks are the same?!
                 import math
-                print_rank0(f"{len(batch['input_ids'][0])=}")
-                seq_length = self.config.data.max_length
+                print_rank0(f"{sub_step_id}: {len(batch['input_ids'][0])=}")
+                seq_length = len(batch['input_ids'][0])
+                #seq_length = self.config.data.max_length
 
-                chunk_len = math.ceil(seq_length / sp_world_size)
-                print_rank0(f"{seq_length=}")
-                print_rank0(f"{chunk_len=}")
+                if seq_length % sp_world_size != 0:
+                    raise ValueError(f"{sub_step_id=}: batch's seqlen={seq_length} isn't divisible by sp-size={sp_world_size}")
+                ##chunk_len = math.ceil(seq_length / sp_world_size)
+                chunk_len = seq_length / sp_world_size
+                print_rank0(f"{sub_step_id=}: {seq_length=}")
+                print_rank0(f"{sub_step_id=}: {chunk_len=}")
 
                 for k in batch.keys():
                     # we are not chunking labels!
@@ -123,18 +130,19 @@ class SFTTrainer(Trainer):
 
                 # because we have to gather logits from all sp ranks we have to do the loss function ourselves
                 # therefore remove labels to avoid an attempt to calculate loss by transformers
-                labels = batch.pop("labels").type(torch.LongTensor)
+                labels = batch.pop("labels")
+                #labels = labels.type(torch.LongTensor)
                 outputs = self.model(**batch, use_cache=False)
 
                 logits = outputs.logits
-                print_rank(f"{torch.norm(logits)=}")
-                print_rank(f"{logits.shape=}")
+                print_rank(f"{sub_step_id=}: {torch.norm(logits)=}")
+                print_rank(f"{sub_step_id=}: {logits.shape=}")
                 #print_rank(f"{logits.dtype=}")
-                print_rank(f"{labels.shape=}")
+                print_rank(f"{sub_step_id=}: {labels.shape=}")
 
                 # XXX: stick into the trainer object
-                sp_group = groups._get_sequence_parallel_group()
-                sp_world_size = groups._get_sequence_parallel_world_size()
+                #sp_group = groups._get_sequence_parallel_group()
+                #sp_world_size = groups._get_sequence_parallel_world_size()
                 # we need the differentiable all_gather, which is the functional version of it
                 import torch.distributed.nn.functional
                 tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)

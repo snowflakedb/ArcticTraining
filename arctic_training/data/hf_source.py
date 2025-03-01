@@ -78,6 +78,27 @@ class UltraChat200K(HFDataSource):
         return split_map.get(split, split)
 
 
+# XXX: need an easier way to create truncated datasets of desired length
+from datasets import Dataset
+from datasets import IterableDataset
+def modify_config_for_truncated_data(self):
+    self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
+    self.config.dataset_name = self.name.removesuffix(  # Set to the real dataset name
+        "-10k"
+    )
+
+
+def sample_data_for_truncated_dataset(self, dataset: IterableDataset) -> Dataset:
+    return Dataset.from_list(list(dataset.take(10000)), features=dataset.features)
+
+
+class UltraChat10k(UltraChat200K):
+    name = "HuggingFaceH4/ultrachat_200k-10k"
+    callbacks = [
+        ("post-init", modify_config_for_truncated_data),
+        ("post-load", sample_data_for_truncated_dataset),
+    ]
+
 class SlimOrca(HFDataSource):
     name = "Open-Orca/SlimOrca"
 

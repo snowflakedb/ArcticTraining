@@ -60,7 +60,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self, split: str, cache_path: Optional[Path] = None) -> DatasetType:
         disable_caching()
         if cache_path is not None and cache_path.exists():
-            logger.info(f"Loading from cache path {cache_path.as_posix()}")
+            logger.info(f"Loading data source from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
         dataset = self.load(self.config, split)
@@ -112,7 +112,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         cache_path_args["_tokenizer_path_or_name"] = (
             self.trainer.config.tokenizer.name_or_path
         )
-        return self.config.model_dump()
+        return cache_path_args
 
     @callback_wrapper("load")
     @abstractmethod

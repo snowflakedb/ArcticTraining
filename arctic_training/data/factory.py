@@ -38,6 +38,7 @@ from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
+from arctic_training.debug import print_rank0, print_rank, exit
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
@@ -84,13 +85,25 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             cache_path = self._get_processed_data_cache_path(data_sources)
             if self.config.use_data_cache and cache_path.exists():
-                logger.info(f"Loading from cache path {cache_path.as_posix()}")
+                logger.info(f"Loading pre-processed data from cache path {cache_path.as_posix()}")
                 return load_from_disk(cache_path.as_posix())
 
             dataset = self.load(data_sources, split=split)
             dataset = self._truncate_data(dataset)
+
+            for i in range(10):
+                for k in dataset[0].keys():
+                    print_rank(f'{i} {k} {dataset[i][k]=}', skip=False)
+            #exit()
+
             if self.config.use_data_cache:
+                logger.info(f"Saving to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
+
+
+            # logger.info(f"Saving to cache path {cache_path.as_posix()}.new")
+            # dataset.save_to_disk(cache_path.as_posix() + ".new")
+            # exit()
 
             return dataset
 
@@ -99,6 +112,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         if self.config.train_eval_split[1] > 0.0:
             training_data, evaluation_data = self.split_data(training_data)
+
+
 
         training_dataloader = self.create_dataloader(training_data)
         evaluation_dataloader = (

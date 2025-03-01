@@ -1,10 +1,57 @@
 import torch.distributed as dist
 import sys
 import torch
+import builtins
+import fcntl
 
 def exit():
     """useful when one wants to debug dump something and exit cleanly fast"""
     sys.exit()
+
+# fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks
+# are used, you will want it off at a cost of interleaved prints from the same host.
+# by default it'll be False to keep things fast, but set it to true when interleaved prints interfere with debug
+#
+# TODO: alternatively could try to point to some temp file on a local NVME drive - but it's hard to tell if say `/tmp` is on the local drive
+USE_PRINTFLOCK = True
+#PRINT_FLOCK_FILE = "/tmp/printflock.lock"
+PRINT_FLOCK_FILE = __file__
+
+def printflock(*args, **kwargs):
+    """
+    This is a wrapper around the built-in Python `print` which calls `flock` before calling
+    `print` and unlocks it immediately after. This wrapper is useful for when each rank needs to
+    print a message without getting it interleaved with prints from other ranks.
+    The lock file is the file this wrapper is defined in.
+    The output order will be random per rank.
+
+    Example:
+        >>> # assuming 4 GPUs
+        >>> world_size = dist.get_world_size()
+        >>> rank = dist.get_rank()
+        >>> printflock(f"This is a very long message from rank {rank}/{world_size}")
+       This is a very long message from rank 0/4
+       This is a very long message from rank 2/4
+       This is a very long message from rank 3/4
+       This is a very long message from rank 1/4
+
+    It can also be used to override normal `print`:
+
+    from printflock import printflock as print
+
+    and then you don't need to change anything in your code.
+    """
+
+#    with open(__file__, "r") as fh:
+    with open(PRINT_FLOCK_FILE, "r") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            builtins.print(*args, **kwargs)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+if USE_PRINTFLOCK:
+    print = printflock
 
 def print_rank(*msg, skip=True, ranks=None):
     """print something on all global ranks with [rank] prefix.
