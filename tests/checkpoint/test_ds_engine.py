@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from utils import models_are_equal
-
 from arctic_training.config.trainer import get_config
 from arctic_training.registry import get_registered_trainer
+
+from .utils import models_are_equal
 
 
 def test_ds_engine(tmp_path, model_name):
