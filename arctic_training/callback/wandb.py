@@ -16,6 +16,7 @@
 from typing import TYPE_CHECKING
 
 import torch
+
 import wandb
 
 if TYPE_CHECKING:

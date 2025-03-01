@@ -59,7 +59,7 @@ This approach also makes the code more readable by someone who didn't write it.
 2. don't issue warnings when a default value is used, this is the whole point of defaults - we just need to make sure they are well documented. The default value could be a function arg default, but it can also be a bigger scope default - e.g. which sub-system was deployed since the user didn't specify any preference. `log.info` is probably OK for that purpose.
 
 
-## Testing 
+## Testing
 
 In general it's recommended to read:
 
@@ -82,4 +82,3 @@ Identical to models we need for datasets to take a few seconds to download and l
 Here is how to [create tiny datasets](https://github.com/stas00/ml-engineering/blob/c5306e5aa52e9729616c954a1a5aa02784bf612c/debug/make-tiny-models-tokenizers-datasets.md#making-a-tiny-dataset)
 
 Then upload it to the HF hub (public permissions) and use it in the tests.
-
