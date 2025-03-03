@@ -39,7 +39,8 @@ def log_wandb_loss(self: "Trainer", loss: torch.Tensor) -> torch.Tensor:
             {
                 "train/loss": loss,
                 "train/lr": self.model.lr_scheduler.get_last_lr()[0],
-                "global_step": self.global_step,
+                "global_step": self.model.global_steps,
+                "step": self.model.global_steps,
             }
         )
     return loss

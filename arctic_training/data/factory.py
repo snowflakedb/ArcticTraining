@@ -36,6 +36,9 @@ from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
+from arctic_training.debug import print_rank0, print_rank, exit
+from arctic_training.logging import logger
+from arctic_training.utils import local_main_process_first, is_local_main_process
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
@@ -75,20 +78,55 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.config = config
 
     def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
+        """
+            Returns train and eval dataloaders. Either or both could be None.
+        """
         def get_data_split(split: str) -> Optional[DatasetType]:
-            data_sources = self._get_data_sources(split=split)
 
-            cache_path = self.cache_path(sources=data_sources, split=split)
-            if self.config.use_data_cache and cache_path.exists():
-                return load_from_disk(cache_path.as_posix())
+            # XXX: currently our data cache is local to each node, but to be generic this needs more work as we want:
+            # - local_main_process_first if the cache is local per node
+            # - global_main_process_first if the cache is on the shared fs (all nodes see it)
+            # perhaps we could auto-detect if the cache path is on the shared fs vs local and do the right thing based on that?
+            with local_main_process_first():
+                data_sources = self._get_data_sources(split=split)
 
-            if len(data_sources) == 0:
-                return None
+                cache_path = self.cache_path(sources=data_sources, split=split)
+                if self.config.use_data_cache and cache_path.exists():
+                    logger.info(f"Loading pre-processed data from cache path {cache_path.as_posix()}")
+
+                    # dataset = load_from_disk(cache_path.as_posix())
+                    # for i in range(10):
+                    #     data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
+                    #     print_rank(f'cached loading data dump {data}', skip=False)
+                    # return dataset
+
+                    return load_from_disk(cache_path.as_posix())
+
+                if len(data_sources) == 0:
+                    return None
+
             dataset = self.load(data_sources, split=split)
             dataset = self._truncate_data(dataset)
 
-            if self.config.use_data_cache:
+            for i in range(10):
+                data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
+                print_rank(f'non-cached loading data dump {data}', skip=False)
+            #exit()
+
+            # Must save the cache only once from rank 0 (local or global depending on the type of the fs cache resides on see the notes at the top of get_data_split) and only if it doesn't already exist
+            # XXX: has to match `with ...main_process_first` above should it change to global instead of local
+            if is_local_main_process() and self.config.use_data_cache and not cache_path.exists():
+                logger.info(f"Saving pre-processed data to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
+
+            for i in range(10):
+                data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
+                print_rank(f'after saving non-cached loading data dump {data}', skip=False)
+
+            # logger.info(f"Saving to cache path {cache_path.as_posix()}.new")
+            # dataset.save_to_disk(cache_path.as_posix() + ".new")
+            # exit()
+
             return dataset
 
         training_data = get_data_split("train")
