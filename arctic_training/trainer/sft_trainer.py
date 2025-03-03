@@ -81,7 +81,6 @@ class SFTTrainer(Trainer):
 
             # XXX: if using all_gather_object we can gather the whole batch at once and not per-key! so can drop the loop for that approach
             for k in batch.keys():
-                print("-------------------------------------------")
                 batch[k] = batch[k].to(self.device)
                 print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
                 #print_rank0(f"before gather: {k}: {batch[k]=}")
@@ -93,7 +92,6 @@ class SFTTrainer(Trainer):
                     # gathering on the data dimension
                     # will be concatenating and later splitting again for the more general case
                     # batch[k] = torch.cat(tensor_list, dim=1)
-                    print("-------------")
                     for rank, tensor in enumerate(tensor_list):
                         micro_batches[rank][k] = tensor
                         print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
@@ -134,8 +132,6 @@ class SFTTrainer(Trainer):
                         print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
                         batch[k] = batch[k].to(self.device)
 
-
-
                     #print_rank0(f"after sp: {k}: {batch[k].shape=}")
                     #print_rank0(f"after sp: {k}: {batch[k]=}")
                 #outputs = self.model(**batch, use_cache=False)
@@ -172,7 +168,9 @@ class SFTTrainer(Trainer):
                 loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
                 print_rank0(f"intermediary {loss.item()*sp_world_size=}")
 
-
+                # optimize memory
+                del logits
+                del labels
 
                 #loss = self.loss(batch)
                 loss_aggregate += loss.item()*sp_world_size
@@ -182,6 +180,7 @@ class SFTTrainer(Trainer):
 
                 avg_loss = self.model.backward(loss)
                 print_rank0(f"zero loss: {avg_loss}")
+
 
                 # from deepspeed.utils import safe_get_full_grad
                 # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
@@ -195,6 +194,8 @@ class SFTTrainer(Trainer):
 
             self.model.set_gradient_accumulation_boundary(True)
 
+        # XXX: temp to measure the real memory usage
+        # gc_empty_cuda_cache()
 
         return loss
 

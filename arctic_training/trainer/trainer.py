@@ -109,6 +109,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         attn_head_count (int): total number of attention heads
         kv_head_count (int): total number of kv heads
         process_group (dist.ProcessGroup): Ulysses process group
+        seq_length_is_variable (bool): whether global seqlen may change between batches
     """
 
     def __init__(
@@ -120,7 +121,8 @@ class UlyssesAttentionHF(torch.nn.Module):
         attn_head_count: int,
         attn_head_size: int,
         kv_head_count: int,
-        process_group: dist.ProcessGroup
+        process_group: dist.ProcessGroup,
+        seq_length_is_variable: bool = False,
     ) -> None:
 
         super(UlyssesAttentionHF, self).__init__()
@@ -132,6 +134,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.local_seq_length = local_seq_length
         self.global_seq_length = global_seq_length
         self.batch_size = batch_size
+        self.seq_length_is_variable = seq_length_is_variable
 
         self.attn_head_size = attn_head_size
         self.attn_head_count = attn_head_count
@@ -164,10 +167,6 @@ class UlyssesAttentionHF(torch.nn.Module):
                                                 batch_size, \
                                                 kv_head_count, \
                                                 attn_head_size])
-        # self.required_input_shape = torch.Size([local_seq_length, \
-        #                                         batch_size, \
-        #                                         attn_head_count, \
-        #                                         attn_head_size])
 
         # [sl bs em_l]
         self.required_context_shape = torch.Size([global_seq_length, \
@@ -256,12 +255,21 @@ class UlyssesAttentionHF(torch.nn.Module):
         """
         # HF incoming shapes are:
         # [batch_size, num_heads, seqlen, head_size]
-        # UA expects:
+        # UlyssesAttentionHF expects:
         # [seqlen, batch_size, num_heads, head_size]
         # print_rank0(f"{query.shape=}")
         # print_rank0(f"{key.shape=}")
         # print_rank0(f"{value.shape=}")
         # print_rank0(f"{self.required_input_shape=}")
+        #print(f"XXXX {query.shape=}")
+        current_local_seq_length = query.shape[2]
+        if self.seq_length_is_variable and current_local_seq_length != self.required_query_shape[0]:
+            self.local_seq_length = current_local_seq_length
+            self.global_seq_length = current_local_seq_length * self.world_size
+            # update the required seqlen shapes
+            self.required_query_shape = torch.Size([self.local_seq_length] + list(self.required_query_shape)[1:])
+            self.required_key_value_shape = torch.Size([self.local_seq_length] + list(self.required_key_value_shape)[1:])
+            self.required_context_shape = torch.Size([self.global_seq_length] + list(self.required_context_shape)[1:])
 
         print_rank0(f"forward 1 {query.shape=}")
         print_rank0(f"forward 1 {key.shape=}")
@@ -705,7 +713,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 attn_head_count=hf_model_config.num_attention_heads,
                 attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
                 kv_head_count=hf_model_config.num_key_value_heads,
-                process_group = mpu.get_sequence_parallel_group(),
+                process_group=mpu.get_sequence_parallel_group(),
+                seq_length_is_variable=True,
             )
 
             def uattn_wrapper(
@@ -756,7 +765,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
-
 
         self.checkpoint_engines = [
             engine(self) for engine in self.config.checkpoint_engines

@@ -3,10 +3,19 @@ import sys
 import torch
 import builtins
 import fcntl
+import gc
 
 def exit():
     """useful when one wants to debug dump something and exit cleanly fast"""
     sys.exit()
+
+def gc_empty_cuda_cache():
+    """ runs gc.collect and empties cuda cache.
+        this is useful when wanting to test real memory usage
+        do not use in production - only during debug - as it can be very expensive
+    """
+    gc.collect()
+    torch.cuda.empty_cache()
 
 # fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks
 # are used, you will want it off at a cost of interleaved prints from the same host.
@@ -16,6 +25,9 @@ def exit():
 USE_PRINTFLOCK = True
 #PRINT_FLOCK_FILE = "/tmp/printflock.lock"
 PRINT_FLOCK_FILE = __file__
+
+# to quickly temporarily turn off all debugging w/o needing to comment it out - set this to True
+DISABLE_DEBUG = True
 
 def printflock(*args, **kwargs):
     """
@@ -61,7 +73,7 @@ def print_rank(*msg, skip=True, ranks=None):
     print_rank(*msg, ranks=[0,3]):
 
     """
-    if skip == True:
+    if DISABLE_DEBUG or skip:
         return
     global_rank = dist.get_rank()
     if ranks is not None and global_rank not in ranks:
@@ -69,7 +81,7 @@ def print_rank(*msg, skip=True, ranks=None):
     print(f"[{global_rank}]", *msg)
 
 def print_rank0(*msg, skip=True):
-    if skip == True:
+    if DISABLE_DEBUG or skip:
         return
     """print something only on rank 0"""
     global_rank = dist.get_rank()
