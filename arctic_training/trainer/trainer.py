@@ -50,6 +50,7 @@ from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor
+from arctic_training.utils import get_local_rank
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
@@ -645,6 +646,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
 
+        # from arctic_training.utils import get_local_rank
+        # self.local_rank = get_local_rank()
+        # if self.local_rank == 0:
+        #     data_factory = self.config.data.factory(self)
+        # dist.barrier()
+        # if self.local_rank != 0:
+        #     data_factory = self.config.data.factory(self)
+
+
+
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
@@ -947,6 +958,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
+            print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx}", skip=False)
 
             print_rank(f"before gather: : {batch['input_ids'].shape=}", skip=False)
             print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)

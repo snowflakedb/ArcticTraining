@@ -150,8 +150,8 @@ class DataCollatorForCausalLM:
                 # print(f'{len(example["input_ids"])=}')
                 # print(f'{len(example["position_ids"])=}')
                 # XXX: should labels match as well?
-                if len(example["input_ids"]) != len(example["position_ids"]):
-                    raise ValueError(f'got a borked batch {len(example["input_ids"])=} != {len(example["position_ids"])=}')
+                if not (len(example["input_ids"]) == len(example["position_ids"]) == len(example["labels"])):
+                    raise ValueError(f'got a borked batch {len(example["input_ids"])=} != {len(example["position_ids"])=} != {len(example["labels"])=} ')
                     #print(f'mismatch {len(example["input_ids"])=} != {len(example["position_ids"])=}')
                     #print(f'mismatch {example["input_ids"]=}')
                     #print(f'mismatch {example["position_ids"]=}')
@@ -173,9 +173,10 @@ class DataCollatorForCausalLM:
 
         print_rank(f"   {input_ids.shape=}", skip=False)
         print_rank(f"{position_ids.shape=}", skip=False)
+        print_rank(f"      {labels.shape=}", skip=False)
         # XXX: Added a similar check earlier - not sure if the earlier one is a better place
-        if input_ids.shape != position_ids.shape:
-            raise ValueError(f"{input_ids.shape=} != {position_ids.shape} in DataLoader, can't continue")
+        if not (input_ids.shape == position_ids.shape == labels.shape):
+            raise ValueError(f"{input_ids.shape=} != {position_ids.shape} != {labels.shape=} in DataLoader, can't continue")
             #exit()
 
         return {

@@ -13,48 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from types import SimpleNamespace
+from pathlib import Path
+from typing import List
 
 import pytest
-from transformers import AutoTokenizer
 
-from arctic_training.data.sft_factory import SFTDataConfig
-
-
-@pytest.fixture(scope="function")
-def sft_data_factory(training_sources):
-    config_dict = {
-        "type": "sft",
-        "sources": training_sources,
-    }
-    data_config = SFTDataConfig(**config_dict)
-
-    # We just need an object that specifies the tokenizer and micro batch size
-    # for SFT data loading. We don't need to actually run the trainer.
-    model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
-    dummy_trainer = SimpleNamespace(
-        config=SimpleNamespace(
-            micro_batch_size=1,
-            data=data_config,
-            tokenizer=SimpleNamespace(name_or_path=model_name),
-        ),
-        tokenizer=AutoTokenizer.from_pretrained(model_name),
-    )
-
-    return data_config.factory(dummy_trainer)
+from .utils import create_sft_data_factory
 
 
 @pytest.mark.parametrize(
     "training_sources, expected_sum",
     [
-        (["HuggingFaceH4/ultrachat_200k-truncated"], 225529637),
+        (["HuggingFaceH4/ultrachat_200k-truncated"], 487103798),
         (
             ["HuggingFaceH4/ultrachat_200k-truncated", "Open-Orca/SlimOrca-truncated"],
-            355730323,
+            591408621,
         ),
     ],
 )
-def test_generated_data(sft_data_factory, expected_sum):
+def test_generated_data(
+    model_name: str, training_sources: List[str], expected_sum: int, tmp_path: Path
+):
+    sft_data_factory = create_sft_data_factory(
+        model_name=model_name, sources=training_sources, cache_dir=tmp_path
+    )
     training_dataloader, _ = sft_data_factory()
 
     # Quick check that the data is the same as expected. The sum value was
@@ -67,3 +49,27 @@ def test_generated_data(sft_data_factory, expected_sum):
     assert (
         tensor_sum == expected_sum
     ), f"Incorrect tensor sum: {tensor_sum}. Expected {expected_sum}"
+
+
+def test_sft_factory_cache_path_uniqueness(model_name: str, tmp_path: Path):
+    data_sources = [
+        "HuggingFaceH4/ultrachat_200k-truncated",
+        "Open-Orca/SlimOrca-truncated",
+    ]
+    data_factory_1 = create_sft_data_factory(
+        model_name=model_name, sources=data_sources, cache_dir=tmp_path
+    )
+
+    data_sources = data_sources[:1]
+    data_factory_2 = create_sft_data_factory(
+        model_name=model_name, sources=data_sources, cache_dir=tmp_path
+    )
+
+    cache_path_1 = data_factory_1.cache_path(
+        data_factory_1._get_data_sources(split="train"), "train"
+    )
+    cache_path_2 = data_factory_2.cache_path(
+        data_factory_2._get_data_sources(split="train"), "train"
+    )
+
+    assert cache_path_1 != cache_path_2, "Cache paths were not unique"

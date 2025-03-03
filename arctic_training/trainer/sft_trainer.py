@@ -47,6 +47,7 @@ class SFTTrainer(Trainer):
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
+
         import torch
         if self.config.sequence_parallel_size == 1:
             # XXX: weird
@@ -55,8 +56,9 @@ class SFTTrainer(Trainer):
             loss = outputs.loss
         else:
 
-            if batch["input_ids"].shape != batch["position_ids"].shape:
-                raise ValueError(f'{batch["input_ids"].shape} != {batch["position_ids"].shape} in DataLoader->iter->next, cannot continue with Sequence parallelism')
+            # ensure shapes are correct
+            if not (batch["input_ids"].shape == batch["position_ids"].shape == batch["labels"].shape):
+                raise ValueError(f'Borked batch {batch["input_ids"].shape=} != {batch["position_ids"].shape=} != {batch["labels"].shape=}) in DataLoader->iter->next, cannot continue with Sequence parallelism')
 
             # gather DL batches into super-batches
             # Important: DL doesn't always yield max_length batches. Different ranks may have different seqlen and each could be <= max_length (but always divisible by 256)
@@ -70,19 +72,32 @@ class SFTTrainer(Trainer):
 
             from collections import defaultdict
             micro_batches = defaultdict(dict)
+            # Efficient gathering of batch inputs across ranks:
+            # The problem is that our DL doesn't guarantee the same seqlen on all ranks and may give, 3x 1024 and 1x 768 on 4 gpus for max_length 1024. so 3 options we have to be able to gather batches are:
+            # 1. use all_gather_object - which allows different shapes - but potentially introducing an undesired overhead - 2x pickle calls
+            # 2. use all_gather and change DL pad to make sure that all ranks always get the same input shape - this creates its own overhead since if we say have ranks with seqlen 512, 768, 1024, 1024 - now we will need to process 4x 1024 seqlens
+            # 3. use all_gather and post gathering truncate tensors to their intended length - another overhead of allocating and truncating tensors
+            # using approach (1) for now but might want to benchmark later the other 2 approaches
+
+            # XXX: if using all_gather_object we can gather the whole batch at once and not per-key! so can drop the loop for that approach
             for k in batch.keys():
+                print("-------------------------------------------")
                 batch[k] = batch[k].to(self.device)
                 print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
                 #print_rank0(f"before gather: {k}: {batch[k]=}")
                 with torch.no_grad():
-                    tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.config.sequence_parallel_size)]
-                    dist.all_gather(tensor_list, batch[k], group=sp_group)
+                    # tensor_list = [torch.zeros_like(batch[k]) for _ in range(sp_world_size)]
+                    # dist.all_gather(tensor_list, batch[k], group=sp_group)
+                    tensor_list = [None for _ in range(sp_world_size)]
+                    torch.distributed.all_gather_object(tensor_list, batch[k])
                     # gathering on the data dimension
                     # will be concatenating and later splitting again for the more general case
                     # batch[k] = torch.cat(tensor_list, dim=1)
+                    print("-------------")
                     for rank, tensor in enumerate(tensor_list):
                         micro_batches[rank][k] = tensor
                         print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
+                        #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].device=}", skip=False)
                         print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
             #exit()
             loss_aggregate = 0
@@ -92,8 +107,7 @@ class SFTTrainer(Trainer):
 
             self.model.set_gradient_accumulation_boundary(False)
 
-
-            for sub_step_id in range(self.config.sequence_parallel_size):
+            for sub_step_id in range(sp_world_size):
                 batch = micro_batches[sub_step_id]
 
                 print_rank0(batch)
@@ -107,16 +121,20 @@ class SFTTrainer(Trainer):
                 if seq_length % sp_world_size != 0:
                     raise ValueError(f"{sub_step_id=}: batch's seqlen={seq_length} isn't divisible by sp-size={sp_world_size}")
                 ##chunk_len = math.ceil(seq_length / sp_world_size)
-                chunk_len = seq_length / sp_world_size
+                chunk_len = int(seq_length / sp_world_size)
                 print_rank0(f"{sub_step_id=}: {seq_length=}")
                 print_rank0(f"{sub_step_id=}: {chunk_len=}")
 
                 for k in batch.keys():
                     # we are not chunking labels!
                     if k in ["input_ids", "position_ids"]:
+                        print_rank(f"SLICING {k} {chunk_len=}: {sp_rank=}", skip=False)
                         batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
                     else:
+                        print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
                         batch[k] = batch[k].to(self.device)
+
+
 
                     #print_rank0(f"after sp: {k}: {batch[k].shape=}")
                     #print_rank0(f"after sp: {k}: {batch[k]=}")
@@ -150,7 +168,8 @@ class SFTTrainer(Trainer):
                 logits = torch.cat(tensor_list, dim=1)
                 print_rank(f"after cat: {logits.shape=}")
 
-                loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size) #/ sp_world_size
+                print_rank(f"LOSS {logits.shape=}: {labels.shape=}", skip=False)
+                loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
                 print_rank0(f"intermediary {loss.item()*sp_world_size=}")
 
 
@@ -170,9 +189,9 @@ class SFTTrainer(Trainer):
 
                 # #w = self.model.module.model.layers[0].self_attn.q_proj.weight
                 # w = self.model.module.lm_head.weight
-                from deepspeed.utils import safe_get_full_grad
-                print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
-                print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+                #from deepspeed.utils import safe_get_full_grad
+                #print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+                #print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
 
             self.model.set_gradient_accumulation_boundary(True)
 
