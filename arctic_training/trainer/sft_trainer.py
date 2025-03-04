@@ -27,7 +27,7 @@ from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
-from arctic_training.debug import print_rank0, print_rank, exit
+from arctic_training.debug import print_rank0, print_rank, exit, see_memory_usage
 
 def to_device(batch: Dict, device: str) -> Dict:
     output = {}
@@ -79,6 +79,8 @@ class SFTTrainer(Trainer):
             # 3. use all_gather and post gathering truncate tensors to their intended length - another overhead of allocating and truncating tensors
             # using approach (1) for now but might want to benchmark later the other 2 approaches
 
+            see_memory_usage("before gathering", force=True)
+
             # XXX: if using all_gather_object we can gather the whole batch at once and not per-key! so can drop the loop for that approach
             for k in batch.keys():
                 batch[k] = batch[k].to(self.device)
@@ -103,12 +105,14 @@ class SFTTrainer(Trainer):
             # - the first time is because we artifically made the seqlen SP-times longer
             # - the second time is because of the Ulysses algorithm
 
+            see_memory_usage("after gathering", force=True)
             self.model.set_gradient_accumulation_boundary(False)
 
             for sub_step_id in range(sp_world_size):
                 batch = micro_batches[sub_step_id]
 
-                print_rank0(batch)
+                see_memory_usage(f"{sub_step_id=} start", force=True)
+                #print_rank0(batch)
 
                 # XXX: probably need to do padding so that all sequence chunks are the same?!
                 import math
@@ -136,6 +140,7 @@ class SFTTrainer(Trainer):
                     #print_rank0(f"after sp: {k}: {batch[k]=}")
                 #outputs = self.model(**batch, use_cache=False)
                 #loss = outputs.loss
+                see_memory_usage(f"{sub_step_id=} after chunking", force=True)
 
                 # XXX: this would be the same not just for SFT so probably should abstract it away
                 from deepspeed.utils import groups
@@ -146,13 +151,17 @@ class SFTTrainer(Trainer):
                 # therefore remove labels to avoid an attempt to calculate loss by transformers
                 labels = batch.pop("labels")
                 #labels = labels.type(torch.LongTensor)
+
+                see_memory_usage(f"{sub_step_id=} before forward", force=True)
+
                 outputs = self.model(**batch, use_cache=False)
+                see_memory_usage(f"{sub_step_id=} after forward", force=True)
 
                 logits = outputs.logits
-                print_rank(f"{sub_step_id=}: {torch.norm(logits)=}")
-                print_rank(f"{sub_step_id=}: {logits.shape=}")
+                #print_rank(f"{sub_step_id=}: {torch.norm(logits)=}")
+                #print_rank(f"{sub_step_id=}: {logits.shape=}")
                 #print_rank(f"{logits.dtype=}")
-                print_rank(f"{sub_step_id=}: {labels.shape=}")
+                #print_rank(f"{sub_step_id=}: {labels.shape=}")
 
                 # XXX: stick into the trainer object
                 #sp_group = groups._get_sequence_parallel_group()
@@ -162,11 +171,15 @@ class SFTTrainer(Trainer):
                 tensor_list = torch.distributed.nn.functional.all_gather(logits, sp_group)
                 # concatenate on the seqlen dimension
                 logits = torch.cat(tensor_list, dim=1)
+                del tensor_list
                 print_rank(f"after cat: {logits.shape=}")
+                see_memory_usage(f"{sub_step_id=} after cat", force=True)
 
-                print_rank(f"LOSS {logits.shape=}: {labels.shape=}", skip=False)
+                #print_rank(f"LOSS {logits.shape=}: {labels.shape=}", skip=False)
+
                 loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
-                print_rank0(f"intermediary {loss.item()*sp_world_size=}")
+                #print_rank0(f"intermediary {loss.item()*sp_world_size=}")
+                see_memory_usage(f"{sub_step_id=} after loss", force=True)
 
                 # optimize memory
                 del logits
@@ -180,6 +193,7 @@ class SFTTrainer(Trainer):
 
                 avg_loss = self.model.backward(loss)
                 print_rank0(f"zero loss: {avg_loss}")
+                see_memory_usage(f"{sub_step_id=} after backward", force=True)
 
 
                 # from deepspeed.utils import safe_get_full_grad

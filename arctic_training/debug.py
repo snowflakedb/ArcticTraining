@@ -1,21 +1,70 @@
+
+# deepspeed or
 import torch.distributed as dist
 import sys
 import torch
 import builtins
 import fcntl
 import gc
+import pynvml
+import psutil
+
+from deepspeed.accelerator import get_accelerator
+from arctic_training.logging import logger
+
+torch_memory_reserved = get_accelerator().memory_reserved
+torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
 def exit():
     """useful when one wants to debug dump something and exit cleanly fast"""
     sys.exit()
 
-def gc_empty_cuda_cache():
+def gc_empty_accelerator_cache():
     """ runs gc.collect and empties cuda cache.
         this is useful when wanting to test real memory usage
         do not use in production - only during debug - as it can be very expensive
     """
     gc.collect()
+    get_accelerator().empty_cache()
+
+def see_memory_usage(message, force=False):
+    if not force:
+        return
+    if dist.is_initialized() and not dist.get_rank() == 0:
+        return
+
+    # python doesn't do real-time garbage collection so do it explicitly to get the correct RAM reports
+    gc.collect()
+
+    # XXX: I think torch.cuda.empty_cache() needs to be called here after gc.collect! (this is the deepspeed version still)
     torch.cuda.empty_cache()
+
+    # collect raw memory usage outside pytorch
+    pynvml.nvmlInit()
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
+    memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    pynvml.nvmlShutdown()
+    nv_mem = memory_info.used
+
+    vm_stats = psutil.virtual_memory()
+    used_GB = round(((vm_stats.total - vm_stats.available) / (1024**3)), 2)
+
+    accelerator_mem_str = " | ".join([
+        f"MA {round(get_accelerator().memory_allocated() / (1024 * 1024 * 1024),2):0.2f} GB",
+        f"Max_MA {round(get_accelerator().max_memory_allocated() / (1024 * 1024 * 1024),2):0.2f} GB",
+        f"CA {round(torch_memory_reserved() / (1024 * 1024 * 1024),2):0.2f} GB",
+        f"Max_CA {round(torch_max_memory_reserved() / (1024 * 1024 * 1024),2):0.2f} GB",
+        f"NV {round(nv_mem / (1024 * 1024 * 1024),2):0.2f} GB",
+    ])
+    cpu_mem_str = f"CPU Virtual Memory:  used = {used_GB} GB, percent = {vm_stats.percent}%"
+
+    print(message)
+    print(" | ".join([accelerator_mem_str, cpu_mem_str]))
+
+    # get the peak memory to report correct data, so reset the counter for the next call
+    get_accelerator().reset_peak_memory_stats()
+
 
 # fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks
 # are used, you will want it off at a cost of interleaved prints from the same host.
@@ -49,7 +98,7 @@ def printflock(*args, **kwargs):
 
     It can also be used to override normal `print`:
 
-    from printflock import printflock as print
+    from arctictraining.debug import printflock as print
 
     and then you don't need to change anything in your code.
     """

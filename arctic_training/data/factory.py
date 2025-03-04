@@ -108,9 +108,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             dataset = self.load(data_sources, split=split)
             dataset = self._truncate_data(dataset)
 
-            for i in range(10):
-                data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
-                print_rank(f'non-cached loading data dump {data}', skip=False)
+            # for i in range(10):
+            #     data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
+            #     print_rank(f'non-cached loading data dump {data}', skip=False)
             #exit()
 
             # Must save the cache only once from rank 0 (local or global depending on the type of the fs cache resides on see the notes at the top of get_data_split) and only if it doesn't already exist
@@ -119,9 +119,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                 logger.info(f"Saving pre-processed data to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
 
-            for i in range(10):
-                data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
-                print_rank(f'after saving non-cached loading data dump {data}', skip=False)
+            # for i in range(10):
+            #     data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
+            #     print_rank(f'after saving non-cached loading data dump {data}', skip=False)
 
             # logger.info(f"Saving to cache path {cache_path.as_posix()}.new")
             # dataset.save_to_disk(cache_path.as_posix() + ".new")

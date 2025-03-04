@@ -49,7 +49,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor
+from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage
 from arctic_training.utils import get_local_rank
 
 try:
@@ -196,10 +196,11 @@ class UlyssesAttentionHF(torch.nn.Module):
             print_rank0(f"combine: after reshape:   {input.shape=}")
 
             input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
-            print_rank0(f"combine: after rearrange: {input.shape=}")
+            print_rank0(f"combine: after rearrange: {input.shape=}", skip=False)
 
             output = _DimZeroAllToAll.apply(self.process_group, input)
-            print_rank0(f"combine: after all2all:   {output.shape=}")
+            #output = input
+            print_rank0(f"combine: after all2all:   {output.shape=}", skip=False)
 
             # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
@@ -225,9 +226,10 @@ class UlyssesAttentionHF(torch.nn.Module):
                             self.batch_size, \
                             self.attn_head_size * self.attn_head_count // self.world_size]).contiguous()
 
-        print_rank0(f"partition: after reshape:   {input.shape=}")
+        print_rank0(f"partition: after reshape:   {input.shape=}", skip=False)
         output = _DimZeroAllToAll.apply(self.process_group, input)
-        print_rank0(f"partition: after all2all:   {output.shape=}")
+        #output = input
+        print_rank0(f"partition: after all2all:   {output.shape=}", skip=False)
         output = rearrange(output, 'ws sl_l bs em_l -> sl_l bs ws em_l')
         #output = rearrange(output, 'ws sl_l bs ... -> sl_l bs ws ...')
         print_rank0(f"partition: after rearrange: {output.shape=}")
@@ -850,9 +852,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         this method.
         """
 
-        import deepspeed.comm as dist
+        #import deepspeed.comm as dist
         # import q
-        from deepspeed.utils import groups
+        #from deepspeed.utils import groups
         # q(self.global_rank)
         # print_rank0(f"{groups._get_sequence_parallel_group()=}")
         # print_rank0(f"{groups._get_sequence_parallel_rank()=}")
@@ -876,6 +878,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # if self.global_rank == 0:
         #     print_rank0(batch)
 
+        see_memory_usage("before forward", force=True)
+
         self.model.train()
         if self.config.sequence_parallel_size == 1:
         #     avg_loss = self.model.backward(loss)
@@ -885,8 +889,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         else:
             # sp will do backward inside loss
             loss = self.loss(batch)
+        see_memory_usage("after backward", force=True)
 
         self.model.step()
+        see_memory_usage("after step", force=True)
+        exit()
 
             # # should loss be averaged over sp sub-steps and logged as such?
             # loss = loss_aggregate / sp_world_size
