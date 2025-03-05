@@ -235,11 +235,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             // self.config.gradient_accumulation_steps
         )
 
-    @property
-    def warmup_steps(self) -> int:
-        """Number of warmup steps."""
-        return int(self.config.scheduler.warmup_ratio * self.training_horizon)
-
     @callback_wrapper("loss")
     @abstractmethod
     def loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
