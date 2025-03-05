@@ -337,11 +337,13 @@ class DPODataFactory(DataFactory):
         return row
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
+        # generator = torch.Generator()
+        # generator.manual_seed(42)
         return DataLoader(
             dataset,
             collate_fn=DataCollatorForPref(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=RandomSampler(dataset, generator=generator),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

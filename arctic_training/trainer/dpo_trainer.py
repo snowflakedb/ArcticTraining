@@ -17,9 +17,11 @@ from typing import Dict
 from typing import Tuple
 from typing import Union
 from typing import cast
+from typing import Any
 
 import deepspeed
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from pydantic import ValidationInfo
 from pydantic import field_validator
@@ -36,6 +38,10 @@ from arctic_training.registry import get_registered_model_factory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
+from arctic_training.callback.logging import post_loss_log_cb
+from arctic_training.callback.wandb import init_wandb_project_cb
+from arctic_training.callback.wandb import log_wandb_loss_cb
+from arctic_training.callback.wandb import teardown_wandb_cb
 
 
 def to_device(batch: Dict, device: str) -> Dict:
@@ -79,12 +85,33 @@ def get_logprobs(
 
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
 
+def get_eval_ds_config(stage: int = 0) -> Dict[str, Any]:
+
+    data_type = "bfloat16"
+    dtype_config = {"enabled": True}
+    zero_opt_dict = {
+        "stage": stage,
+        "stage3_param_persistence_threshold": 1e4,
+        "memory_efficient_linear": False,
+    }
+    return {
+        "train_batch_size": 32,
+        "train_micro_batch_size_per_gpu": 4,
+        "steps_per_print": 10,
+        "zero_optimization": zero_opt_dict,
+        data_type: dtype_config,
+        "gradient_clipping": 1.0,
+        "prescale_gradients": False,
+        "wall_clock_breakdown": False,
+    }
+
 
 class DPOTrainerConfig(TrainerConfig):
     ref_model: ModelConfig
     beta: float
     ignore_label_index: int = -100
     label_smoothing: float = 0.0
+    reference_model_deepspeed: Dict = {}
     """ Model configuration. """
 
     @field_validator("ref_model", mode="before")
@@ -105,12 +132,24 @@ def init_ref_model(self: "DPOTrainer") -> None:
     ref_model_factory = self.config.ref_model.factory(
         trainer=self, model_config=self.config.ref_model
     )  # Be explicit about which model config to use
-    self.ref_model = ref_model_factory()
-    self.ref_model, *_ = deepspeed.initialize(
-        model=self.model,
-        config=self.config.deepspeed,
+    if self.config.deepspeed["zero_optimization"]["stage"] == 3:
+            ds_stage = 3
+    else:
+        ds_stage = 0
+    self.config.reference_model_deepspeed = get_eval_ds_config(stage=ds_stage)
+
+    self.config.reference_model_deepspeed["train_micro_batch_size_per_gpu"] = (
+        self.config.deepspeed["train_micro_batch_size_per_gpu"]
+    )
+    self.config.reference_model_deepspeed["train_batch_size"] = (
+        self.config.deepspeed["train_batch_size"]
     )
 
+    self.ref_model = ref_model_factory()
+    # wrap the model with deepspeed
+    self.ref_model, *_ = deepspeed.initialize(
+        model=self.ref_model, config=self.config.reference_model_deepspeed
+    )
 
 class DPOTrainer(Trainer):
     name = "dpo"
@@ -122,7 +161,12 @@ class DPOTrainer(Trainer):
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: HFSchedulerFactory
     tokenizer_factory: HFTokenizerFactory
-    callbacks = [("post-init", init_ref_model)]
+    callbacks = [("post-init", init_ref_model),
+        post_loss_log_cb,
+        init_wandb_project_cb,
+        log_wandb_loss_cb,
+        teardown_wandb_cb,
+    ]
     ref_model: torch.nn.Module
 
     def forward_model(
@@ -175,11 +219,13 @@ class DPOTrainer(Trainer):
         ref_logratios = ref_chosen_logprobs - ref_rejected_logprobs
 
         logits = pi_logratios - ref_logratios
-
         losses = (
             -F.logsigmoid(self.config.beta * logits) * (1 - self.config.label_smoothing)
-            - F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
+            -F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
         )
+
+        tmp_loss = -F.logsigmoid(self.config.beta * logits)
+        neg_tmp_loss = -F.logsigmoid(-self.config.beta * logits)
 
         chosen_rewards = (
             self.config.beta * (chosen_logprobs - ref_chosen_logprobs).detach()
@@ -195,6 +241,7 @@ class DPOTrainer(Trainer):
         ref_logits, ref_logprobs, _ = self.forward_reference_model(batch)
         logits, logprobs, _ = self.forward_model(batch)
         losses, chosen_rewards, rejected_rewards = self.dpo_loss(logprobs, ref_logprobs)
+
         # This is being dropped. Problem?
         # reward_acc = (chosen_rewards > rejected_rewards).float().mean()
         # chosen_rewards.mean(), rejected_rewards.mean(), reward_acc
