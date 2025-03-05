@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from typing import Any
-from typing import Literal
 
 from torch.optim.lr_scheduler import LambdaLR
 from transformers import get_wsd_schedule
@@ -29,10 +28,7 @@ class WSDSchedulerConfig(SchedulerConfig):
     name: str = "wsd"
     num_warmup_steps: int
     num_decay_steps: int
-    warmup_type: Literal["linear", "cosine", "1-sqrt"] = "linear"
-    decay_type: Literal["linear", "cosine", "1-sqrt"] = "linear"
     min_lr_ratio: float = 0.0
-    num_cycles: float = 0.5
 
 
 class WSDSchedulerFactory(SchedulerFactory):
@@ -40,14 +36,15 @@ class WSDSchedulerFactory(SchedulerFactory):
     config: WSDSchedulerConfig
 
     def create_scheduler(self, optimizer: Any) -> LambdaLR:
+        num_stable_steps = (
+            self.trainer.training_horizon
+            - self.config.num_warmup_steps
+            - self.config.num_decay_steps
+        )
         return get_wsd_schedule(
-            name=self.config.name,
             optimizer=optimizer,
             num_warmup_steps=self.config.num_warmup_steps,
             num_decay_steps=self.config.num_decay_steps,
-            warmup_type=self.config.warmup_type,
-            decay_type=self.config.decay_type,
+            num_stable_steps=num_stable_steps,
             min_lr_ratio=self.config.min_lr_ratio,
-            num_cycles=self.config.num_cycles,
-            num_training_steps=self.trainer.training_horizon,
         )
