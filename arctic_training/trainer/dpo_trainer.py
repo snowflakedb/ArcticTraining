@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
 from typing import Dict
 from typing import Tuple
 from typing import Union
 from typing import cast
-from typing import Any
 
 import deepspeed
 import torch
@@ -26,6 +26,10 @@ import torch.nn.functional as F
 from pydantic import ValidationInfo
 from pydantic import field_validator
 
+from arctic_training.callback.logging import post_loss_log_cb
+from arctic_training.callback.wandb import init_wandb_project_cb
+from arctic_training.callback.wandb import log_wandb_loss_cb
+from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.config.model import ModelConfig
@@ -38,10 +42,6 @@ from arctic_training.registry import get_registered_model_factory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
-from arctic_training.callback.logging import post_loss_log_cb
-from arctic_training.callback.wandb import init_wandb_project_cb
-from arctic_training.callback.wandb import log_wandb_loss_cb
-from arctic_training.callback.wandb import teardown_wandb_cb
 
 
 def to_device(batch: Dict, device: str) -> Dict:
@@ -84,6 +84,7 @@ def get_logprobs(
     ).squeeze(2)
 
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
+
 
 def get_eval_ds_config(stage: int = 0) -> Dict[str, Any]:
 
@@ -133,7 +134,7 @@ def init_ref_model(self: "DPOTrainer") -> None:
         trainer=self, model_config=self.config.ref_model
     )  # Be explicit about which model config to use
     if self.config.deepspeed["zero_optimization"]["stage"] == 3:
-            ds_stage = 3
+        ds_stage = 3
     else:
         ds_stage = 0
     self.config.reference_model_deepspeed = get_eval_ds_config(stage=ds_stage)
@@ -141,15 +142,16 @@ def init_ref_model(self: "DPOTrainer") -> None:
     self.config.reference_model_deepspeed["train_micro_batch_size_per_gpu"] = (
         self.config.deepspeed["train_micro_batch_size_per_gpu"]
     )
-    self.config.reference_model_deepspeed["train_batch_size"] = (
-        self.config.deepspeed["train_batch_size"]
-    )
+    self.config.reference_model_deepspeed["train_batch_size"] = self.config.deepspeed[
+        "train_batch_size"
+    ]
 
     self.ref_model = ref_model_factory()
     # wrap the model with deepspeed
     self.ref_model, *_ = deepspeed.initialize(
         model=self.ref_model, config=self.config.reference_model_deepspeed
     )
+
 
 class DPOTrainer(Trainer):
     name = "dpo"
@@ -161,7 +163,8 @@ class DPOTrainer(Trainer):
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: HFSchedulerFactory
     tokenizer_factory: HFTokenizerFactory
-    callbacks = [("post-init", init_ref_model),
+    callbacks = [
+        ("post-init", init_ref_model),
         post_loss_log_cb,
         init_wandb_project_cb,
         log_wandb_loss_cb,
@@ -221,7 +224,7 @@ class DPOTrainer(Trainer):
         logits = pi_logratios - ref_logratios
         losses = (
             -F.logsigmoid(self.config.beta * logits) * (1 - self.config.label_smoothing)
-            -F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
+            - F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
         )
 
         tmp_loss = -F.logsigmoid(self.config.beta * logits)
