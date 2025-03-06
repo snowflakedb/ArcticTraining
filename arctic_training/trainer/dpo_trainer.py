@@ -21,7 +21,8 @@ from typing import cast
 
 import deepspeed
 import torch
-import torch.distributed as dist
+
+# import torch.distributed as dist
 import torch.nn.functional as F
 from pydantic import ValidationInfo
 from pydantic import field_validator
@@ -227,8 +228,8 @@ class DPOTrainer(Trainer):
             - F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
         )
 
-        tmp_loss = -F.logsigmoid(self.config.beta * logits)
-        neg_tmp_loss = -F.logsigmoid(-self.config.beta * logits)
+        # tmp_loss = -F.logsigmoid(self.config.beta * logits)
+        # neg_tmp_loss = -F.logsigmoid(-self.config.beta * logits)
 
         chosen_rewards = (
             self.config.beta * (chosen_logprobs - ref_chosen_logprobs).detach()
