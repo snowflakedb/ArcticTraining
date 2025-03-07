@@ -39,23 +39,17 @@ class DPODataConfig(DataConfig):
     max_prompt_length: int = 4096
     """ Maximum prompt length of the input sequence. """
 
-    mask_inputs: bool = True
-    """ Whether to mask the input sequence. """
-
-    always_max_length: bool = False
-    """
-    If this is turned on, each batch will be filled up to the max length by
-    appending samples until the total length matches the max length. It might
-    cause the last sample to be truncated.
-    """
-
     dpo_prompt_truncation_mode: str = "keep_start"
+    """
+        Truncation mode to use when the sequence exceeds max_length.
+        Possible values are "keep_end" and "keep_start".
+    """
 
 
 def _adjust_prompt_length(
-    prompt_token,
-    chosen_token,
-    rejected_token,
+    prompt_token: List[int],
+    chosen_token: List[int],
+    rejected_token: List[int],
 ) -> None:
     c_len = len(chosen_token["prompt_input_ids"])
     r_len = len(rejected_token["prompt_input_ids"])
@@ -93,7 +87,7 @@ def add_bos_token_if_needed(
     return tokens
 
 
-def _build_sequence_tokens(tokens, prefix: str) -> Dict:
+def _build_sequence_tokens(tokens: Dict[str, List[int]], prefix: str) -> Dict[str, List[int]]:
     sequence_tokens = {
         f"{prefix}_{k}": tokens[f"prompt_{k}"] + tokens[k]
         for k in ["input_ids", "attention_mask"]
@@ -150,7 +144,7 @@ class DPODataFactory(DataFactory):
     name = "dpo"
     config: DPODataConfig
 
-    def convert_text(self, tokenizer, conversations: List[Dict[str, str]]):
+    def convert_text(self, tokenizer, conversations: List[Dict[str, str]]) -> str:
         chosen_text = tokenizer.apply_chat_template(
             conversation=conversations, tokenize=False
         )
@@ -175,18 +169,17 @@ class DPODataFactory(DataFactory):
                     ex["chosen"],
                     ex["rejected"],
                     self.tokenizer,
-                    mask_inputs=self.config.mask_inputs,
                 )
             },
             num_proc=self.config.num_proc,
             desc="Tokenizing messages",
         )
 
-    def process_prompt(self, tokenizer, prompt_text: str):
+    def process_prompt(self, tokenizer, prompt_text: str) -> Dict[str, List[int]]:
         prompt_ids = tokenizer(prompt_text, add_special_tokens=False)
         return {f"prompt_{k}": v for k, v in prompt_ids.items()}
 
-    def process_answer(self, tokenizer, prompt, answer):
+    def process_answer(self, tokenizer, prompt, answer) -> Dict[str, List[int]]:
         full_tokenized = tokenizer(prompt + answer, add_special_tokens=False)
         prompt_tokenized = tokenizer(prompt, add_special_tokens=False)
         prompt_input_ids = prompt_tokenized["input_ids"]
@@ -283,7 +276,6 @@ class DPODataFactory(DataFactory):
         chosen: List[Dict[str, str]],
         rejected: List[Dict[str, str]],
         tokenizer: PreTrainedTokenizerBase,
-        mask_inputs: bool = True,
     ) -> BatchEncoding:
         """
         Args:

@@ -110,9 +110,16 @@ def get_eval_ds_config(stage: int = 0) -> Dict[str, Any]:
 
 class DPOTrainerConfig(TrainerConfig):
     ref_model: ModelConfig
-    beta: float
+    beta: float = 0.1
+    """Parameter controlling the deviation from the reference model.
+    Higher beta means less deviation from the reference model.
+    """
     ignore_label_index: int = -100
+    """ label value for ignored labels """
     label_smoothing: float = 0.0
+    """Robust DPO label smoothing parameter from the [cDPO](https://ericmitchell.ai/cdpo.pdf) report
+    and [Robust DPO](https://huggingface.co/papers/2403.00409) paper that should be between 0.0 and 0.5.
+    """
     reference_model_deepspeed: Dict = {}
     """ Model configuration. """
 
