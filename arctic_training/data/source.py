@@ -34,7 +34,7 @@ from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.trainer.trainer import Trainer
-
+from arctic_training.utils import global_main_process_first, is_global_main_process
 
 class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base DataSource class for loading training and evaluation data."""
@@ -78,7 +78,8 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                     f" number of shards. Dataset size: {len(dataset)}, number of"
                     f" shards: {self.world_size}"
                 )
-            dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
+            # disable for now as switched to DistributedSampler
+            # dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
             dataset = self.data_factory.process(dataset)
             if len(dataset) < 1:
@@ -87,7 +88,8 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                     f" {self.name} with config {self.config} for split {split}"
                 )
 
-        if self.data_factory.config.use_data_cache:
+        # XXX: need to redesign this better for rank0 to save and then all other ranks just load - same as in the data/factory - instead of each rank processing
+        if is_global_main_process() and self.data_factory.config.use_data_cache:
             dataset.save_to_disk(cache_path.as_posix())
 
         return dataset

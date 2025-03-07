@@ -183,8 +183,8 @@ class UlyssesAttentionHF(torch.nn.Module):
                 local_head_count could be different for k,v vs q if it's not an MHA situation
             """
 
-            print_rank0('')
-            print_rank0(f"combine: before reshape:  {input.shape=}")
+            # print_rank0('')
+            # print_rank0(f"combine: before reshape:  {input.shape=}")
 
             # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
             input = input.reshape([self.local_seq_length, \
@@ -193,18 +193,18 @@ class UlyssesAttentionHF(torch.nn.Module):
                                 local_head_count, \
                                 self.attn_head_size])
 
-            print_rank0(f"combine: after reshape:   {input.shape=}")
+            # print_rank0(f"combine: after reshape:   {input.shape=}")
 
             input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
-            print_rank0(f"combine: after rearrange: {input.shape=}", skip=False)
+            # print_rank0(f"combine: after rearrange: {input.shape=}", skip=False)
 
             output = _DimZeroAllToAll.apply(self.process_group, input)
             #output = input
-            print_rank0(f"combine: after all2all:   {output.shape=}", skip=False)
+            # print_rank0(f"combine: after all2all:   {output.shape=}", skip=False)
 
             # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
-            print_rank0(f"combine: after reshape:   {output.shape=}")
+            # print_rank0(f"combine: after reshape:   {output.shape=}")
 
             # [sl bs hc_l hs]
             return output
@@ -218,7 +218,7 @@ class UlyssesAttentionHF(torch.nn.Module):
             returns output in shape: [sl_l bs em]
         """
 
-        print_rank0(f"partition: before reshape:  {input.shape=}")
+        # print_rank0(f"partition: before reshape:  {input.shape=}")
 
         # [sl bs em_l] -> [ws sl_l bs em_l]
         input = input.reshape([self.world_size, \
@@ -226,17 +226,17 @@ class UlyssesAttentionHF(torch.nn.Module):
                             self.batch_size, \
                             self.attn_head_size * self.attn_head_count // self.world_size]).contiguous()
 
-        print_rank0(f"partition: after reshape:   {input.shape=}", skip=False)
+        # print_rank0(f"partition: after reshape:   {input.shape=}", skip=False)
         output = _DimZeroAllToAll.apply(self.process_group, input)
         #output = input
-        print_rank0(f"partition: after all2all:   {output.shape=}", skip=False)
+        # print_rank0(f"partition: after all2all:   {output.shape=}", skip=False)
         output = rearrange(output, 'ws sl_l bs em_l -> sl_l bs ws em_l')
         #output = rearrange(output, 'ws sl_l bs ... -> sl_l bs ws ...')
-        print_rank0(f"partition: after rearrange: {output.shape=}")
+        # print_rank0(f"partition: after rearrange: {output.shape=}")
 
         # [sl_l bs ws em_l] -> [sl_l bs em]
         output = output.reshape([*output.shape[:2], -1]).contiguous()
-        print_rank0(f"partition: after reshape:   {output.shape=}")
+        # print_rank0(f"partition: after reshape:   {output.shape=}")
 
         # [sl_l bs em]
         return output
@@ -273,19 +273,19 @@ class UlyssesAttentionHF(torch.nn.Module):
             self.required_key_value_shape = torch.Size([self.local_seq_length] + list(self.required_key_value_shape)[1:])
             self.required_context_shape = torch.Size([self.global_seq_length] + list(self.required_context_shape)[1:])
 
-        print_rank0(f"forward 1 {query.shape=}")
-        print_rank0(f"forward 1 {key.shape=}")
-        print_rank0(f"forward 1 {value.shape=}")
+        # print_rank0(f"forward 1 {query.shape=}")
+        # print_rank0(f"forward 1 {key.shape=}")
+        # print_rank0(f"forward 1 {value.shape=}")
 
         query = rearrange(query, 'bs hc sl hs -> sl bs hc hs')
         key = rearrange(key,     'bs hc sl hs -> sl bs hc hs')
         value = rearrange(value, 'bs hc sl hs -> sl bs hc hs')
 
-        print_rank0(f"forward 2 {query.shape=}")
-        print_rank0(f"forward 2 {key.shape=}")
-        print_rank0(f"forward 2 {value.shape=}")
-        print_rank0(f"forward 2 {self.required_query_shape=}")
-        print_rank0(f"forward 2 {self.required_key_value_shape=}")
+        # print_rank0(f"forward 2 {query.shape=}")
+        # print_rank0(f"forward 2 {key.shape=}")
+        # print_rank0(f"forward 2 {value.shape=}")
+        # print_rank0(f"forward 2 {self.required_query_shape=}")
+        # print_rank0(f"forward 2 {self.required_key_value_shape=}")
 
         #print_rank0(f"{attention_mask.shape=}")
         # please don't remove the white-space vertical alignment in the error message
@@ -306,13 +306,13 @@ class UlyssesAttentionHF(torch.nn.Module):
 
         #query_layer = query_layer.reshape(query_layer.shape).contiguous()
 
-        print_rank0(f"{query_layer.shape=}")
-        print_rank0(f"{key_layer.shape=}")
-        print_rank0(f"{value_layer.shape=}")
+        # print_rank0(f"{query_layer.shape=}")
+        # print_rank0(f"{key_layer.shape=}")
+        # print_rank0(f"{value_layer.shape=}")
 
-        if attention_mask is not None:
-            print_rank0(f"{attention_mask.shape=}")
-            #print_rank0(f"{attention_mask=}")
+        # if attention_mask is not None:
+        #     print_rank0(f"{attention_mask.shape=}")
+        #     #print_rank0(f"{attention_mask=}")
 
         # XXX: stick into the trainer object
         from deepspeed.utils import groups
@@ -320,33 +320,33 @@ class UlyssesAttentionHF(torch.nn.Module):
         sp_world_size = groups._get_sequence_parallel_world_size()
 
         #exit()
-        debug_gathered_tensor(query_layer, sp_group, name="query_layer")
-        debug_gathered_tensor(key_layer, sp_group, name="key_layer")
-        debug_gathered_tensor(value_layer, sp_group, name="value_layer")
+        # debug_gathered_tensor(query_layer, sp_group, name="query_layer")
+        # debug_gathered_tensor(key_layer, sp_group, name="key_layer")
+        # debug_gathered_tensor(value_layer, sp_group, name="value_layer")
 
-        print_rank0(f"HF before real attn: {query_layer.shape=}")
-        print_rank0(f"HF before real attn: {key_layer.shape=}")
-        print_rank0(f"HF before real attn: {value_layer.shape=}")
-        print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
-        print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
-        print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
+        # print_rank0(f"HF before real attn: {query_layer.shape=}")
+        # print_rank0(f"HF before real attn: {key_layer.shape=}")
+        # print_rank0(f"HF before real attn: {value_layer.shape=}")
+        # print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
+        # print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
+        # print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
 
         # expects: [bs hc_l sl hs]
         context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
         # returns [bs sl hc_l hs]
 
-        debug_gathered_tensor(context_layer, sp_group, name="context_layer")
+        # debug_gathered_tensor(context_layer, sp_group, name="context_layer")
 
-        print_rank0(f"HF after real attn: {context_layer.shape=}")
-        print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")
+        # print_rank0(f"HF after real attn: {context_layer.shape=}")
+        # print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")
 
-        print_rank0(f"1 {context_layer.shape=}")
+        # print_rank0(f"1 {context_layer.shape=}")
         # [bs sl hc_l hs] -> [sl bs hc_l hs]'
         context_layer = rearrange(context_layer, 'bs sl ... -> sl bs ...')
-        print_rank0(f"2 {context_layer.shape=}")
+        # print_rank0(f"2 {context_layer.shape=}")
         context_layer = context_layer.reshape([*context_layer.shape[:2], -1])
-        print_rank0(f"3 {context_layer.shape=}")
-        print_rank0(f"{self.required_context_shape=}")
+        # print_rank0(f"3 {context_layer.shape=}")
+        # print_rank0(f"{self.required_context_shape=}")
 
         assert context_layer.shape == self.required_context_shape, \
                     f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
@@ -355,16 +355,16 @@ class UlyssesAttentionHF(torch.nn.Module):
         output = self._partition_global_sequence(context_layer)
         # returns: [sl_l bs em]
 
-        print_rank0(f"1 {output.shape=}")
+        # print_rank0(f"1 {output.shape=}")
         output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
-        print_rank0(f"2 {output.shape=}")
+        # print_rank0(f"2 {output.shape=}")
 
         output = output.reshape([*output.shape[:2], -1])
-        print_rank0(f"3 {output.shape=}")
-        if attn_weights is not None:
-            print_rank0(f"{attn_weights.shape=}")
+        # print_rank0(f"3 {output.shape=}")
+        # if attn_weights is not None:
+        #     print_rank0(f"{attn_weights.shape=}")
 
-        debug_gathered_tensor(output, sp_group, name="output")
+        # debug_gathered_tensor(output, sp_group, name="output")
 
 
         # expects [bs sl em]
@@ -885,15 +885,23 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         #     avg_loss = self.model.backward(loss)
 
             loss = self.loss(batch)
-            self.model.backward(loss)
+            #self.model.backward(loss)
+
+
         else:
             # sp will do backward inside loss
             loss = self.loss(batch)
         see_memory_usage("after backward", force=True)
 
         self.model.step()
+
+        # import math
+        # if not math.isnan(loss):
+        #     print(f"{loss=}")
+        #     self.model.step()
+
         see_memory_usage("after step", force=True)
-        exit()
+        #exit()
 
             # # should loss be averaged over sp sub-steps and logged as such?
             # loss = loss_aggregate / sp_world_size
@@ -938,16 +946,26 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         #     avg_loss = self.model.backward(loss)
         #     print_rank0(f"zero loss: {avg_loss}")
 
-        #     from deepspeed.utils import safe_get_full_grad
-        #     print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
-        #     print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+        from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
+        # print_rank0(f"!!! {torch.norm(safe_get_full_fp32_param(self.model.lm_head.weight))} lm_head.weight", skip=False)
+        # print_rank0(f"!!! {torch.norm(safe_get_full_fp32_param(self.model.model.layers[0].self_attn.q_proj.weight))} q.weight", skip=False)
 
-        #     self.model.step()
+        # # print_rank(f"end loss = {loss}")
+        # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))} lm_head.grad", skip=False)
+        # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))} q.grad", skip=False)
+        #exit()
 
-        # print_rank0(f"{torch.norm(self.model.lm_head.weight)=}")
-        # print_rank0(f"{torch.norm(self.model.model.layers[0].self_attn.q_proj.weight)=}")
-        # print_rank(f"end loss = {loss}")
-        # #exit()
+        for n, p in self.model.named_parameters():
+            print_rank(f"!!! {torch.norm(safe_get_full_fp32_param(p)):6.2f} {n}", skip=False)
+        for n, p in self.model.named_parameters():
+            print_rank(f"!!! {torch.norm(safe_get_full_grad(p)):6.2f} {n}", skip=False)
+        for n, p in self.model.named_parameters():
+            nans = torch.isnan(p).sum()
+            infs = torch.isinf(p).sum()
+            if nans > 0: print_rank(f"!!! GOT NANS {nans} {n}", skip=False)
+            if infs > 0: print_rank(f"!!! GOT INFS {infs} {n}", skip=False)
+
+        print(f"ITERATION {loss=}")
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
@@ -973,11 +991,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
-            print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx}", skip=False)
+            print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            print_rank(f"before gather: : {batch['input_ids'].shape=}", skip=False)
-            print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
-            print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
+            # if self.train_batch_idx < 7:
+            #     continue
+            # if self.train_batch_idx == 10:
+            #     exit()
+
+            print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
+            # exit()
+
+            # print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
+            # print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
                 #print_rank0(f"before gather: {k}: {batch[k]=}")
             #exit()
             self.step(batch)

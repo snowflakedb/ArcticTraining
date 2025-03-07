@@ -78,7 +78,8 @@ class UltraChat200K(HFDataSource):
         return split_map.get(split, split)
 
 
-# XXX: need an easier way to create truncated datasets of desired length
+# XXX: need an easier way to create truncated datasets of desired length w/o creating new classes
+# probably expand the normal dataset config to simply include `select_range: start, stop` tuple
 from datasets import Dataset
 from datasets import IterableDataset
 def modify_config_for_truncated_data(self):

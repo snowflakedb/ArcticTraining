@@ -28,6 +28,7 @@ def gc_empty_accelerator_cache():
     get_accelerator().empty_cache()
 
 def see_memory_usage(message, force=False):
+    return
     if not force:
         return
     if dist.is_initialized() and not dist.get_rank() == 0:
@@ -76,7 +77,7 @@ USE_PRINTFLOCK = True
 PRINT_FLOCK_FILE = __file__
 
 # to quickly temporarily turn off all debugging w/o needing to comment it out - set this to True
-DISABLE_DEBUG = True
+DISABLE_DEBUG = False
 
 def printflock(*args, **kwargs):
     """

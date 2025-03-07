@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler
+from torch.utils.data import RandomSampler, DistributedSampler
 from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
@@ -149,14 +149,13 @@ class DataCollatorForCausalLM:
             for example in instances:
                 # print(f'{len(example["input_ids"])=}')
                 # print(f'{len(example["position_ids"])=}')
-                # XXX: should labels match as well?
                 if not (len(example["input_ids"]) == len(example["position_ids"]) == len(example["labels"])):
                     raise ValueError(f'got a borked batch {len(example["input_ids"])=} != {len(example["position_ids"])=} != {len(example["labels"])=} ')
                     #print(f'mismatch {len(example["input_ids"])=} != {len(example["position_ids"])=}')
                     #print(f'mismatch {example["input_ids"]=}')
                     #print(f'mismatch {example["position_ids"]=}')
-                else:
-                    print_rank0("example is ok", skip=False)
+                # else:
+                #     print_rank0("example is ok", skip=False)
 
             position_ids = [
                 torch.tensor(example["position_ids"]) for example in instances
@@ -171,9 +170,9 @@ class DataCollatorForCausalLM:
         labels = pad(labels, padding_value=IGNORE_INDEX)
         position_ids = pad(position_ids, padding_value=0, is_position_id=True)
 
-        print_rank(f"   {input_ids.shape=}", skip=False)
-        print_rank(f"{position_ids.shape=}", skip=False)
-        print_rank(f"      {labels.shape=}", skip=False)
+        # print_rank(f"   {input_ids.shape=}", skip=False)
+        # print_rank(f"{position_ids.shape=}", skip=False)
+        # print_rank(f"      {labels.shape=}", skip=False)
         # XXX: Added a similar check earlier - not sure if the earlier one is a better place
         if not (input_ids.shape == position_ids.shape == labels.shape):
             raise ValueError(f"{input_ids.shape=} != {position_ids.shape} != {labels.shape=} in DataLoader, can't continue")
@@ -402,11 +401,14 @@ class SFTDataFactory(DataFactory):
         return output
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
+        sampler = DistributedSampler(dataset,
+                                     num_replicas=self.world_size,
+                                     rank=self.global_rank)
         return DataLoader(
             dataset,
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=sampler,
             num_workers=self.config.num_proc,
             drop_last=True,
         )

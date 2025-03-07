@@ -82,7 +82,6 @@ def local_main_process_first():
             print(f"This will be printed by process {local_rank}")
             time.sleep(5) # emulate actual work
     """
-    local_rank = get_local_rank()
     with _goes_first(is_local_main_process()):
         yield
 
