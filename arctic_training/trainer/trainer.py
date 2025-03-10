@@ -79,7 +79,12 @@ from einops import rearrange
 from deepspeed.sequence.layer import _DimZeroAllToAll, _SeqAllToAll
 
 
+"""
+Some additional Ulysses docs that perhaps should go elsewhere:
 
+If you want to try to push the seqlen higher w/o using more gpus, try to add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (but measure the performance - it could be slower)
+
+"""
 class UlyssesAttentionHF(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
     to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
@@ -277,9 +282,12 @@ class UlyssesAttentionHF(torch.nn.Module):
         # print_rank0(f"forward 1 {key.shape=}")
         # print_rank0(f"forward 1 {value.shape=}")
 
-        query = rearrange(query, 'bs hc sl hs -> sl bs hc hs')
-        key = rearrange(key,     'bs hc sl hs -> sl bs hc hs')
-        value = rearrange(value, 'bs hc sl hs -> sl bs hc hs')
+        see_memory_usage(f"enter attn forward", force=True)
+
+        # make the blocks contiguous as early as possible to minimize fragmentation
+        query = rearrange(query, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
+        key = rearrange(key,     'bs hc sl hs -> sl bs hc hs') # .contiguous()
+        value = rearrange(value, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
 
         # print_rank0(f"forward 2 {query.shape=}")
         # print_rank0(f"forward 2 {key.shape=}")
@@ -296,9 +304,13 @@ class UlyssesAttentionHF(torch.nn.Module):
         # assert query.shape == key.shape == value.shape == self.required_input_shape, \
         #     f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
 
+        see_memory_usage(f"before combine", force=True)
+
         # expects: [sl_l bs hc hs]
         query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
         # returns: [sl bs hc_l hs]
+
+        see_memory_usage(f"after combine", force=True)
 
         query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
         key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
@@ -331,9 +343,13 @@ class UlyssesAttentionHF(torch.nn.Module):
         # print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
         # print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
 
+        see_memory_usage(f"before core attn", force=True)
+
         # expects: [bs hc_l sl hs]
         context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
         # returns [bs sl hc_l hs]
+
+        see_memory_usage(f"after core attn", force=True)
 
         # debug_gathered_tensor(context_layer, sp_group, name="context_layer")
 
@@ -351,9 +367,13 @@ class UlyssesAttentionHF(torch.nn.Module):
         assert context_layer.shape == self.required_context_shape, \
                     f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
 
+        see_memory_usage(f"before partition", force=True)
+
         # expects: [sl bs em_l]
         output = self._partition_global_sequence(context_layer)
         # returns: [sl_l bs em]
+
+        see_memory_usage(f"after partition", force=True)
 
         # print_rank0(f"1 {output.shape=}")
         output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
@@ -366,6 +386,9 @@ class UlyssesAttentionHF(torch.nn.Module):
 
         # debug_gathered_tensor(output, sp_group, name="output")
 
+        see_memory_usage(f"exit attn forward", force=True)
+
+        #exit()
 
         # expects [bs sl em]
         return output, attn_weights
@@ -669,7 +692,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
-        transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
+        #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
         # XXX: find a place for this code
         if self.config.sequence_parallel_size == 1:
@@ -993,10 +1016,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            # if self.train_batch_idx < 7:
+            # if self.train_batch_idx < 2:
             #     continue
-            # if self.train_batch_idx == 10:
-            #     exit()
+            #if self.train_batch_idx == 3:
+            #    exit()
 
             print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
             # exit()

@@ -27,11 +27,18 @@ def gc_empty_accelerator_cache():
     gc.collect()
     get_accelerator().empty_cache()
 
-def see_memory_usage(message, force=False):
+def see_memory_usage(message, force=False, ranks=[0]):
+    """
+    Arguments:
+        message: a pre-amble message to print before the counter dumps - useful for annotating where each measurement has been taken - e.g. "before foo" and later "after foo"
+        force: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
+        ranks: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
+    """
     return
     if not force:
         return
-    if dist.is_initialized() and not dist.get_rank() == 0:
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    if not rank in ranks:
         return
 
     # python doesn't do real-time garbage collection so do it explicitly to get the correct RAM reports
@@ -60,8 +67,9 @@ def see_memory_usage(message, force=False):
     ])
     cpu_mem_str = f"CPU Virtual Memory:  used = {used_GB} GB, percent = {vm_stats.percent}%"
 
-    print(message)
-    print(" | ".join([accelerator_mem_str, cpu_mem_str]))
+    # add '[rank] mp' prefix to enable easy grep
+    print(f"[{rank}] mp: {message}")
+    print(f"[{rank}] mp: " + " | ".join([accelerator_mem_str, cpu_mem_str]))
 
     # get the peak memory to report correct data, so reset the counter for the next call
     get_accelerator().reset_peak_memory_stats()
@@ -77,7 +85,7 @@ USE_PRINTFLOCK = True
 PRINT_FLOCK_FILE = __file__
 
 # to quickly temporarily turn off all debugging w/o needing to comment it out - set this to True
-DISABLE_DEBUG = False
+DISABLE_DEBUG = True
 
 def printflock(*args, **kwargs):
     """
