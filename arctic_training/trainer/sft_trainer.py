@@ -170,8 +170,8 @@ class SFTTrainer(Trainer):
                         print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
                         #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].device=}", skip=False)
                         #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
-                        if k == "input_ids":
-                            print_rank0(f"{self.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
+                        # if k == "input_ids":
+                        #     print_rank0(f"{self.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
 
             #exit()
             loss_aggregate = 0
@@ -184,12 +184,18 @@ class SFTTrainer(Trainer):
 
             losses = []
             for sub_step_id in range(sp_world_size):
+
+                # if sub_step_id == 1:
+                #     continue
+                # if sub_step_id == 3:
+                #     break
+
+
                 batch = micro_batches[sub_step_id]
 
                 see_memory_usage(f"{sub_step_id=} start", force=True)
                 #print_rank0(batch)
 
-                # XXX: probably need to do padding so that all sequence chunks are the same?!
                 import math
                 print_rank0(f"{sub_step_id}: {len(batch['input_ids'][0])=}")
                 seq_length = len(batch['input_ids'][0])
@@ -203,7 +209,7 @@ class SFTTrainer(Trainer):
                 print_rank0(f"{sub_step_id=}: {chunk_len=}")
 
                 # XXX: API_change_36607: this API will work once https://github.com/huggingface/transformers/pull/36607 is merged and a new transformers is released and we require that version or higher - then can remove all the `non API_change_36607` code branches
-                API_change_36607 = False
+                API_change_36607 = True
                 if not API_change_36607:
                     # get the first label elem of each shard to be later used in the loss function
                     # the last rank will have -100 instead
@@ -263,12 +269,16 @@ class SFTTrainer(Trainer):
                     labels = batch.pop("labels")
                     labels = labels.type(torch.LongTensor)
 
-
                     #print_rank0(f"after sp: {k}: {batch[k].shape=}")
                     #print_rank0(f"after sp: {k}: {batch[k]=}")
                 see_memory_usage(f"{sub_step_id=} before forward", force=True)
 
-                #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
+                print_rank(f"SLICE DECODE: {sub_step_id=} {self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
+                print_rank(f"SLICE DECODE: {sub_step_id=} {batch['position_ids'][0]=}", skip=False)
+                # if API_change_36607:
+                #     print_rank(f"SLICE DECODE: {sub_step_id=} {batch['shift_labels'][0]=}", skip=False)
+                # else:
+                #     print_rank(f"SLICE DECODE: {sub_step_id=} {batch['labels'][0]=}", skip=False)
 
                 outputs = self.model(**batch, use_cache=False)
                 logits = outputs.logits
@@ -285,11 +295,7 @@ class SFTTrainer(Trainer):
                     #print_rank(f"{shift_labels=}", skip=False)
                     see_memory_usage(f"{sub_step_id=} after shift labels", force=True)
 
-                if not API_change_36607 and all((labels == -100).squeeze()):
-                    # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
-                    loss = (logits.sum() * 0.0).float()
-                    #loss = FakeLoss.apply(logits)
-                elif API_change_36607 and all((shift_labels == -100).squeeze()):
+                if (not API_change_36607 and all((labels == -100).squeeze())) or (API_change_36607 and all((shift_labels == -100).squeeze())):
                     # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
                     loss = (logits.sum() * 0.0).float()
                     #loss = FakeLoss.apply(logits)

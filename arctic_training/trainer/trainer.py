@@ -146,18 +146,27 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.global_kv_head_count = kv_head_count
 
         self.local_q_head_count = attn_head_count // self.world_size
-        self.local_kv_head_count = kv_head_count // self.world_size
 
-        print_rank0(f"{self.local_kv_head_count=}")
-        print_rank0(f"{self.local_q_head_count=}")
+        # so if we have 4 kv heads and sp 8, we need to replicate kv heads 2x
+        self.kv_replication_factor = self.world_size // kv_head_count
+        if self.kv_replication_factor > 1:
+            self.local_kv_head_count = 1
+        else:
+            self.local_kv_head_count = kv_head_count // self.world_size
+
+        print_rank0(f"{self.local_q_head_count=}", skip=False)
+        print_rank0(f"{self.local_kv_head_count=}", skip=False)
+        print_rank0(f"{self.kv_replication_factor=}", skip=False)
         #exit()
 
         if self.attn_head_count % self.world_size != 0:
             raise ValueError(f"Attention head count {attn_head_count} is not divisible by SP size {self.world_size}")
         if not (self.global_kv_head_count % self.world_size == 0 or self.world_size % self.global_kv_head_count == 0):
             raise ValueError(f"KV attention head count {self.global_kv_head_count} is not divisible by SP size {self.world_size} or vice versa")
-        if self.global_kv_head_count < self.world_size:
-            raise ValueError(f"KV attention head count < sp size ({self.global_kv_head_count} < {self.world_size}) is currently not supported but it can be implemented by replicating heads")
+
+        # XXX: working on this feature MQA and some cases of GQA
+        # if self.global_kv_head_count < self.world_size:
+        #     raise ValueError(f"KV attention head count < sp size ({self.global_kv_head_count} < {self.world_size}) is currently not supported but it can be implemented by replicating heads")
 
         # XXX: add more constraints (some might have to go outside of this module or change the API to add more arguments if they are needed here, or perhaps add a special class method that validates the outside things)
         # - global_seq_length is divisible by SP? but probably has to be sorted out before this module
@@ -180,7 +189,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
     def _combine_local_sequences(self, query, key, value) -> Tuple[Tensor, Tensor, Tensor]:
 
-        def combine_sequence(input, local_head_count):
+        def combine_sequence(input, head_type):
             """
                 expects inputs in shape: [sl_l bs hc hs]
                 returns output in shape: [sl bs hc_l hs]
@@ -188,8 +197,20 @@ class UlyssesAttentionHF(torch.nn.Module):
                 local_head_count could be different for k,v vs q if it's not an MHA situation
             """
 
-            # print_rank0('')
-            # print_rank0(f"combine: before reshape:  {input.shape=}")
+            print_rank0('')
+            print_rank0(f"combine {head_type}: before reshape:  {input.shape=}", skip=False)
+
+            if head_type == "q":
+                local_head_count = self.local_q_head_count
+            else: # kv
+                local_head_count = self.local_kv_head_count
+
+                # MQA and some GQA cases:
+                if self.kv_replication_factor > 1:
+                    #local_head_count *= self.kv_replication_factor
+                    # replicate heads to the kv_replication_factor on hc dimension [sl_l bs hc hs] - so dim=2
+                    input = input.repeat_interleave(self.kv_replication_factor, dim=2)
+                    print_rank0(f"combine {head_type}: after repeat interleave:  {input.shape=}", skip=False)
 
             # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
             input = input.reshape([self.local_seq_length, \
@@ -198,24 +219,26 @@ class UlyssesAttentionHF(torch.nn.Module):
                                 local_head_count, \
                                 self.attn_head_size])
 
-            # print_rank0(f"combine: after reshape:   {input.shape=}")
+
+
+            print_rank0(f"combine {head_type}: after reshape:   {input.shape=}", skip=False)
 
             input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
-            # print_rank0(f"combine: after rearrange: {input.shape=}", skip=False)
+            # print_rank0(f"combine {head_type}: after rearrange: {input.shape=}", skip=False)
 
             output = _DimZeroAllToAll.apply(self.process_group, input)
             #output = input
-            # print_rank0(f"combine: after all2all:   {output.shape=}", skip=False)
+            print_rank0(f"combine {head_type}: after all2all:   {output.shape=}", skip=False)
 
             # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
-            # print_rank0(f"combine: after reshape:   {output.shape=}")
+            print_rank0(f"combine {head_type}: after reshape:   {output.shape=}", skip=False)
 
             # [sl bs hc_l hs]
             return output
 
 
-        return combine_sequence(query, self.local_q_head_count),  combine_sequence(key, self.local_kv_head_count),  combine_sequence(value, self.local_kv_head_count)
+        return combine_sequence(query, head_type="q"),  combine_sequence(key, head_type="kv"),  combine_sequence(value, head_type="kv")
 
     def _partition_global_sequence(self, input) -> Tensor:
         """
@@ -331,19 +354,28 @@ class UlyssesAttentionHF(torch.nn.Module):
         sp_group = groups._get_sequence_parallel_group()
         sp_world_size = groups._get_sequence_parallel_world_size()
 
-        #exit()
         # debug_gathered_tensor(query_layer, sp_group, name="query_layer")
         # debug_gathered_tensor(key_layer, sp_group, name="key_layer")
         # debug_gathered_tensor(value_layer, sp_group, name="value_layer")
 
-        # print_rank0(f"HF before real attn: {query_layer.shape=}")
-        # print_rank0(f"HF before real attn: {key_layer.shape=}")
-        # print_rank0(f"HF before real attn: {value_layer.shape=}")
+        print_rank0(f"HF before real attn: {query_layer.shape=}", skip=False)
+        print_rank0(f"HF before real attn: {key_layer.shape=}", skip=False)
+        print_rank0(f"HF before real attn: {value_layer.shape=}", skip=False)
+        #exit()
+
         # print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
         # print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
         # print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
 
         see_memory_usage(f"before core attn", force=True)
+
+        # crucial in the case of MQA and some GQA cases we need to fix `module.num_key_value_groups`
+        # see:
+        # XXX: could move this somewhere to do it only once per run
+        if self.kv_replication_factor > 1:
+            print_rank0(f"before: {module.num_key_value_groups=}", skip=False)
+            module.num_key_value_groups = query_layer.size(-3)//key_layer.size(-3)
+            print_rank0(f"after: {module.num_key_value_groups=}", skip=False)
 
         # expects: [bs hc_l sl hs]
         context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
@@ -692,7 +724,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
-        #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
+        # transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
         # XXX: find a place for this code
         if self.config.sequence_parallel_size == 1:
@@ -978,15 +1010,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))} q.grad", skip=False)
         #exit()
 
-        for n, p in self.model.named_parameters():
-            print_rank(f"!!! {torch.norm(safe_get_full_fp32_param(p)):6.2f} {n}", skip=False)
-        for n, p in self.model.named_parameters():
-            print_rank(f"!!! {torch.norm(safe_get_full_grad(p)):6.2f} {n}", skip=False)
+        # for n, p in self.model.named_parameters():
+        #     print_rank(f"!!! {torch.norm(safe_get_full_fp32_param(p)):6.2f} {n}", skip=False)
+        # for n, p in self.model.named_parameters():
+        #     print_rank(f"!!! {torch.norm(safe_get_full_grad(p)):6.2f} {n}", skip=False)
         for n, p in self.model.named_parameters():
             nans = torch.isnan(p).sum()
             infs = torch.isinf(p).sum()
-            if nans > 0: print_rank(f"!!! GOT NANS {nans} {n}", skip=False)
-            if infs > 0: print_rank(f"!!! GOT INFS {infs} {n}", skip=False)
+            if nans > 0: print_rank(f"!!! Got NANs {nans} {n}", skip=False)
+            if infs > 0: print_rank(f"!!! Got INFs {infs} {n}", skip=False)
 
         print(f"ITERATION {loss=}")
 
@@ -1016,12 +1048,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            # if self.train_batch_idx < 2:
+            # if (batch["position_ids"] == 0).sum() > 1:
+            #     print("{self.train_batch_idx} run into a packed sample, skipping")
             #     continue
-            #if self.train_batch_idx == 3:
-            #    exit()
 
-            print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
+            # if self.train_batch_idx < 8:
+            #     continue
+            # if self.train_batch_idx == 2:
+            #     exit()
+            # if self.train_batch_idx == 8:
+            #     continue
+
+            #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
             # exit()
 
             # print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
