@@ -280,6 +280,11 @@ class SFTTrainer(Trainer):
                 # else:
                 #     print_rank(f"SLICE DECODE: {sub_step_id=} {batch['labels'][0]=}", skip=False)
 
+                if API_change_36607:
+                    shift_labels = batch.pop("shift_labels")
+                    #print_rank(f"{shift_labels=}", skip=False)
+                    see_memory_usage(f"{sub_step_id=} after shift labels", force=True)
+
                 outputs = self.model(**batch, use_cache=False)
                 logits = outputs.logits
 
@@ -290,10 +295,6 @@ class SFTTrainer(Trainer):
                 # print_rank(f"logit nans: {torch.isnan(logits).sum()}", skip=False)
                 # print_rank(f"logit infs: {torch.isinf(logits).sum()}", skip=False)
 
-                if API_change_36607:
-                    shift_labels = batch.pop("shift_labels")
-                    #print_rank(f"{shift_labels=}", skip=False)
-                    see_memory_usage(f"{sub_step_id=} after shift labels", force=True)
 
                 if (not API_change_36607 and all((labels == -100).squeeze())) or (API_change_36607 and all((shift_labels == -100).squeeze())):
                     # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
