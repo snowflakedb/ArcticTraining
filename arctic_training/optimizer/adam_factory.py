@@ -16,7 +16,7 @@
 from typing import TYPE_CHECKING
 from typing import Any
 
-from deepspeed.ops.adam import FusedAdam
+from deepspeed.ops.adam import FusedAdam, DeepSpeedCPUAdam
 
 if TYPE_CHECKING:
     from arctic_training.config.optimizer import OptimizerConfig
@@ -80,6 +80,21 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
             model, optimizer_config.weight_decay
         )
         optimizer = FusedAdam(
+            optimizer_grouped_params,
+            lr=optimizer_config.learning_rate,
+            betas=optimizer_config.betas,
+        )
+        return optimizer
+
+
+class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
+    name = "cpu_adam"
+
+    def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
+        optimizer_grouped_params = self.get_optimizer_grouped_params(
+            model, optimizer_config.weight_decay
+        )
+        optimizer = DeepSpeedCPUAdam(
             optimizer_grouped_params,
             lr=optimizer_config.learning_rate,
             betas=optimizer_config.betas,
