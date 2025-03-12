@@ -38,7 +38,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.debug import print_rank0, print_rank, exit
 from arctic_training.logging import logger
-from arctic_training.utils import local_main_process_first, is_local_main_process
+from arctic_training.utils import main_process_by_path_first, is_main_process_by_path
 
 if TYPE_CHECKING:
     from arctic_training.data.source import DataSource
@@ -84,14 +84,13 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         def get_data_split(split: str) -> Optional[DatasetType]:
 
             # XXX: currently our data cache is not shared between nodes, but to be generic this needs more work as we want:
-            # - local_main_process_first if the cache is local per node
+            # - local_main_process_first   if the cache is local per node
             # - global_main_process_first if the cache is on the shared fs (all nodes see it)
-            # perhaps we could auto-detect if the cache path is on the shared fs vs local and do the right thing based on that?
-            with local_main_process_first():
-            #if 1:
+            # main_process_by_path_first detects automatically which one of these 2 to use depending on the cache_path
+            with main_process_by_path_first(self.config.cache_dir):
                 data_sources = self._get_data_sources(split=split)
-
                 cache_path = self.cache_path(sources=data_sources, split=split)
+
                 if self.config.use_data_cache and cache_path.exists():
                     logger.info(f"Loading pre-processed data from cache path {cache_path.as_posix()}")
 
@@ -107,7 +106,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                     return None
 
             dataset = self.load(data_sources, split=split)
-            dataset = self._truncate_data(dataset)
+            #dataset = self._truncate_data(dataset)
 
             # for i in range(10):
             #     data = ''.join(f"\n{i} {len(dataset[i][k])=} {k}" for k in dataset[0].keys())
@@ -116,7 +115,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # Must save the cache only once from rank 0 (local or global depending on the type of the fs cache resides on (see the notes at the top of get_data_split) and only if it doesn't already exist
             # XXX: has to match `with ...main_process_first` above should it change to local instead of global
-            if is_local_main_process() and self.config.use_data_cache and not cache_path.exists():
+            if is_main_process_by_path(self.config.cache_dir) and self.config.use_data_cache and not cache_path.exists():
                 logger.info(f"Saving pre-processed data to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
 
@@ -198,7 +197,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             data_length = torch.zeros(self.world_size).to(self.trainer.device)
             data_length[self.global_rank] = local_length
             torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
-            shortest_length = int(data_length.min().cpu().item())
+            shortest_length = int(data_length.min().item())
             del data_length  # clean the memory
         else:
             shortest_length = local_length

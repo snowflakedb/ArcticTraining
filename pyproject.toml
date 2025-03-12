@@ -34,6 +34,7 @@ dependencies = [
     "loguru",
     "openai>=1.48.0",
     "peft",
+    "psutil",
     "pydantic>=2.0",
     "tabulate",
     "torch",
@@ -57,11 +58,11 @@ dev = [
     "arctic_training[formatting]",
     "arctic_training[testing]",
     "pynvml",
-    "psutil",
 ]
 
 testing = [
     "pytest",
+    "pytest-instafail",
 ]
 
 formatting = [
