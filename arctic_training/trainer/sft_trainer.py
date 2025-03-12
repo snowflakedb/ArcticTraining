@@ -162,7 +162,7 @@ class SFTTrainer(Trainer):
                     # tensor_list = [torch.zeros_like(batch[k]) for _ in range(sp_world_size)]
                     # dist.all_gather(tensor_list, batch[k], group=sp_group)
                     tensor_list = [None for _ in range(sp_world_size)]
-                    torch.distributed.all_gather_object(tensor_list, batch[k])
+                    torch.distributed.all_gather_object(tensor_list, batch[k], group=sp_group)
                     # gathering on the data dimension
                     # will be concatenating and later splitting again for the more general case
                     # batch[k] = torch.cat(tensor_list, dim=1)
