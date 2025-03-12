@@ -1,24 +1,21 @@
-MODEL_PATH="/checkpoint/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots/38ff4e01a70559264c95945aa04b900a11e68422/"
-OUTPUT_PATH="/checkpoint/speculator/llama-3.3-70b/5-heads/Feb-11"
+MODEL_PATH="/checkpoint/huggingface/hub/models--meta-llama--Meta-Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659"
+OUTPUT_PATH="/checkpoint/speculator/llama-3.1-8b/Feb-7-gen-train/"
 CHECKPOINT_PATH=$OUTPUT_PATH/checkpoint
 mkdir -p $OUTPUT_PATH
 mkdir -p $CHECKPOINT_PATH
+
 
 TRAIN_ITERS=3000
 
 TRAIN_ARGS="--model_path $MODEL_PATH 
 			--output_path $OUTPUT_PATH 
-			--train_iters $TRAIN_ITERS 
-			--zero_stage 3 
-			--gen_train 
-			--speculator_width 8192
-			--checkpoint_interval 300
+			--train_iters $TRAIN_ITERS  
 			--checkpoint_path $CHECKPOINT_PATH
-			--gen_micro_batch 320
-			--micro_batch_size 5
-			--speculator_tie_weights
-   			--speculator_scale_input
-			--n_speculator_heads 5
+			--zero_stage 3 
+			--gen_train  
+			--micro_batch_size 12
+			--checkpoint_interval 300
+			--gen_micro_batch 768
 			--gen_train_global_batch 2048
     		--gen_train_micro_batch 32"
 

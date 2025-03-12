@@ -152,6 +152,34 @@ class PromptResponsePairs(SFTDataSetLoader):
             "messages": conversation,
         }
 
+@register_dataset
+class NoPromptResponseOnly(SFTDataSetLoader):
+    dataset_name = "NoPromptResponseOnly"
+
+    def load_fn(self, num_proc: int, eval: bool) -> Dataset:
+        assert self.location is not None, "This data type must be given a location"
+        dataset = load_from_disk(self.location)
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="prompt",
+                response_key="response",
+                source_name="SyntheticNoPromptResponseOnlyPairs",
+            )
+        )
+        return formatted_dataset.select_columns(["messages"])
+    
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
+            {"role": "user", "content": ""},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
+
 
 @register_dataset
 class UltraChat200K(SFTDataSetLoader):

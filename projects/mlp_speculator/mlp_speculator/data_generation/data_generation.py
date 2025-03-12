@@ -185,13 +185,20 @@ def load_hf_dataset(dataset):
             "HuggingFaceH4/ultrachat_200k",
             split="train_sft",
             num_proc=32,
-        ).select_columns(["prompt"])
+        ).select_columns(["prompt","messages"])
     elif dataset == 'magicoder':
         return load_dataset(
             "ise-uiuc/Magicoder-OSS-Instruct-75K",
             split="train",
             num_proc=32,
         ).select_columns(["problem"])
+    elif dataset == 'magicoder-evol':
+        return load_dataset(
+            "ise-uiuc/Magicoder-Evol-Instruct-110K",
+            split="train",
+            num_proc=32,
+        ).select_columns(["instruction"])
+    
     else:
         print(f"Dataset {dataset} not supported")
         exit(0)
@@ -335,6 +342,33 @@ def kill_processes(process_ids):
         except Exception as e:
             print(f"Error terminating process {pid}: {e}")
 
+def extract_words(text: str, start: int, length: int):
+    words = text.split()
+    
+    if start < 0 or start >= len(words) or length < 0:
+        return None
+    
+    end = start + length
+    if end > len(words):
+        return None
+        
+    return ' '.join(words[start:end])
+
+def create_extended_prompts(args, dataset):
+    prompts = []
+    if args.hf_dataset == 'ultrachat':
+        for entry in dataset:
+            prompts.extend([chat["content"] for chat in entry["messages"] if chat["role"] == "user"])
+    elif args.hf_dataset == 'magicoder':
+        prompts = [entry["problem"] for entry in dataset if "problem" in entry]
+    elif args.hf_dataset == 'magicoder-evol':
+        prompts = [entry["instruction"] for entry in dataset if "instruction" in entry]
+    
+    else:
+        assert False, "In correct dataset argument."
+    return prompts
+
+        
 def create_prompt(args, dataset):
     if args.hf_dataset == 'ultrachat':
         prompts = [entry["prompt"] for entry in dataset if "prompt" in entry]
@@ -342,7 +376,6 @@ def create_prompt(args, dataset):
         prompts = [entry["problem"] for entry in dataset if "problem" in entry]
     else:
         assert False, "In correct dataset argument."
-    return prompts
 
 def create_chats(prompts):
     chats = [[
@@ -361,7 +394,7 @@ def generate(args, process_ids, vllm_urls):
     dataset = load_hf_dataset(args.hf_dataset)
         
     # Extract prompts from the dataset
-    prompts = create_prompt(args, dataset)
+    prompts = create_extended_prompts(args, dataset)
 
     # Process in batches
     total_prompts = len(prompts)
