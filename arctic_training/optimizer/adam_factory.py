@@ -16,7 +16,8 @@
 from typing import TYPE_CHECKING
 from typing import Any
 
-from deepspeed.ops.adam import FusedAdam, DeepSpeedCPUAdam
+from deepspeed.ops.adam import DeepSpeedCPUAdam
+from deepspeed.ops.adam import FusedAdam
 
 if TYPE_CHECKING:
     from arctic_training.config.optimizer import OptimizerConfig
