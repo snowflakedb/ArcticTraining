@@ -34,11 +34,12 @@ dependencies = [
     "loguru",
     "openai>=1.48.0",
     "peft",
+    "psutil",
     "pydantic>=2.0",
     "tabulate",
     "torch",
     "tqdm",
-    "transformers==4.47.0",
+    "transformers==4.47.0", # XXX: needs to be "transformers>4.49.0" once it's released
     "wandb",
 ]
 
@@ -56,6 +57,7 @@ dev = [
     "arctic_training[docs]",
     "arctic_training[formatting]",
     "arctic_training[testing]",
+    "pynvml",
 ]
 
 testing = [
