@@ -23,7 +23,7 @@ from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
-from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
+from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory, CPUAdamOptimizerFactory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
@@ -90,7 +90,7 @@ class SFTTrainer(Trainer):
     data_factory: SFTDataFactory
     model_factory: Union[HFModelFactory, LigerModelFactory]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
-    optimizer_factory: Union[FusedAdamOptimizerFactory]
+    optimizer_factory: Union[FusedAdamOptimizerFactory, CPUAdamOptimizerFactory]
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 
