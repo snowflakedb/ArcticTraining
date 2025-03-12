@@ -1048,6 +1048,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
+            #continue
+
             # if (batch["position_ids"] == 0).sum() > 1:
             #     print("{self.train_batch_idx} run into a packed sample, skipping")
             #     continue

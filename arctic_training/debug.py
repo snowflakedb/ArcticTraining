@@ -86,7 +86,7 @@ PRINT_FLOCK_FILE = __file__
 
 # to quickly temporarily turn off all debugging w/o needing to comment it out - set this to True
 # XXX: add API so that the operator could tweak this global from the main script and not mess with this module and commit wrong things by mistake
-DISABLE_DEBUG = True
+DISABLE_DEBUG = False
 
 def printflock(*args, **kwargs):
     """
