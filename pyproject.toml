@@ -62,6 +62,7 @@ dev = [
 
 testing = [
     "pytest",
+    "pytest-instafail",
 ]
 
 formatting = [
