@@ -34,6 +34,8 @@ def init_wandb_project(self: "Trainer") -> None:
 
 
 def log_wandb_loss(self: "Trainer", loss: torch.Tensor) -> torch.Tensor:
+    # XXX: fixme - moving wandb into trainer.epoch
+    return loss 
     if self.wandb_experiment is not None:
         self.wandb_experiment.log(
             {

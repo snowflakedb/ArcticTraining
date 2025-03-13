@@ -51,7 +51,7 @@ from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage
-from arctic_training.utils import get_local_rank
+from arctic_training.utils import get_local_rank, is_global_main_process, StepFlopCounter, gather_sum_number, format_human_base2_number
 
 try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
@@ -306,7 +306,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         # print_rank0(f"forward 1 {key.shape=}")
         # print_rank0(f"forward 1 {value.shape=}")
 
-        see_memory_usage(f"enter attn forward", force=True)
+        see_memory_usage(f"enter attn forward", force=False)
 
         # make the blocks contiguous as early as possible to minimize fragmentation
         query = rearrange(query, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
@@ -328,13 +328,13 @@ class UlyssesAttentionHF(torch.nn.Module):
         # assert query.shape == key.shape == value.shape == self.required_input_shape, \
         #     f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
 
-        see_memory_usage(f"before combine", force=True)
+        see_memory_usage(f"before combine", force=False)
 
         # expects: [sl_l bs hc hs]
         query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
         # returns: [sl bs hc_l hs]
 
-        see_memory_usage(f"after combine", force=True)
+        see_memory_usage(f"after combine", force=False)
 
         query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
         key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
@@ -368,7 +368,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         # print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
         # print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
 
-        see_memory_usage(f"before core attn", force=True)
+        see_memory_usage(f"before core attn", force=False)
 
         # crucial in the case of MQA and some GQA cases we need to fix `module.num_key_value_groups`
         # see:
@@ -382,7 +382,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
         # returns [bs sl hc_l hs]
 
-        see_memory_usage(f"after core attn", force=True)
+        see_memory_usage(f"after core attn", force=False)
 
         # debug_gathered_tensor(context_layer, sp_group, name="context_layer")
 
@@ -400,13 +400,13 @@ class UlyssesAttentionHF(torch.nn.Module):
         assert context_layer.shape == self.required_context_shape, \
                     f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
 
-        see_memory_usage(f"before partition", force=True)
+        see_memory_usage(f"before partition", force=False)
 
         # expects: [sl bs em_l]
         output = self._partition_global_sequence(context_layer)
         # returns: [sl_l bs em]
 
-        see_memory_usage(f"after partition", force=True)
+        see_memory_usage(f"after partition", force=False)
 
         # print_rank0(f"1 {output.shape=}")
         output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
@@ -419,7 +419,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
         # debug_gathered_tensor(output, sp_group, name="output")
 
-        see_memory_usage(f"exit attn forward", force=True)
+        see_memory_usage(f"exit attn forward", force=False)
 
         #exit()
 
@@ -816,6 +816,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.scheduler = scheduler_factory()
 
         self.step_timer = SynchronizedWallClockTimer.Timer("step")
+        # XXX: to finish this - start before DL and reset at the very end of iteration
+        self.iter_timer = SynchronizedWallClockTimer.Timer("iteration")
 
         self.model, *_ = deepspeed.initialize(
             model=self.model,
@@ -937,7 +939,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # if self.global_rank == 0:
         #     print_rank0(batch)
 
-        see_memory_usage("before forward", force=True)
+        see_memory_usage("before forward", force=False)
 
         self.model.train()
         if self.config.sequence_parallel_size == 1:
@@ -950,7 +952,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         else:
             # sp will do backward inside loss
             loss = self.loss(batch)
-        see_memory_usage("after backward", force=True)
+        see_memory_usage("after backward", force=False)
 
         self.model.step()
 
@@ -959,7 +961,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         #     print(f"{loss=}")
         #     self.model.step()
 
-        see_memory_usage("after step", force=True)
+        see_memory_usage("after step", force=False)
         #exit()
 
             # # should loss be averaged over sp sub-steps and logged as such?
@@ -1018,13 +1020,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         #     print_rank(f"!!! {torch.norm(safe_get_full_fp32_param(p)):6.2f} {n}", skip=False)
         # for n, p in self.model.named_parameters():
         #     print_rank(f"!!! {torch.norm(safe_get_full_grad(p)):6.2f} {n}", skip=False)
-        for n, p in self.model.named_parameters():
-            nans = torch.isnan(p).sum()
-            infs = torch.isinf(p).sum()
-            if nans > 0: print_rank(f"!!! Got NANs {nans} {n}", skip=False)
-            if infs > 0: print_rank(f"!!! Got INFs {infs} {n}", skip=False)
+        # for n, p in self.model.named_parameters():
+        #     nans = torch.isnan(p).sum()
+        #     infs = torch.isinf(p).sum()
+        #     if nans > 0: print_rank(f"!!! Got NANs {nans} {n}", skip=False)
+        #     if infs > 0: print_rank(f"!!! Got INFs {infs} {n}", skip=False)
 
-        print(f"ITERATION {loss=}")
+        #print(f"ITERATION {loss=}")
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
@@ -1041,8 +1043,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
         self.step_timer.stop()
+        step_time_secs = self.step_timer.elapsed() / 1000
         if self.config.step_timer:
-            logger.info(f"step time: {self.step_timer.elapsed()} ms")
+            logger.info(f"step time: {step_time_secs} secs")
+
+        return loss, step_time_secs
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
@@ -1051,6 +1056,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
+
+
+        # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
@@ -1076,7 +1084,88 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
                 #print_rank0(f"before gather: {k}: {batch[k]=}")
             #exit()
-            self.step(batch)
+
+            # since different ranks may have different batches of different seqlen for the correct flop counting we need the total seqlen across all ranks
+            #
+            # since we could have sp>1+dp>1 gather across all ranks
+            seqlen_local = len(batch["input_ids"][0])
+            gathered_seqlen_total = gather_sum_number(seqlen_local, device=self.device, group=None)
+
+            #see_memory_usage("before step", force=True)
+
+            # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
+            with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
+                loss, step_time_secs = self.step(batch)
+            #print(f"{self.step_flos_counter.get_total_tflos()=}")
+
+            #see_memory_usage("after step", force=True)
+
+            #continue
+            gathered_tflos = gather_sum_number(self.step_flos_counter.get_total_tflos(), device=self.device)
+            gathered_step_time_total = gather_sum_number(step_time_secs, device=self.device)
+            gathered_tflops = gathered_tflos / gathered_step_time_total
+            gathered_step_time_mean = gathered_step_time_total / self.world_size
+
+            # XXX: this should become the point where we actually log train data in one go
+            # but the problem is that we are still iterating over epochs so there could be all kinds of reset side-effects - watch this
+            train_log_data = dict(
+                tflops=gathered_tflops,
+                iter=self.train_batch_idx,
+                loss=loss,
+                lr=self.model.lr_scheduler.get_last_lr()[0],
+                step_time=gathered_step_time_mean,
+                seqlen_total=format_human_base2_number(gathered_seqlen_total, suffix=""),
+                iter_time=0, # XXX: to implement
+            )
+            # XXX: need to think about these - probably global should be the normal step
+            # "global_step": self.model.global_steps,
+            # "step": self.model.global_steps,
+
+            # the reason for a special list is 2-fold:
+            # 1. to allow logging only some metrics and not all in the dense one line log
+            # 2. to put the key metrics first
+            # but the full log can be dumped to include all logging data
+            train_log_key_order = [
+                "iter",
+               # "iter_time",
+                "step_time",
+                "loss",
+                "lr",
+                "tflops",
+                "seqlen_total",
+            ]
+            # can skip entries that require no special formatting
+            train_log_key_fmt = dict(
+                tflops=".1f",
+                iter="",
+                loss=".4f",
+                lr=".4E",
+                step_time=".4f",
+                iter_time=".4f",
+            )
+
+            # XXX: add `train_log_interval` to config and integrate it here, hardcoding for now
+            # once added this code will need to change to accumulate, average, etc - e.g. say if we interval=10
+            train_log_interval = 1
+            if (is_global_main_process() and self.train_batch_idx % train_log_interval == 0
+                and self.train_batch_idx != 1 # don't log step 0 as it is a massive outlier and messes up plots like time
+            ):
+
+                # This is Megatron-LM style dense human redable essentials logging - one iteration per iterval
+                log_line = ""
+                # XXX: currently missing progress indication 5/1000 (1%)
+                for k in train_log_key_order:
+                    fmt = train_log_key_fmt.get(k, "")
+                    log_line += f"{k}: {train_log_data[k]:{fmt}} | "
+                print(log_line)
+
+                if self.wandb_experiment is not None:
+                    step = train_log_data.pop("iter")
+                    train_log_data.update(step=step)
+                    self.wandb_experiment.log(train_log_data)
+
+
+
             if self.early_stop:
                 break
 
@@ -1085,6 +1174,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         Main training loop. Calls the epoch method for each epoch of training.
         """
+
+        self.step_flos_counter = StepFlopCounter(start_iter=2)
+
         try:
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx

@@ -116,9 +116,9 @@ class SFTTrainer(Trainer):
             with torch.no_grad():
                 # average losses
                 losses_per_rank = torch.distributed.nn.functional.all_gather(loss)
-                print(f"LOSS {losses_per_rank=}")
+                #print(f"LOSS {losses_per_rank=}")
                 average_loss = torch.cat([l.unsqueeze(0) for l in losses_per_rank], dim=0).mean()
-                print(f"LOSS {average_loss=}")
+                #print(f"LOSS {average_loss=}")
 
             return average_loss
 
@@ -149,7 +149,7 @@ class SFTTrainer(Trainer):
             # 3. use all_gather and post gathering truncate tensors to their intended length - another overhead of allocating and truncating tensors
             # using approach (1) for now but might want to benchmark later the other 2 approaches
 
-            see_memory_usage("before gathering", force=True)
+            see_memory_usage("before gathering", force=False)
             #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
             #exit()
 
@@ -180,7 +180,7 @@ class SFTTrainer(Trainer):
             # - the first time is because we artifically made the seqlen SP-times longer
             # - the second time is because of the Ulysses algorithm
 
-            see_memory_usage("after gathering", force=True)
+            see_memory_usage("after gathering", force=False)
             self.model.set_gradient_accumulation_boundary(False)
 
             losses = []
@@ -194,7 +194,7 @@ class SFTTrainer(Trainer):
 
                 batch = micro_batches[sub_step_id]
 
-                see_memory_usage(f"{sub_step_id=} start", force=True)
+                see_memory_usage(f"{sub_step_id=} start", force=False)
                 #print_rank0(batch)
 
                 import math
@@ -257,7 +257,7 @@ class SFTTrainer(Trainer):
                     #print_rank0(f"after sp: {k}: {batch[k]=}")
                 #outputs = self.model(**batch, use_cache=False)
                 #loss = outputs.loss
-                see_memory_usage(f"{sub_step_id=} after chunking", force=True)
+                see_memory_usage(f"{sub_step_id=} after chunking", force=False)
 
                 # XXX: this would be the same not just for SFT so probably should abstract it away
                 from deepspeed.utils import groups
@@ -272,7 +272,7 @@ class SFTTrainer(Trainer):
 
                     #print_rank0(f"after sp: {k}: {batch[k].shape=}")
                     #print_rank0(f"after sp: {k}: {batch[k]=}")
-                see_memory_usage(f"{sub_step_id=} before forward", force=True)
+                see_memory_usage(f"{sub_step_id=} before forward", force=False)
 
                 print_rank(f"SLICE DECODE: {sub_step_id=} {self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
                 print_rank(f"SLICE DECODE: {sub_step_id=} {batch['position_ids'][0]=}", skip=False)
@@ -284,12 +284,12 @@ class SFTTrainer(Trainer):
                 if API_change_36607:
                     shift_labels = batch.pop("shift_labels")
                     #print_rank(f"{shift_labels=}", skip=False)
-                    see_memory_usage(f"{sub_step_id=} after shift labels", force=True)
+                    see_memory_usage(f"{sub_step_id=} after shift labels", force=False)
 
                 outputs = self.model(**batch, use_cache=False)
                 logits = outputs.logits
 
-                see_memory_usage(f"{sub_step_id=} after forward", force=True)
+                see_memory_usage(f"{sub_step_id=} after forward", force=False)
 
                 #print_rank(f"{labels=}", skip=False)
                 #print_rank(f"{logits=}", skip=False)
@@ -369,7 +369,7 @@ class SFTTrainer(Trainer):
                 # free up temp mem (e.g. outputs.logits are huge)
                 del outputs
 
-                see_memory_usage(f"{sub_step_id=} before gathered loss", force=True)
+                see_memory_usage(f"{sub_step_id=} before gathered loss", force=False)
                 #exit()
 
                 # if torch.isnan(loss):
@@ -400,9 +400,9 @@ class SFTTrainer(Trainer):
                 #loss = torch.cat([l.unsqueeze() for l in losses_per_rank], dim=0).mean()
                 #loss = sum(loss_per_rank) # / sp_world_size
                 #loss = sum(tensor_list)
-                print_rank(f"LOSS averaged {loss=}", skip=False)
-                print("LOSS", loss)
-                see_memory_usage(f"{sub_step_id=} after gathered loss", force=True)
+                #print_rank(f"LOSS averaged {loss=}", skip=False)
+                #print("LOSS", loss)
+                see_memory_usage(f"{sub_step_id=} after gathered loss", force=False)
 
                 #exit()
 
@@ -422,7 +422,7 @@ class SFTTrainer(Trainer):
                 # logits = torch.cat(tensor_list, dim=1)
                 # del tensor_list
                 # print_rank(f"after cat: {logits.shape=}")
-                # see_memory_usage(f"{sub_step_id=} after cat", force=True)
+                # see_memory_usage(f"{sub_step_id=} after cat", force=False)
 
                 #print_rank(f"LOSS {logits.shape=}: {labels.shape=}", skip=False)
 
@@ -439,7 +439,7 @@ class SFTTrainer(Trainer):
                 #print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss.requires_grad=}")
                 print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss=}")
 
-                see_memory_usage(f"{sub_step_id=} before backward", force=True)
+                see_memory_usage(f"{sub_step_id=} before backward", force=False)
                 self.model.backward(loss)
                 # print_rank(f"{labels[0][70:80]=}", skip=False)
                 # print_rank(f"{logits[0][70:80]=}", skip=False)
@@ -450,7 +450,7 @@ class SFTTrainer(Trainer):
 
                 print_rank0(f"zero loss: {loss}", skip=False)
                 # print_rank0(f"zero loss: {avg_loss}", skip=False)
-                see_memory_usage(f"{sub_step_id=} after backward", force=True)
+                see_memory_usage(f"{sub_step_id=} after backward", force=False)
 
                 losses.append(loss.detach().item())
 

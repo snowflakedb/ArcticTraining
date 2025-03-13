@@ -34,7 +34,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
         force: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
         ranks: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
     """
-    return
+    #return
     if not force:
         return
     rank = dist.get_rank() if dist.is_initialized() else 0
@@ -86,7 +86,7 @@ PRINT_FLOCK_FILE = __file__
 
 # to quickly temporarily turn off all debugging w/o needing to comment it out - set this to True
 # XXX: add API so that the operator could tweak this global from the main script and not mess with this module and commit wrong things by mistake
-DISABLE_DEBUG = False
+DISABLE_DEBUG = True
 
 def printflock(*args, **kwargs):
     """

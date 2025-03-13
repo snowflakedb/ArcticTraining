@@ -200,19 +200,8 @@ class StepFlopCounter:
 
         """
 
-        # if iter in [2,3,4,5,6]:
-        #     flos_counter = FlopCounterMode(display=False)
-        #     with flos_counter:
-        #         yield
-        #     del flos_counter
-        #     import gc; gc.collect()
-        #     return
-        # else:
-        #     yield
-        #     return
-
         # skip first steps while things are unstable
-        if iter < 100: #self.target_iter:
+        if iter < self.target_iter:
             yield
             return
 
