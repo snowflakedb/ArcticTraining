@@ -101,7 +101,7 @@ class SFTTrainer(Trainer):
         import torch
         if self.config.sequence_parallel_size == 1:
             # XXX: weird
-            batch["labels"] = batch["labels"].type(torch.LongTensor)
+            #batch["labels"] = batch["labels"].type(torch.LongTensor)
             outputs = self.model(**batch, use_cache=False)
 
             logits = outputs.logits

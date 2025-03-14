@@ -200,6 +200,16 @@ class StepFlopCounter:
 
         """
 
+#        if iter in [2,3,4,5,6]:
+        if iter > 1:
+            with self.flos_counter:
+                yield
+            self.flos = self.flos_counter.get_total_flops()
+            return
+        else:
+            yield
+            return
+
         # skip first steps while things are unstable
         if iter < self.target_iter:
             yield
@@ -239,6 +249,12 @@ def gather_mean_tensor(tensor, device, group=None):
     dist.all_reduce(t, op=dist.ReduceOp.MEAN, group=group)
     return tensor
 
+def gather_object(number, device, group=None):
+    """ returns a list of objects """
+    # XXX: which world size? probably better to always specify the group explicitly and derive from it to avoid bugs and assumptions
+    output = [None for _ in range(get_world_size())]
+    torch.distributed.all_gather_object(output, number, group=group)
+    return output
 
 def format_human_base2_number(num, suffix="B"):
     """
