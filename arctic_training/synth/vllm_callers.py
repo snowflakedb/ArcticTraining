@@ -13,16 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import json
 import os
-from typing import Any
+
+import aiohttp
 import jsonlines
+import msgspec
+
+from arctic_training import logger
 from arctic_training.synth.utils import import_error
 from arctic_training.synth.utils import pass_function
-import asyncio
-import aiohttp
-import json
-from arctic_training import logger
-import msgspec
 
 try:
     from vllm import LLM
@@ -33,7 +34,8 @@ except ImportError:
 
 
 from callers import InMemoryBatchProcessor
-from vllm_utils import launch_vllm_servers, kill_processes
+from vllm_utils import kill_processes
+from vllm_utils import launch_vllm_servers
 
 
 class VllmSynth(InMemoryBatchProcessor):
@@ -97,8 +99,8 @@ class VllmSynth(InMemoryBatchProcessor):
                 }
             )
         return extracted
-    
-    
+
+
 class MultiReplicaVllmSynth(InMemoryBatchProcessor):
     """
     vLLM Synthesizer. This class initializes a local vLLM instance for fast batch inference. Currently, multi-node inference is not supported.
@@ -110,49 +112,48 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
         sampling_params=SamplingParams(temperature=1.0),
         work_dir=None,
         tensor_parallel=1,
-        gpu_ids=[0,1,2,3,4,5,6,7]
+        gpu_ids=[0, 1, 2, 3, 4, 5, 6, 7],
     ):
         super().__init__(work_dir=work_dir)
-        
+
         assert "model" in model_params, "No model supplied."
-        
-        #launch vllm servers
+
+        # launch vllm servers
         self.model = model_params["model"]
-        self.process_ids, self.vllm_urls = launch_vllm_servers(self.model, tensor_parallel, gpu_ids=gpu_ids)
-        
+        self.process_ids, self.vllm_urls = launch_vllm_servers(
+            self.model, tensor_parallel, gpu_ids=gpu_ids
+        )
+
         if isinstance(sampling_params, dict):
             sampling_params = SamplingParams(**sampling_params)
         self.sampling_params = sampling_params
 
     # Send a prompt to the VLLM server and get the response asynchronously
     async def generate_response(self, session, conversation, vllm_url):
-        payload = {
-            "model": self.model,
-            "messages": conversation}
-        
+        payload = {"model": self.model, "messages": conversation}
+
         payload = payload | msgspec.to_builtins(self.sampling_params)
-        
+
         async with session.post(vllm_url, json=payload) as response:
             if response.status == 200:
-                generated_text=""
+                generated_text = ""
                 async for chunk_bytes in response.content:
                     chunk_bytes = chunk_bytes.strip()
                     if not chunk_bytes:
                         continue
-                    
+
                     def remove_prefix(text: str, prefix: str) -> str:
                         if text.startswith(prefix):
-                            return text[len(prefix):]
+                            return text[len(prefix) :]
                         return text
 
-                    chunk = remove_prefix(chunk_bytes.decode("utf-8"),
-                                            "data: ")
+                    chunk = remove_prefix(chunk_bytes.decode("utf-8"), "data: ")
                     if not chunk == "[DONE]":
                         data = json.loads(chunk)
-                        if data["choices"][0]["message"]["content"]:                       
+                        if data["choices"][0]["message"]["content"]:
                             generated_text += data["choices"][0]["message"]["content"]
-                            
-                result = generated_text                    
+
+                result = generated_text
                 return result
             else:
                 logger.info(f"Error: {response.status} - {await response.text()}")
@@ -160,13 +161,20 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
 
     def process_conversations_across_replicas(self, conversations):
         num_urls = len(self.vllm_urls)
+
         async def process():
-            timeout = aiohttp.ClientTimeout(total=1000) 
+            timeout = aiohttp.ClientTimeout(total=1000)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                tasks = [self.generate_response(session, conversation, self.vllm_urls[i % num_urls]) for i, conversation in enumerate(conversations)]
+                tasks = [
+                    self.generate_response(
+                        session, conversation, self.vllm_urls[i % num_urls]
+                    )
+                    for i, conversation in enumerate(conversations)
+                ]
                 return await asyncio.gather(*tasks)
+
         return asyncio.run(process())
-    
+
     def add_chat_to_batch_task(self, task_name, messages):
         request_id = f"{task_name}_{len(self.requests[task_name])}"
         self.requests[task_name].append(
@@ -183,7 +191,7 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
 
         conversations = [request["messages"] for request in requests]
         outputs = self.process_conversations_across_replicas(conversations)
-        
+
         responses = []
         for request, output in zip(requests, outputs):
             res = {"custom_id": request["custom_id"], "response": output}
@@ -203,12 +211,10 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
             extracted.append(
                 {
                     "custom_id": response["custom_id"],
-                    "choices": [
-                        {"content": response["response"], "role": "assistant"}
-                    ],
+                    "choices": [{"content": response["response"], "role": "assistant"}],
                 }
             )
         return extracted
-    
+
     def teardown(self):
         kill_processes(self.process_ids)

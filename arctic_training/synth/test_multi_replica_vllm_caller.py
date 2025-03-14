@@ -17,7 +17,6 @@ from vllm import SamplingParams
 
 from arctic_training.synth import MultiReplicaVllmSynth
 
-
 client = MultiReplicaVllmSynth(
     model_params={"model": "Qwen/Qwen2.5-0.5B-Instruct"},
     sampling_params=SamplingParams(temperature=0),
@@ -26,7 +25,7 @@ client = MultiReplicaVllmSynth(
 for i in range(10):
     client.add_chat_to_batch_task(
         task_name="test_task_qwen",
-        messages=[ 
+        messages=[
             {"role": "user", "content": f"What is 100 + {i}?"},
         ],
     )
