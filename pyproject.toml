@@ -38,7 +38,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers==4.47.0",
+    "transformers>=4.47.0",
     "wandb",
 ]
 
