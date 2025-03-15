@@ -185,7 +185,7 @@ class SFTTrainer(Trainer):
 
             losses = []
             for sub_step_id in range(sp_world_size):
-
+                #print(f"{sub_step_id=}")
                 # if sub_step_id == 1:
                 #     continue
                 # if sub_step_id == 3:

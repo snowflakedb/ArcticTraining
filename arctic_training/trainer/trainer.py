@@ -50,7 +50,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage
+from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage, pr, pr0
 from arctic_training.utils import get_local_rank, is_global_main_process, StepFlopCounter, gather_sum_number, format_human_base2_number, gather_object
 
 try:
@@ -130,7 +130,6 @@ class UlyssesAttentionHF(torch.nn.Module):
         process_group: dist.ProcessGroup,
         seq_length_is_variable: bool = False,
     ) -> None:
-
         super(UlyssesAttentionHF, self).__init__()
         self.attn = attn
         self.process_group = process_group
@@ -148,7 +147,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
         self.local_q_head_count = attn_head_count // self.world_size
 
-        # so if we have 4 kv heads and sp 8, we need to replicate kv heads 2x
+        # if we have 4 kv heads and sp 8, we need to replicate kv heads 2x
         self.kv_replication_factor = self.world_size // kv_head_count
         if self.kv_replication_factor > 1:
             self.local_kv_head_count = 1
@@ -293,6 +292,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         # print_rank0(f"{value.shape=}")
         # print_rank0(f"{self.required_input_shape=}")
         #print(f"XXXX {query.shape=}")
+        #die
         current_local_seq_length = query.shape[2]
         if self.seq_length_is_variable and current_local_seq_length != self.required_query_shape[0]:
             self.local_seq_length = current_local_seq_length
@@ -362,11 +362,19 @@ class UlyssesAttentionHF(torch.nn.Module):
         print_rank0(f"HF before real attn: {query_layer.shape=}", skip=False)
         print_rank0(f"HF before real attn: {key_layer.shape=}", skip=False)
         print_rank0(f"HF before real attn: {value_layer.shape=}", skip=False)
+        print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
+        print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
+        print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
+
+        # pr0(f"HF before real attn: {query_layer.shape=}", skip=False)
+        # pr0(f"HF before real attn: {key_layer.shape=}", skip=False)
+        # pr0(f"HF before real attn: {value_layer.shape=}", skip=False)
+        # pr0(f"HF before real attn: {torch.norm(query_layer)=}", skip=False)
+        # pr0(f"HF before real attn: {torch.norm(key_layer)=}", skip=False)
+        # pr0(f"HF before real attn: {torch.norm(value_layer)=}", skip=False)
+
         #exit()
 
-        # print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
-        # print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
-        # print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
 
         see_memory_usage(f"before core attn", force=False)
 
@@ -526,8 +534,12 @@ class LlamaAttentionNew(torch.nn.Module):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
         import transformers
-        attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
+        #attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
+
+        # XXX: fix me - temp hardcoding - must remove this hack
+        #self.config._attn_implementation = "ulysses"
 
         if self.config._attn_implementation != "eager":
             if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
@@ -537,6 +549,10 @@ class LlamaAttentionNew(torch.nn.Module):
                 )
             else:
                 attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+
+        #print(ALL_ATTENTION_FUNCTIONS.keys())
+        #print(f"{self.config._attn_implementation=}")
+        #exit()
 
         # XXX: meanwhile for consistency with non-sp testing
         #attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
@@ -554,6 +570,14 @@ class LlamaAttentionNew(torch.nn.Module):
         print_rank0(f"HF before attn: {torch.norm(query_states)=}")
         print_rank0(f"HF before attn: {torch.norm(key_states)=}")
         print_rank0(f"HF before attn: {torch.norm(value_states)=}")
+
+        # pr0(f"HF before attn: {query_states.shape=}")
+        # pr0(f"HF before attn: {key_states.shape=}")
+        # pr0(f"HF before attn: {value_states.shape=}")
+        # pr0(f"HF before attn: {torch.norm(query_states)=}")
+        # pr0(f"HF before attn: {torch.norm(key_states)=}")
+        # pr0(f"HF before attn: {torch.norm(value_states)=}")
+        # exit()
 
         if attention_mask is not None:
             print_rank0(f"HF before attn: {attention_mask.shape=}")
@@ -573,12 +597,15 @@ class LlamaAttentionNew(torch.nn.Module):
             **kwargs,
         )
 
-        #exit()
         print_rank0(f"HF after attn: {attn_output.shape=}")
         print_rank0(f"HF after attn: {torch.norm(attn_output)=}")
+        # pr0(f"HF after attn: {attn_output.shape=}")
+        # pr0(f"HF after attn: {torch.norm(attn_output)=}")
         if attn_weights is not None:
             print_rank0(f"HF after attn: {attn_weights.shape=}")
             print_rank0(f"HF after attn: {torch.norm(attn_weights)=}")
+
+        #exit()
 
         from deepspeed.utils import groups
         sp_group = groups._get_sequence_parallel_group()
@@ -720,12 +747,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # if self.local_rank != 0:
         #     data_factory = self.config.data.factory(self)
 
-
-
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
-        # transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
+        #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
         # XXX: find a place for this code
         if self.config.sequence_parallel_size == 1:
@@ -805,9 +830,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.config.model.attn_implementation = "ulysses"
             ALL_ATTENTION_FUNCTIONS["ulysses"] = uattn_wrapper
 
+        #rint(self.config.model.attn_implementation)
+        #exit()
+
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
+
+        # sanity check - w/o a proper HF API it's too easy to lose the attn_implementation override
+        if self.config.sequence_parallel_size > 1:
+            if self.model.config._attn_implementation != "ulysses":
+                raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check the injection")
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -826,6 +859,21 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+
+        # import deepspeed
+        # import torch
+        # from transformers import AutoModel
+        # with deepspeed.utils.init_on_device.OnDevice(dtype=torch.bfloat16, device='meta'):
+        #     meta_model = AutoModel.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
+        #     self.meta_model, *_ = deepspeed.initialize(
+        #     model=meta_model,
+        #     optimizer=self.optimizer,
+        #     args=self.config,
+        #     lr_scheduler=self.scheduler,
+        #     config=self.config.deepspeed,
+        #     mpu=mpu,
+        # )
+
 
         self.checkpoint_engines = [
             engine(self) for engine in self.config.checkpoint_engines
@@ -1072,13 +1120,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # if self.train_batch_idx < 8:
             #     continue
-            # if self.train_batch_idx == 2:
+            # if self.train_batch_idx == 4:
             #     exit()
             # if self.train_batch_idx == 8:
             #     continue
 
-            #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
-            # exit()
+            #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False, force=True)
+            #exit()
 
             # print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
             # print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
@@ -1095,6 +1143,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             #see_memory_usage("before step", force=True)
 
             # # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
+            # orig_model = self.model
+            # self.model = self.meta_model
+            # with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
+            #     loss, step_time_secs = self.step(batch)
+            # self.model = orig_model
+
+            # # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
             # with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
             #     loss, step_time_secs = self.step(batch)
             loss, step_time_secs = self.step(batch)
@@ -1106,11 +1161,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             sp_world_size = groups._get_sequence_parallel_world_size()
 
             # per gpu
-            #tflos = self.step_flos_counter.get_total_tflos()
-            #tflos *= sp_world_size # bug in FlopCounterMode
+            # tflos = self.step_flos_counter.get_total_tflos()
+            # #tflos *= sp_world_size # bug in FlopCounterMode
 
-            #print(f"measured {tflos=}")
-            #print(f"{step_time_secs=}")
+            # print(f"measured {tflos=}")
+            # #print(f"{step_time_secs=}")
 
             #gathered_step_tflos = gather_sum_number(tflos, device=self.device)
             #gathered_step_tflos = gather_sum_number(0, device=self.device)
@@ -1140,20 +1195,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     return cache[arg2]
                 return memoizer
 
-            @memoize_2nd_arg
+            #@memoize_2nd_arg
             def estimate_tflos(model, seq_len):
                 """
-                this is an estimator for a collective computation across SP ranks (divide the result by SP size to get for one rank)
+                this is an estimator for a collective computation across SP ranks (divide the result by SP size to get for one rank) with the result adapted to a single gpu
 
                 it assumes dtype bf16 (2 bytes) and recalculation of activations (could make it a parameter - will be a multiplier of 3 instead of 4 then. 4 is 2 fwd + 2 bwd, 3 is 1 fwd + 2 bwd)
 
                 Formulae: (seq * model_size * 2 * 4 + num_layers * seq * seq * hidden_size * 2 * 2 * 4) / 1e12
 
                 model: unwrapped model
-                seq_len: total
+                seq_len: 1 batch sample seqlen
 
                 it expects a deepspeed zero sharded model
-                returns estimated tflos
+                returns estimated tflos computed by one gpu
                 """
                 def numel_fn(p):
                     return p.ds_numel if hasattr(p, "ds_tensor") else p.numel()
@@ -1164,14 +1219,19 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 # print(f"{num_layers=}")
                 # print(f"{hidden_size=}")
                 # print(f"{seq_len=}")
-                tflos_estimated = (seq_len * model_size * 2 * 4 + num_layers * seq_len**2 * hidden_size * 2 * 2 * 4 ) / 1e12
+                tflos_estimated = (seq_len * model_size * 2 * 4 + num_layers * seq_len * seq_len * hidden_size * 2 * 2 * 4 ) / 1e12
 
-                #print(f"{tflos_estimated=}")
                 return tflos_estimated
 
             # because of the seq**2 in the formula calculate flos for each seqlen separately and sum up
             tflos_estimated_total = sum(estimate_tflos(self.model_unwrapped, gathered_seqlens[rank]) for rank in range(self.world_size))
             # XXX: what happens when it's dp=2 sp=4? which world size are we caclulating over?
+            tflos = tflos_estimated_total / self.world_size
+            # print(f"estimated {tflos=}")
+            # print(f"{tflos_estimated_total=}")
+            # print(f"{gathered_step_time_total=}")
+
+            #dist.barrier()
 
             # try to get the iteration timer stop as close as possible to the point of end of logging
             # alternatively could put it at the end of the logger and let the next iteration absorb the previous iteration's logging overhead

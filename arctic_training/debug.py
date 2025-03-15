@@ -139,9 +139,28 @@ def print_rank(*msg, skip=True, ranks=None):
         return
     print(f"[{global_rank}]", *msg)
 
+def pr(*msg, skip=True, ranks=None):
+    """print something on all global ranks with [rank] prefix.
+    if `ranks` is passed then only those ranks will be printed
+
+    e.g. to print just on ranks 0 and 3:
+    print_rank(*msg, ranks=[0,3]):
+
+    """
+    global_rank = dist.get_rank()
+    if ranks is not None and global_rank not in ranks:
+        return
+    print(f"[{global_rank}]", *msg)
+
 def print_rank0(*msg, skip=True):
     if DISABLE_DEBUG or skip:
         return
+    """print something only on rank 0"""
+    global_rank = dist.get_rank()
+    if global_rank == 0:
+        print(f"[{global_rank}]", *msg)
+
+def pr0(*msg, skip=True):
     """print something only on rank 0"""
     global_rank = dist.get_rank()
     if global_rank == 0:
