@@ -43,6 +43,7 @@ from arctic_training.config.model import ModelConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.config.utils import UniqueKeyLoader
 from arctic_training.config.wandb import WandBConfig
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
@@ -351,7 +352,7 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
         config_dir = Path.cwd()
     else:
         with open(config_file_or_dict, "r") as f:
-            config_dict = yaml.safe_load(f)
+            config_dict = yaml.load(f, Loader=UniqueKeyLoader)
         config_dir = config_file_or_dict.parent
 
     trainer_type = config_dict.get("type", TRAINER_DEFAULT)

@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
 import yaml
 
 
@@ -28,11 +26,3 @@ class UniqueKeyLoader(yaml.SafeLoader):
                 raise ValueError(f"Duplicate {key!r} key found in YAML.")
             mapping.add(key)
         return super().construct_mapping(node, deep)
-
-
-def get_local_rank() -> int:
-    return int(os.getenv("LOCAL_RANK", 0))
-
-
-def get_world_size() -> int:
-    return int(os.getenv("WORLD_SIZE", 1))
