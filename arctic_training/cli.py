@@ -23,6 +23,15 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
+    parser.add_argument(
+        "--overrides",
+        nargs="+",
+        help=(
+            "Override config values. Provide a list of `key=value`, where '.' is used"
+            " to indicate nested keys. For example: --overrides epochs=10"
+            " model.dtype=FP32"
+        ),
+    )
     args, deepspeed_args = parser.parse_known_args()
 
     if not args.config.exists():
@@ -39,6 +48,8 @@ def main():
             exe_path,
             "--config",
             str(args.config),
+            "--overrides",
+            *args.overrides,
         ],
         env=env,
         check=True,
@@ -57,6 +68,15 @@ def run_script():
         type=Path,
         required=True,
         help="ArticTraining config to run.",
+    )
+    parser.add_argument(
+        "--overrides",
+        nargs="+",
+        help=(
+            "Override config values. Provide a list of `key=value`, where '.' is used"
+            " to indicate nested keys. For example: --overrides epochs=10"
+            " model.dtype=FP32"
+        ),
     )
     parser.add_argument(
         "--local_rank",
