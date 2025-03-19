@@ -259,6 +259,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.model.train()
         loss = self.loss(batch)
         self.model.backward(loss)
+        # Debug
+        # import pdb; pdb.set_trace()
         self.model.step()
 
         # use deepspeed global step as golden truth

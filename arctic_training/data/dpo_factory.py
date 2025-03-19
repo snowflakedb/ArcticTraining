@@ -47,9 +47,9 @@ class DPODataConfig(DataConfig):
 
 
 def _adjust_prompt_length(
-    prompt_token: List[int],
-    chosen_token: List[int],
-    rejected_token: List[int],
+    prompt_token: Dict[str, torch.Tensor],
+    chosen_token: Dict[str, torch.Tensor],
+    rejected_token: Dict[str, torch.Tensor],
 ) -> None:
     c_len = len(chosen_token["prompt_input_ids"])
     r_len = len(rejected_token["prompt_input_ids"])
@@ -87,7 +87,25 @@ def add_bos_token_if_needed(
     return tokens
 
 
-def _build_sequence_tokens(tokens: Dict[str, List[int]], prefix: str) -> Dict[str, List[int]]:
+def add_eos_token_if_needed(
+    eos_token_id: Union[None, int],
+    tokens: Dict[str, List[int]],
+) -> Dict[str, List[int]]:
+    if eos_token_id is None:
+        return tokens
+    if len(tokens["input_ids"]) == 0 or eos_token_id != tokens["input_ids"][-1]:
+        if len(tokens["input_ids"]) > 0 and eos_token_id == tokens["input_ids"][-2]:
+            tokens["input_ids"] = tokens["input_ids"][:-1]
+            tokens["attention_mask"] = tokens["attention_mask"][:-1]
+        else:
+            tokens["input_ids"].append(eos_token_id)
+            tokens["attention_mask"].append(1)
+    return tokens
+
+
+def _build_sequence_tokens(
+    tokens: Dict[str, List[int]], prefix: str
+) -> Dict[str, List[int]]:
     sequence_tokens = {
         f"{prefix}_{k}": tokens[f"prompt_{k}"] + tokens[k]
         for k in ["input_ids", "attention_mask"]
@@ -311,6 +329,10 @@ class DPODataFactory(DataFactory):
         rejected_tokens = add_bos_token_if_needed(
             tokenizer.bos_token_id, rejected_tokens
         )
+        chosen_tokens = add_eos_token_if_needed(tokenizer.eos_token_id, chosen_tokens)
+        rejected_tokens = add_eos_token_if_needed(
+            tokenizer.eos_token_id, rejected_tokens
+        )
 
         chosen_tokens, rejected_tokens, prompt_tokens = self._truncate_tokens(
             chosen_tokens, rejected_tokens, prompt_tokens
@@ -318,7 +340,7 @@ class DPODataFactory(DataFactory):
         chosen_tokens = _build_sequence_tokens(chosen_tokens, "chosen")
         rejected_tokens = _build_sequence_tokens(rejected_tokens, "rejected")
 
-        row = {}
+        row: Dict[str, Union[List[int], str]] = {}
         for data in [prompt_tokens, chosen_tokens, rejected_tokens]:
             for k, v in data.items():
                 row[k] = v
@@ -329,15 +351,11 @@ class DPODataFactory(DataFactory):
         return row
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        # For debug
-        # generator = torch.Generator()
-        # generator.manual_seed(42)
-        # sampler=RandomSampler(dataset, generator=generator),
         return DataLoader(
             dataset,
             collate_fn=DataCollatorForPref(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=RandomSampler(dataset),  # Debug SequentialSampler(dataset),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

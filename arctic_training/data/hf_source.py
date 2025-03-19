@@ -78,6 +78,10 @@ class UltraChat200K(HFDataSource):
         split_map = {"train": "train_sft", "test": "test_sft"}
         return split_map.get(split, split)
 
+    # def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+    #     dataset = dataset.select(range(4))
+    #     return dataset
+
 
 class SlimOrca(HFDataSource):
     name = "Open-Orca/SlimOrca"

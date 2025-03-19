@@ -96,7 +96,10 @@ class VllmSynth(InMemoryBatchProcessor):
         )
         responses = []
         for request, output in zip(requests, outputs):
-            res = {"custom_id": request["custom_id"], "response": output}
+            res = {
+                "custom_id": request["custom_id"],
+                "response": [outputs_rt.text for outputs_rt in output.outputs],
+            }
             responses.append(res)
 
         if self.work_dir is not None:

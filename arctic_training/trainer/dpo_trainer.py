@@ -24,8 +24,11 @@ import torch
 
 # import torch.distributed as dist
 import torch.nn.functional as F
+from liger_kernel.chunked_loss import LigerFusedLinearDPOLoss
 from pydantic import ValidationInfo
 from pydantic import field_validator
+from pydantic import model_validator
+from typing_extensions import Self
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.wandb import init_wandb_project_cb
@@ -33,6 +36,7 @@ from arctic_training.callback.wandb import log_wandb_loss_cb
 from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
+from arctic_training.config.enums import DType
 from arctic_training.config.model import ModelConfig
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.dpo_factory import DPODataFactory
@@ -136,6 +140,39 @@ class DPOTrainerConfig(TrainerConfig):
         )
         return cast(ModelConfig, subconfig)
 
+    @model_validator(mode="after")
+    def build_deepspeed_config(self) -> Self:
+        ds_config = self.deepspeed
+        ds_config["train_micro_batch_size_per_gpu"] = int(self.micro_batch_size * 2)
+        ds_config["train_batch_size"] = int(
+            self.micro_batch_size
+            * self.gradient_accumulation_steps
+            * self.world_size
+            * 2
+        )
+        ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
+        ds_config["zero_optimization"] = ds_config.get(
+            "zero_optimization",
+            {
+                "stage": 2,
+                "stage3_param_persistence_threshold": 1e4,
+                "stage3_max_live_parameters": 3e7,
+                "stage3_prefetch_bucket_size": 3e7,
+                "memory_efficient_linear": False,
+            },
+        )
+        if "bfloat16" not in ds_config:
+            if self.model.dtype == DType.BF16:
+                ds_config["bfloat16"] = {"enabled": True}
+        if "fp16" not in ds_config:
+            if self.model.dtype == DType.FP16:
+                ds_config["fp16"] = {"enabled": True}
+
+        ds_config["gradient_clipping"] = ds_config.get("gradient_clipping", 1.0)
+        ds_config["prescale_gradients"] = ds_config.get("prescale_gradients", False)
+        ds_config["wall_clock_breakdown"] = ds_config.get("wall_clock_breakdown", False)
+        return self
+
 
 def init_ref_model(self: "DPOTrainer") -> None:
     ref_model_factory = self.config.ref_model.factory(
@@ -161,6 +198,16 @@ def init_ref_model(self: "DPOTrainer") -> None:
     )
 
 
+def init_liger_dpo_loss(self: "DPOTrainer") -> None:
+    try:
+        self.liger_dpo_loss = LigerFusedLinearDPOLoss(
+            ignore_index=self.config.ignore_label_index, beta=self.config.beta
+        )
+    except Exception:
+        print("init failed")
+        self.liger_dpo_loss = None
+
+
 class DPOTrainer(Trainer):
     name = "dpo"
     config: DPOTrainerConfig
@@ -173,41 +220,52 @@ class DPOTrainer(Trainer):
     tokenizer_factory: HFTokenizerFactory
     callbacks = [
         ("post-init", init_ref_model),
+        ("post-init", init_liger_dpo_loss),
         post_loss_log_cb,
         init_wandb_project_cb,
         log_wandb_loss_cb,
         teardown_wandb_cb,
     ]
     ref_model: torch.nn.Module
+    liger_dpo_loss: Union[None, LigerFusedLinearDPOLoss]
 
     def forward_model(
         self, batch: Dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         outputs = self.model(
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             use_cache=False,
+            output_hidden_states=True,
         )
-        logits = outputs.logits
+        # Debug
+        # import pdb; pdb.set_trace()
+        logits = outputs.logits.to(torch.float32)
         logprobs, completion_sizes = get_logprobs(
             logits, batch["labels"], self.config.ignore_label_index
         )
-        return logits, logprobs, completion_sizes
+        return logits, logprobs, completion_sizes, outputs.hidden_states[-1]
 
     def forward_reference_model(
         self, batch: Dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         with torch.no_grad():
             output = self.ref_model(
                 input_ids=batch["input_ids"],
                 attention_mask=batch["attention_mask"],
                 use_cache=False,
+                output_hidden_states=True,
             )
-            logits = output.logits
+            logits = output.logits.to(torch.float32)
             logprobs, completion_sizes = get_logprobs(
                 logits, batch["labels"], self.config.ignore_label_index
             )
-        return logits.detach(), logprobs.detach(), completion_sizes.detach()
+        return (
+            logits.detach(),
+            logprobs.detach(),
+            completion_sizes.detach(),
+            output.hidden_states[-1].detach(),
+        )
 
     def dpo_loss(
         self,
@@ -220,6 +278,8 @@ class DPOTrainer(Trainer):
         chosen_reward: beta * log(pi_{\theta}(y_w | x) / pi_{ref}(y_w | x))
         rejected_reward:
         """
+        # Debug
+        # return logprobs.sum(), 1, 1
         batch_size = logprobs.size(0) // 2
         chosen_logprobs = logprobs[:batch_size]
         rejected_logprobs = logprobs[batch_size:]
@@ -234,10 +294,6 @@ class DPOTrainer(Trainer):
             -F.logsigmoid(self.config.beta * logits) * (1 - self.config.label_smoothing)
             - F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
         )
-
-        # tmp_loss = -F.logsigmoid(self.config.beta * logits)
-        # neg_tmp_loss = -F.logsigmoid(-self.config.beta * logits)
-
         chosen_rewards = (
             self.config.beta * (chosen_logprobs - ref_chosen_logprobs).detach()
         )
@@ -249,11 +305,20 @@ class DPOTrainer(Trainer):
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
-        ref_logits, ref_logprobs, _ = self.forward_reference_model(batch)
-        logits, logprobs, _ = self.forward_model(batch)
-        losses, chosen_rewards, rejected_rewards = self.dpo_loss(logprobs, ref_logprobs)
 
-        # This is being dropped. Problem?
-        # reward_acc = (chosen_rewards > rejected_rewards).float().mean()
-        # chosen_rewards.mean(), rejected_rewards.mean(), reward_acc
+        ref_logits, ref_logprobs, _, ref_hidden_state = self.forward_reference_model(
+            batch
+        )
+        logits, logprobs, _, hidden_state = self.forward_model(batch)
+        # Activate if we have liger kernel
+        if self.liger_dpo_loss:
+            losses, _ = self.liger_dpo_loss(
+                self.model.module.lm_head.weight,
+                hidden_state,
+                batch["labels"][:, 1:],
+                ref_input=ref_hidden_state.detach(),
+                ref_weight=self.ref_model.module.lm_head.weight,
+            )
+            return losses.mean()
+        losses, chosen_rewards, rejected_rewards = self.dpo_loss(logprobs, ref_logprobs)
         return losses.mean()

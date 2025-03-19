@@ -256,7 +256,7 @@ class SFTDataFactory(DataFactory):
     config: SFTDataConfig
     callbacks = [
         ("post-load", filter_dataset_length),
-        ("post-load", pack_dataset),
+        ("post-load", pack_dataset),  # Debug
     ]
 
     def process(self, dataset: DatasetType) -> DatasetType:
