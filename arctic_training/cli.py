@@ -26,7 +26,7 @@ def main():
         prog="arctic_training",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent(
-            """\
+            """
             DeepSpeed Args:
                 ArcticTraining uses the DeepSpeed launcher to create a
                 distributed training environment. Any additional args after the
