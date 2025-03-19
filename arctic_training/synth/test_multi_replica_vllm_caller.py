@@ -13,9 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from arctic_training.synth.callers import CortexSynth
-from arctic_training.synth.cli import main
-from arctic_training.synth.openai_callers import AzureOpenAISynth
-from arctic_training.synth.openai_callers import OpenAISynth
-from arctic_training.synth.vllm_callers import MultiReplicaVllmSynth
-from arctic_training.synth.vllm_callers import VllmSynth
+from vllm import SamplingParams
+
+from arctic_training.synth import MultiReplicaVllmSynth
+
+client = MultiReplicaVllmSynth(
+    model_params={"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+    sampling_params=SamplingParams(temperature=0),
+)
+
+for i in range(10):
+    client.add_chat_to_batch_task(
+        task_name="test_task_qwen",
+        messages=[
+            {"role": "user", "content": f"What is 100 + {i}?"},
+        ],
+    )
+
+print(
+    client.extract_messages_from_responses(client.execute_batch_task("test_task_qwen"))
+)
+
+client.teardown()

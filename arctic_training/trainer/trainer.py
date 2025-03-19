@@ -26,6 +26,7 @@ import deepspeed
 import numpy as np
 import torch
 from deepspeed.accelerator import get_accelerator
+from deepspeed.utils.timer import SynchronizedWallClockTimer
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -174,6 +175,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
+        self.step_timer = SynchronizedWallClockTimer.Timer("step")
+
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -255,6 +258,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
+        self.step_timer.start()
 
         self.model.train()
         loss = self.loss(batch)
@@ -276,6 +280,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         ):
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
+
+        self.step_timer.stop()
+        if self.config.step_timer:
+            logger.info(f"step time: {self.step_timer.elapsed()} ms")
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:

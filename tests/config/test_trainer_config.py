@@ -13,9 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from arctic_training.synth.callers import CortexSynth
-from arctic_training.synth.cli import main
-from arctic_training.synth.openai_callers import AzureOpenAISynth
-from arctic_training.synth.openai_callers import OpenAISynth
-from arctic_training.synth.vllm_callers import MultiReplicaVllmSynth
-from arctic_training.synth.vllm_callers import VllmSynth
+import pytest
+
+from arctic_training.config.trainer import get_config
+
+
+def test_duplicate_key_fail(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+        data:
+          max_length: 128
+          max_length: 256
+        """
+    )
+
+    with pytest.raises(ValueError, match=r"Duplicate .* key found"):
+        get_config(config_file)
