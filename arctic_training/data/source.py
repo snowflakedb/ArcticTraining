@@ -118,20 +118,16 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         # - num_proc: does not affect output data
         # - train_eval_split: this is used after data is loaded/cached
         # - use_data_cache: does not affect the output data
-        exclude_fields = [
+        exclude_fields = {
             "sources",
             "eval_sources",
             "cache_dir",
             "num_proc",
             "train_eval_split",
             "use_data_cache",
-        ]
+        }
         cache_path_args = (
-            {
-                k: v
-                for k, v in self.data_factory.config.model_dump().items()
-                if k not in exclude_fields
-            },
+            self.data_factory.config.model_dump(exclude=exclude_fields),
             self.config.model_dump(),
             self.trainer.config.tokenizer.model_dump(),
         )
