@@ -17,13 +17,30 @@ import argparse
 import os
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 from typing import Any
 from typing import Dict
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        prog="arctic_training",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """
+            DeepSpeed Args:
+                ArcticTraining uses the DeepSpeed launcher to create a
+                distributed training environment. Any additional args after the
+                config file path will be passed directly to the DeepSpeed
+                launcher.
+
+                For example, `arctic_training my_config.yaml --num_gpus 2`.
+
+                To see a full list of DeepSpeed launcher args, run `deepspeed --help`.
+            """
+        ),
+    )
     parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
     parser.add_argument(
         "--overrides",
