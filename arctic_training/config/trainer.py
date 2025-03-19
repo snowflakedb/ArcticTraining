@@ -22,6 +22,7 @@ from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Tuple
 from typing import Union
 from typing import cast
 
@@ -345,7 +346,22 @@ class TrainerConfig(BaseConfig):
         return self
 
 
-def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
+def apply_dict_override(config_dict: Dict, override: Dict) -> Dict:
+    for key, value in override.items():
+        if (
+            key in config_dict
+            and isinstance(config_dict[key], dict)
+            and isinstance(value, dict)
+        ):
+            apply_dict_override(config_dict[key], value)
+        else:
+            config_dict[key] = value
+    return config_dict
+
+
+def get_config(
+    config_file_or_dict: Union[Path, Dict], overrides: Tuple[Dict, ...] = ()
+) -> BaseConfig:
     if isinstance(config_file_or_dict, dict):
         config_dict = config_file_or_dict
         config_dir = Path.cwd()
@@ -353,6 +369,10 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
         with open(config_file_or_dict, "r") as f:
             config_dict = yaml.safe_load(f)
         config_dir = config_file_or_dict.parent
+
+    # Apply overrides to loaded config dict
+    for override in overrides:
+        config_dict = apply_dict_override(config_dict, override)
 
     trainer_type = config_dict.get("type", TRAINER_DEFAULT)
     config_dict["type"] = trainer_type
