@@ -166,7 +166,10 @@ class TrainerConfig(BaseConfig):
         if isinstance(v, dict):
             config_dict = v
         else:
-            config_dict = v.model_dump()
+            # Must exclude computed fields to avoid validation errors
+            config_dict = v.model_dump(
+                exclude={"local_rank", "global_rank", "world_size"}
+            )
 
         # Determine which attribute class to use (e.g., for `model`:
         # HFModelFactory, LigerModelFactory, etc.)

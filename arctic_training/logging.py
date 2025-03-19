@@ -26,8 +26,6 @@ from loguru import logger
 from tqdm import tqdm
 from typing_extensions import TYPE_CHECKING
 
-from arctic_training.utils import get_local_rank
-
 if TYPE_CHECKING:
     from types import FrameType
 
@@ -39,9 +37,9 @@ _logger_setup: bool = False
 LOG_LEVEL_DEFAULT = os.getenv("AT_LOG_LEVEL", "WARNING")
 LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> |"
-    " Rank %d | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> -"
+    " Rank %s | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> -"
     " <level>{message}</level>"
-    % get_local_rank()
+    % os.getenv("RANK", "0")
 )
 
 

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 from typing import List
 from typing import Literal
@@ -22,8 +23,6 @@ from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.logging import LOG_LEVEL_DEFAULT
-from arctic_training.utils import get_local_rank
-from arctic_training.utils import get_world_size
 
 
 class LoggerConfig(BaseConfig):
@@ -42,22 +41,19 @@ class LoggerConfig(BaseConfig):
     @field_validator("print_output_ranks", "file_output_ranks", mode="before")
     def fill_output_ranks(cls, v):
         if v == "*":
-            return range(get_world_size())
+            return range(int(os.getenv("WORLD_SIZE", 1)))
         return v
 
     @property
     def log_file(self) -> Path:
-        local_rank = get_local_rank()
-        return self.output_dir / f"rank_{local_rank}.log"
+        return self.output_dir / f"rank_{self.local_rank}.log"
 
     @property
     def file_enabled(self) -> bool:
         if self.output_dir == Path("/dev/null"):
             return False
-        local_rank = get_local_rank()
-        return local_rank in self.file_output_ranks
+        return self.local_rank in self.file_output_ranks
 
     @property
     def print_enabled(self) -> bool:
-        local_rank = get_local_rank()
-        return local_rank in self.print_output_ranks
+        return self.local_rank in self.print_output_ranks
