@@ -33,9 +33,9 @@ except ImportError:
     SamplingParams = pass_function
 
 
-from callers import InMemoryBatchProcessor
-from vllm_utils import kill_processes
-from vllm_utils import launch_vllm_servers
+from arctic_training.synth.callers import InMemoryBatchProcessor
+from arctic_training.synth.vllm_utils import kill_processes
+from arctic_training.synth.vllm_utils import launch_vllm_servers
 
 
 class VllmSynth(InMemoryBatchProcessor):
