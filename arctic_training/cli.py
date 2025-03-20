@@ -87,8 +87,6 @@ def run_script():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
     config = get_config(args.config)
-    print(config.logger)
-    exit()
     trainer_cls = get_registered_trainer(name=config.type)
     trainer = trainer_cls(config)
     trainer.train()
