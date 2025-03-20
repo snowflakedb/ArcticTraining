@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import textwrap
 from pathlib import Path
+from typing import Any
+from typing import Dict
 
 
 def main():
@@ -40,6 +42,16 @@ def main():
         ),
     )
     parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
+    parser.add_argument(
+        "--overrides",
+        nargs="+",
+        default=(),
+        help=(
+            "Override config values. Provide a list of `key=value`, where '.' is used"
+            " to indicate nested keys. For example: --overrides epochs=10"
+            " model.dtype=FP32"
+        ),
+    )
     args, deepspeed_args = parser.parse_known_args()
 
     if not args.config.exists():
@@ -56,10 +68,22 @@ def main():
             exe_path,
             "--config",
             str(args.config),
+            "--overrides",
+            *args.overrides,
         ],
         env=env,
         check=True,
     )
+
+
+def override_dict(arg_str: str) -> Dict:
+    key, value = arg_str.split("=")
+    key_parts = key.split(".")
+    key_parts.reverse()
+    result: Dict[str, Any] = {key_parts[0]: value}
+    for part in key_parts[1:]:
+        result = {part: result}
+    return result
 
 
 def run_script():
@@ -76,6 +100,17 @@ def run_script():
         help="ArticTraining config to run.",
     )
     parser.add_argument(
+        "--overrides",
+        nargs="+",
+        type=override_dict,
+        default=(),
+        help=(
+            "Override config values. Provide a list of `key=value`, where '.' is used"
+            " to indicate nested keys. For example: --overrides epochs=10"
+            " model.dtype=FP32"
+        ),
+    )
+    parser.add_argument(
         "--local_rank",
         type=int,
         default=int(os.getenv("LOCAL_RANK", 0)),
@@ -86,7 +121,7 @@ def run_script():
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
-    config = get_config(args.config)
+    config = get_config(config_file_or_dict=args.config, overrides=args.overrides)
     trainer_cls = get_registered_trainer(name=config.type)
     trainer = trainer_cls(config)
     trainer.train()
