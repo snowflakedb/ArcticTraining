@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from pathlib import Path
 from typing import List
 from typing import Literal
 from typing import Union
 
-from pydantic import field_validator
+from pydantic import model_validator
+from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.logging import LOG_LEVEL_DEFAULT
@@ -38,11 +38,12 @@ class LoggerConfig(BaseConfig):
     file_output_ranks: Union[Literal["*"], List[int]] = "*"
     """ Which ranks will output logs to a file. Either a list of ranks or "*" for all ranks. """
 
-    @field_validator("print_output_ranks", "file_output_ranks", mode="before")
-    def fill_output_ranks(cls, v):
-        if v == "*":
-            return range(int(os.getenv("WORLD_SIZE", 1)))
-        return v
+    @model_validator(mode="after")
+    def fill_output_ranks(self) -> Self:
+        for field in ["print_output_ranks", "file_output_ranks"]:
+            if getattr(self, field) == "*":
+                setattr(self, field, list(range(self.world_size)))
+        return self
 
     @property
     def log_file(self) -> Path:
