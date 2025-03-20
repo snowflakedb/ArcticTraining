@@ -62,7 +62,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         disable_caching()
         cache_path = self.cache_path(split)
         if self.data_factory.config.use_data_cache and cache_path.exists():
-            logger.info(f"Loading from cache path {cache_path.as_posix()}")
+            logger.info(f"Loading data source from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
         dataset = self.load(self.config, split)
@@ -88,6 +88,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 )
 
         if self.data_factory.config.use_data_cache:
+            logger.info(f"Saving data source to cache path {cache_path.as_posix()}")
             dataset.save_to_disk(cache_path.as_posix())
 
         return dataset
@@ -118,20 +119,16 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         # - num_proc: does not affect output data
         # - train_eval_split: this is used after data is loaded/cached
         # - use_data_cache: does not affect the output data
-        exclude_fields = [
+        exclude_fields = {
             "sources",
             "eval_sources",
             "cache_dir",
             "num_proc",
             "train_eval_split",
             "use_data_cache",
-        ]
+        }
         cache_path_args = (
-            {
-                k: v
-                for k, v in self.data_factory.config.model_dump().items()
-                if k not in exclude_fields
-            },
+            self.data_factory.config.model_dump(exclude=exclude_fields),
             self.config.model_dump(),
             self.trainer.config.tokenizer.model_dump(),
         )

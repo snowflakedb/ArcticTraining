@@ -180,7 +180,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
-            args=self.config,
             lr_scheduler=self.scheduler,
             config=self.config.deepspeed,
         )
