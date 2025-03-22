@@ -1,0 +1,18 @@
+name: dpo
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - accelerate==0.33.0
+      - fbgemm-gpu==2024.8.12+cu121 --index-url https://download.pytorch.org/whl/nightly/cu121/
+      - hf_transfer==0.1.8
+      - httpx==0.27.2
+      - packaging
+      - setuptools
+      - sqlglot
+      - transformers>=4.45
+      - vllm==0.6.2
+      - wheel
