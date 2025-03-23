@@ -22,9 +22,9 @@ import jsonlines
 import msgspec
 
 from arctic_training import logger
+from arctic_training.synth.callers import InMemoryBatchProcessor
 from arctic_training.synth.utils import import_error
 from arctic_training.synth.utils import pass_function
-from arctic_training.synth.callers import InMemoryBatchProcessor
 from arctic_training.synth.vllm_utils import kill_processes
 from arctic_training.synth.vllm_utils import launch_vllm_servers
 
@@ -34,6 +34,7 @@ try:
 except ImportError:
     LLM = import_error
     SamplingParams = pass_function
+
 
 class VllmSynth(InMemoryBatchProcessor):
     """
