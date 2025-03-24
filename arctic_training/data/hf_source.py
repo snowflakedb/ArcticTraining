@@ -88,7 +88,7 @@ class HFLocalDataSource(DataSource):
     config: HFLocalDataSourceConfig
 
     def load(self, config: HFLocalDataSourceConfig, split: str) -> DatasetType:
-        dataset = load_from_disk(config.path.as_posix())
+        dataset = load_from_disk(config.path.as_posix(), **config.kwargs)
         if isinstance(dataset, DatasetDict):
             return dataset[split]
         return dataset
