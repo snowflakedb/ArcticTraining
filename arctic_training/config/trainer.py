@@ -123,6 +123,9 @@ class TrainerConfig(BaseConfig):
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
 
+    overfit_first_batch: bool = False
+    """ Train only on repetitions of the first training batch. Useful for development. """
+
     step_timer: bool = False
     """ Enable logging of every training step duration """
 
