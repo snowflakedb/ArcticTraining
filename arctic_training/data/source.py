@@ -71,14 +71,6 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 f"Empty dataset from load() for data source type {self.name} with"
                 f" config {self.config} for split {split}"
             )
-        if self.config.shard:
-            if len(dataset) < self.world_size:
-                raise ValueError(
-                    "Sharding is enabled but the dataset size is smaller than the"
-                    f" number of shards. Dataset size: {len(dataset)}, number of"
-                    f" shards: {self.world_size}"
-                )
-            dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
             dataset = self.data_factory.process(dataset)
             if len(dataset) < 1:

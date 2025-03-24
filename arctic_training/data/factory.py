@@ -20,11 +20,11 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-import torch
+import deepspeed.comm as dist
 from datasets import concatenate_datasets
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler
+from torch.utils.data import DistributedSampler
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.callback.mixin import CallbackMixin
@@ -32,6 +32,7 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
+from arctic_training.data.utils import is_local_fs
 from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
@@ -78,20 +79,22 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
         def get_data_split(split: str) -> Optional[DatasetType]:
             data_sources = self._get_data_sources(split=split)
-
-            cache_path = self.cache_path(sources=data_sources, split=split)
-            if cache_path.exists():
-                logger.info(f"Loading dataset from cache path {cache_path.as_posix()}")
-                return load_from_disk(cache_path.as_posix())
-
             if len(data_sources) == 0:
                 return None
-            dataset = self.load(data_sources, split=split)
-            dataset = self._truncate_data(dataset)
 
-            logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
-            dataset.save_to_disk(cache_path.as_posix())
-            return dataset
+            cache_path = self.cache_path(sources=data_sources, split=split)
+
+            # If the cache path does not exist, load the data using local/global
+            # rank 0 (depending on if file system is shared across nodes).
+            if self._is_main_process_by_path(cache_path) and not cache_path.exists():
+                dataset = self.load(data_sources, split=split)
+                logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
+                dataset.save_to_disk(cache_path.as_posix())
+
+            dist.barrier()  # Wait for main process to finish saving to cache
+
+            logger.info(f"Loading dataset from cache path {cache_path.as_posix()}")
+            return load_from_disk(cache_path.as_posix())
 
         training_data = get_data_split("train")
         evaluation_data = get_data_split("eval")
@@ -129,6 +132,11 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return self.config.global_rank
 
     @property
+    def local_rank(self) -> int:
+        """The local rank of the current process."""
+        return self.config.local_rank
+
+    @property
     def world_size(self) -> int:
         """The total number of processes in the world."""
         return self.config.world_size
@@ -147,23 +155,10 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             data_sources.append(data_source)
         return data_sources
 
-    def _truncate_data(self, dataset: DatasetType) -> DatasetType:
-        """
-        Truncate the dataset to the shortest length across all processes.
-        This ensures that each shard/process has the same number of samples in
-        the dataset.
-        """
-        local_length = len(dataset)
-        if self.world_size > 1:
-            data_length = torch.zeros(self.world_size).to(self.trainer.device)
-            data_length[self.global_rank] = local_length
-            torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
-            shortest_length = int(data_length.min().item())
-            del data_length  # clean the memory
-        else:
-            shortest_length = local_length
-        dataset = dataset.select(range(shortest_length))
-        return dataset
+    def _is_main_process_by_path(self, path: Path) -> bool:
+        if is_local_fs(path):
+            return self.local_rank == 0
+        return self.global_rank == 0
 
     def cache_path(self, sources: List["DataSource"], split: str) -> Path:
         """Returns the cache path for the processed + concatenated dataset."""
@@ -209,7 +204,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=DistributedSampler(
+                dataset, num_replicas=self.world_size, rank=self.global_rank
+            ),
             num_workers=self.config.num_proc,
             drop_last=True,
         )
