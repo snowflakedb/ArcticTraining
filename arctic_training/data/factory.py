@@ -17,6 +17,7 @@ from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import List
+from typing import Mapping
 from typing import Optional
 from typing import Tuple
 
@@ -75,7 +76,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._trainer = trainer
         self.config = config
 
-    def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
+    def __call__(self) -> Tuple[DataLoader, Optional[Mapping[str, DataLoader]]]:
         def get_data_split(split: str) -> Optional[DatasetType]:
             data_sources = self._get_data_sources(split=split)
 

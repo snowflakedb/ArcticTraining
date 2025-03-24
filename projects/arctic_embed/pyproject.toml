@@ -1,0 +1,13 @@
+# Minimal with a name and version for a package
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[project]
+name = "arctic-embed"
+version = "0.1.0"
+description = "A very minimal convenience package wrapper around the Arctic Embed codebase."
+dependencies = ["deepspeed>=0.16.0"]

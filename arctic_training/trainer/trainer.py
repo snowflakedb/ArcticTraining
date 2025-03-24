@@ -41,6 +41,7 @@ from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.utils import OverfitOneBatchDataLoader
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
@@ -163,7 +164,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.tokenizer = tokenizer_factory()
 
         data_factory = self.config.data.factory(self)
-        self.train_dataloader, self.eval_dataloader = data_factory()
+        self.train_dataloader, self.eval_dataloader_map = data_factory()
+        if self.config.overfit_first_batch:
+            self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         model_factory = self.config.model.factory(self)
@@ -237,11 +240,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             // self.config.gradient_accumulation_steps
         )
 
-    @property
-    def warmup_steps(self) -> int:
-        """Number of warmup steps."""
-        return int(self.config.scheduler.warmup_ratio * self.training_horizon)
-
     @callback_wrapper("loss")
     @abstractmethod
     def loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
@@ -250,6 +248,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         inheriting trainer class.
         """
         raise NotImplementedError("Loss method must be implemented by the trainer.")
+
+    @callback_wrapper("backward")
+    def backward(self, loss: torch.Tensor) -> None:
+        """
+        Backward function for the trainer. This method is called after the loss
+        method and is responsible for backpropagating the loss through the model.
+        """
+        self.model.backward(loss)
 
     @callback_wrapper("step")
     def step(self, batch: Dict[str, torch.Tensor]) -> None:
@@ -261,7 +267,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.train()
         loss = self.loss(batch)
-        self.model.backward(loss)
+        self.backward(loss)
         self.model.step()
 
         # use deepspeed global step as golden truth
