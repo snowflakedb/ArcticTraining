@@ -110,7 +110,7 @@ class DataConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_cache_dir(self) -> Self:
         if not self.cache_dir.exists():
-            logger.warning(
+            logger.info(
                 f"Caching directory {self.cache_dir} does not exist. Creating it."
             )
             self.cache_dir.mkdir(parents=True, exist_ok=True)
