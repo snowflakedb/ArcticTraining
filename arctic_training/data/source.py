@@ -117,6 +117,9 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
             "num_proc",
             "train_eval_split",
             "use_data_cache",
+            "world_size",
+            "global_rank",
+            "local_rank",
         }
         cache_path_args = (
             self.data_factory.config.model_dump(exclude=exclude_fields),
