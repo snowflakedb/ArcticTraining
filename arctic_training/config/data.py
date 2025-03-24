@@ -73,7 +73,7 @@ class DataConfig(BaseConfig):
     seed: int = 42
     """ Seed for data loading. """
 
-    use_data_cache: bool = True
+    use_data_cache: Optional[bool] = None
     """ Whether to cache loaded data. """
 
     cache_processed_data: Optional[bool] = None
@@ -86,13 +86,13 @@ class DataConfig(BaseConfig):
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)
 
-    @field_validator("cache_processed_data", mode="after")
+    @field_validator("use_data_cache", "cache_processed_data", mode="after")
     @classmethod
     def deprecate_cache_processed_data(cls, v: Optional[bool]) -> Optional[bool]:
         if v is not None:
             logger.warning(
-                "The 'cache_processed_data' field is deprecated. Please use"
-                " 'use_data_cache' instead."
+                "The 'use_data_cache' and 'cache_processed_data' fields are deprecated."
+                " Data cache is used by default now."
             )
         return v
 
@@ -112,15 +112,11 @@ class DataConfig(BaseConfig):
 
     @model_validator(mode="after")
     def validate_cache_dir(self) -> Self:
-        if self.use_data_cache:
-            assert (
-                self.cache_dir is not None
-            ), "You must provide a data_cache_dir if use_data_cache is True."
-            if not self.cache_dir.exists():
-                logger.warning(
-                    f"Caching directory {self.cache_dir} does not exist. Creating it."
-                )
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self.cache_dir.exists():
+            logger.warning(
+                f"Caching directory {self.cache_dir} does not exist. Creating it."
+            )
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
         return self
 
     @model_validator(mode="after")

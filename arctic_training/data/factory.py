@@ -80,7 +80,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             data_sources = self._get_data_sources(split=split)
 
             cache_path = self.cache_path(sources=data_sources, split=split)
-            if self.config.use_data_cache and cache_path.exists():
+            if cache_path.exists():
                 logger.info(f"Loading dataset from cache path {cache_path.as_posix()}")
                 return load_from_disk(cache_path.as_posix())
 
@@ -89,9 +89,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             dataset = self.load(data_sources, split=split)
             dataset = self._truncate_data(dataset)
 
-            if self.config.use_data_cache:
-                logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
-                dataset.save_to_disk(cache_path.as_posix())
+            logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
+            dataset.save_to_disk(cache_path.as_posix())
             return dataset
 
         training_data = get_data_split("train")

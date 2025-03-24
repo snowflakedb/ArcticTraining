@@ -29,13 +29,12 @@ def create_sft_data_factory(
     model_name: str,
     sources: List[str],
     eval_sources: List[str] = [],
-    cache_dir: Optional[Path] = None,
+    cache_dir: Optional[Path] = Path("/tmp/"),
 ) -> SFTDataFactory:
     data_config = SFTDataConfig(
         type="sft",
         sources=sources,
         eval_sources=eval_sources,
-        use_data_cache=cache_dir is not None,
         cache_dir=cache_dir,
     )
     tokenizer_config = TokenizerConfig(type="huggingface", name_or_path=model_name)
