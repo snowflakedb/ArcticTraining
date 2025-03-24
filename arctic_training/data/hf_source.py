@@ -14,10 +14,13 @@
 # limitations under the License.
 
 from functools import partial
+from pathlib import Path
 from typing import Any
 from typing import Dict
 
+from datasets import DatasetDict
 from datasets import load_dataset
+from datasets import load_from_disk
 from pydantic import model_validator
 from typing_extensions import Self
 
@@ -68,6 +71,27 @@ class HFDataSource(DataSource):
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
         return load_dataset(config.dataset_name, split=split, **config.kwargs)
+
+
+class HFLocalDataSourceConfig(DataSourceConfig):
+    path: Path
+    """ Path to the local dataset saved with `dataset.save_to_disk`. """
+
+    kwargs: Dict[str, Any] = {}
+    """ Keyword arguments to pass to the datasets.load_dataset function. """
+
+
+class HFLocalDataSource(DataSource):
+    """Base DataSource class for loading locally saved HuggingFace datasets."""
+
+    name = "huggingface-local"
+    config: HFLocalDataSourceConfig
+
+    def load(self, config: HFLocalDataSourceConfig, split: str) -> DatasetType:
+        dataset = load_from_disk(config.path.as_posix())
+        if isinstance(dataset, DatasetDict):
+            return dataset[split]
+        return dataset
 
 
 class UltraChat200K(HFDataSource):

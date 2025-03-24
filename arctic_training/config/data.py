@@ -99,16 +99,34 @@ class DataConfig(BaseConfig):
     @field_validator("sources", "eval_sources", mode="before")
     def create_source_config_from_name(
         cls, v: List[Union[str, Dict, DataSourceConfig]]
-    ) -> List[DataSourceConfig]:
-        data_sources = []
+    ) -> List[Union[Dict, DataSourceConfig]]:
+        data_sources: List[Union[Dict, DataSourceConfig]] = []
         for source in v:
             if isinstance(source, str):
-                data_source_cls = get_registered_data_source(source)
-                config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
-                data_sources.append(config_cls(type=source))
+                data_sources.append(dict(type=source))
             else:
                 data_sources.append(source)
         return data_sources
+
+    @field_validator("sources", "eval_sources", mode="before")
+    def init_source_configs(
+        cls,
+        v: List[Union[Dict, DataSourceConfig]],
+    ) -> List[DataSourceConfig]:
+        data_configs = []
+        for config in v:
+            if isinstance(config, dict):
+                if "type" not in config:
+                    raise KeyError(
+                        "Unspecified data source type. Please specify the 'type' field"
+                        f" in your datasource config. Error raised for input: {config}."
+                    )
+                data_source_cls = get_registered_data_source(config["type"])
+                config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
+                data_configs.append(config_cls(**config))
+            else:
+                data_configs.append(config)
+        return data_configs
 
     @model_validator(mode="after")
     def validate_cache_dir(self) -> Self:
