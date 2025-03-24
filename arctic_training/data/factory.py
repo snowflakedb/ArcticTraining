@@ -86,13 +86,16 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # If the cache path does not exist, load the data using local/global
             # rank 0 (depending on if file system is shared across nodes).
-            if self._is_main_process_by_path(cache_path) and not cache_path.exists():
+            if self.is_main_process_by_path(cache_path) and not cache_path.exists():
                 dataset = self.load(data_sources, split=split)
                 logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
 
             dist.barrier()  # Wait for main process to finish saving to cache
 
+            self.trainer._set_seeds(
+                self.trainer.config.seed
+            )  # Reset seeds before processing data
             logger.info(f"Loading dataset from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
@@ -155,7 +158,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             data_sources.append(data_source)
         return data_sources
 
-    def _is_main_process_by_path(self, path: Path) -> bool:
+    def is_main_process_by_path(self, path: Path) -> bool:
         if is_local_fs(path):
             return self.local_rank == 0
         return self.global_rank == 0

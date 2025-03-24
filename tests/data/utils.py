@@ -16,7 +16,6 @@
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List
-from typing import Optional
 
 from transformers import AutoTokenizer
 
@@ -28,8 +27,8 @@ from arctic_training.data.sft_factory import SFTDataFactory
 def create_sft_data_factory(
     model_name: str,
     sources: List[str],
+    cache_dir: Path,
     eval_sources: List[str] = [],
-    cache_dir: Optional[Path] = Path("/tmp/"),
 ) -> SFTDataFactory:
     data_config = SFTDataConfig(
         type="sft",
