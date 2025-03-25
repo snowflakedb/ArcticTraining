@@ -440,7 +440,10 @@ class SFTTrainer(Trainer):
                 print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss=}")
 
                 see_memory_usage(f"{sub_step_id=} before backward", force=False)
+                #import gc; gc.collect()
                 self.model.backward(loss)
+
+
                 # print_rank(f"{labels[0][70:80]=}", skip=False)
                 # print_rank(f"{logits[0][70:80]=}", skip=False)
                 # print_rank(f'{batch["input_ids"][0][70:80]=}', skip=False)

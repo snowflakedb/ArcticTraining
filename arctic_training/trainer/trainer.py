@@ -130,7 +130,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         process_group: dist.ProcessGroup,
         seq_length_is_variable: bool = False,
     ) -> None:
-        super(UlyssesAttentionHF, self).__init__()
+        super().__init__()
         self.attn = attn
         self.process_group = process_group
         self.world_size = dist.get_world_size(process_group)
@@ -310,6 +310,369 @@ class UlyssesAttentionHF(torch.nn.Module):
 
         # make the blocks contiguous as early as possible to minimize fragmentation
         query = rearrange(query, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
+        key = rearrange(key,     'bs hc sl hs -> sl bs hc hs') # .contiguous()
+        value = rearrange(value, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
+
+        # print_rank0(f"forward 2 {query.shape=}")
+        # print_rank0(f"forward 2 {key.shape=}")
+        # print_rank0(f"forward 2 {value.shape=}")
+        # print_rank0(f"forward 2 {self.required_query_shape=}")
+        # print_rank0(f"forward 2 {self.required_key_value_shape=}")
+
+        #print_rank0(f"{attention_mask.shape=}")
+        # please don't remove the white-space vertical alignment in the error message
+        assert query.shape == self.required_query_shape, \
+            f"[{dist.get_rank()}]: query input tensor does not match the required shape\n             {self.required_query_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
+        assert key.shape == value.shape == self.required_key_value_shape, \
+            f"[{dist.get_rank()}]: key or value input tensor does not match the required shape\n             {self.required_key_value_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
+        # assert query.shape == key.shape == value.shape == self.required_input_shape, \
+        #     f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
+
+        see_memory_usage(f"before combine", force=False)
+
+        # expects: [sl_l bs hc hs]
+        query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
+        # returns: [sl bs hc_l hs]
+
+        see_memory_usage(f"after combine", force=False)
+
+        query_layer = rearrange(query_layer, 'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
+        key_layer = rearrange(key_layer,     'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
+        value_layer = rearrange(value_layer, 'sl bs hc_l hs -> bs hc_l sl hs').contiguous()
+
+        #query_layer = query_layer.reshape(query_layer.shape).contiguous()
+
+        # print_rank0(f"{query_layer.shape=}")
+        # print_rank0(f"{key_layer.shape=}")
+        # print_rank0(f"{value_layer.shape=}")
+
+        # if attention_mask is not None:
+        #     print_rank0(f"{attention_mask.shape=}")
+        #     #print_rank0(f"{attention_mask=}")
+
+        # XXX: stick into the trainer object
+        from deepspeed.utils import groups
+        sp_group = groups._get_sequence_parallel_group()
+        sp_world_size = groups._get_sequence_parallel_world_size()
+
+        # debug_gathered_tensor(query_layer, sp_group, name="query_layer")
+        # debug_gathered_tensor(key_layer, sp_group, name="key_layer")
+        # debug_gathered_tensor(value_layer, sp_group, name="value_layer")
+
+        print_rank0(f"HF before real attn: {query_layer.shape=}", skip=False)
+        print_rank0(f"HF before real attn: {key_layer.shape=}", skip=False)
+        print_rank0(f"HF before real attn: {value_layer.shape=}", skip=False)
+        print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
+        print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
+        print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
+
+        # pr0(f"HF before real attn: {query_layer.shape=}", skip=False)
+        # pr0(f"HF before real attn: {key_layer.shape=}", skip=False)
+        # pr0(f"HF before real attn: {value_layer.shape=}", skip=False)
+        # pr0(f"HF before real attn: {torch.norm(query_layer)=}", skip=False)
+        # pr0(f"HF before real attn: {torch.norm(key_layer)=}", skip=False)
+        # pr0(f"HF before real attn: {torch.norm(value_layer)=}", skip=False)
+
+        #exit()
+
+
+        see_memory_usage(f"before core attn", force=False)
+
+        # crucial in the case of MQA and some GQA cases we need to fix `module.num_key_value_groups`
+        # see:
+        # XXX: could move this somewhere to do it only once per run
+        if self.kv_replication_factor > 1:
+            print_rank0(f"before: {module.num_key_value_groups=}", skip=False)
+            module.num_key_value_groups = query_layer.size(-3)//key_layer.size(-3)
+            print_rank0(f"after: {module.num_key_value_groups=}", skip=False)
+
+        # expects: [bs hc_l sl hs]
+        context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
+        # returns [bs sl hc_l hs]
+
+        see_memory_usage(f"after core attn", force=False)
+
+        # debug_gathered_tensor(context_layer, sp_group, name="context_layer")
+
+        # print_rank0(f"HF after real attn: {context_layer.shape=}")
+        # print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")
+
+        # print_rank0(f"1 {context_layer.shape=}")
+        # [bs sl hc_l hs] -> [sl bs hc_l hs]'
+        context_layer = rearrange(context_layer, 'bs sl ... -> sl bs ...')
+        # print_rank0(f"2 {context_layer.shape=}")
+        context_layer = context_layer.reshape([*context_layer.shape[:2], -1])
+        # print_rank0(f"3 {context_layer.shape=}")
+        # print_rank0(f"{self.required_context_shape=}")
+
+        assert context_layer.shape == self.required_context_shape, \
+                    f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
+
+        see_memory_usage(f"before partition", force=False)
+
+        # expects: [sl bs em_l]
+        output = self._partition_global_sequence(context_layer)
+        # returns: [sl_l bs em]
+
+        see_memory_usage(f"after partition", force=False)
+
+        # print_rank0(f"1 {output.shape=}")
+        output = rearrange(output, 'sl_l bs ... -> bs sl_l ...')
+        # print_rank0(f"2 {output.shape=}")
+
+        output = output.reshape([*output.shape[:2], -1])
+        # print_rank0(f"3 {output.shape=}")
+        # if attn_weights is not None:
+        #     print_rank0(f"{attn_weights.shape=}")
+
+        # debug_gathered_tensor(output, sp_group, name="output")
+
+        see_memory_usage(f"exit attn forward", force=False)
+
+        #exit()
+
+        # expects [bs sl em]
+        return output, attn_weights
+
+
+class UlyssesAttentionHFNoFrag(torch.nn.Module):
+    """Re-Implementation of DistributedAttention. This implementation enforces the input shape
+    to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
+
+    The primary reason for the re-implementation is to make this less error prone, and remove what seemed like
+    bugs in scenarios where batch size > 1 and when using different versions of
+    flash attention each of which takes different input shape. Those should be handled by
+    the actual attn implementation, and not by this module.
+
+    Dimension annotation:
+        bs   = bs
+        hc   = head count
+        hc_l = head count local
+        hs   = head_size
+        sl   = seqlen
+        sl_l = seqlen local
+        ws   = world_size
+        em    = embedding (hidden size)
+        em_l  = embedding (hidden size) local
+
+    Arguments:
+        attn: normal attention implementation from transformers.modeling_utils.ALL_ATTENTION_FUNCTIONS
+        local_seq_length (int): local sequence length per GPU
+        global_seq_length (int): actual sequence length
+        batch_size (int): batch size
+        attn_head_size (int): size of each attention head
+        attn_head_count (int): total number of attention heads
+        kv_head_count (int): total number of kv heads
+        process_group (dist.ProcessGroup): Ulysses process group
+        seq_length_is_variable (bool): whether global seqlen may change between batches
+    """
+
+    def __init__(
+        self,
+        attn,
+        local_seq_length: int,
+        global_seq_length: int,
+        batch_size: int,
+        attn_head_count: int,
+        attn_head_size: int,
+        kv_head_count: int,
+        device,
+        process_group: dist.ProcessGroup,
+        seq_length_is_variable: bool = False,
+    ) -> None:
+        super().__init__()
+        self.attn = attn
+        self.process_group = process_group
+        self.world_size = dist.get_world_size(process_group)
+        self.sp_rank = dist.get_rank(process_group)
+        self.device = device
+
+        self.local_seq_length = local_seq_length
+        self.global_seq_length = global_seq_length
+        self.batch_size = batch_size
+        self.seq_length_is_variable = seq_length_is_variable
+
+        self.attn_head_size = attn_head_size
+        self.attn_head_count = attn_head_count
+        self.global_kv_head_count = kv_head_count
+
+        self.local_q_head_count = attn_head_count // self.world_size
+
+
+        # if we have 4 kv heads and sp 8, we need to replicate kv heads 2x
+        self.kv_replication_factor = self.world_size // kv_head_count
+        if self.kv_replication_factor > 1:
+            self.local_kv_head_count = 1
+        else:
+            self.local_kv_head_count = kv_head_count // self.world_size
+
+        # XXX: hardcoded dtype
+        buffer_size_kv = batch_size*kv_head_count*local_seq_length*attn_head_size
+        buffer_size_q  = batch_size*attn_head_count*local_seq_length*attn_head_size
+        self.nf_k = torch.empty(buffer_size_kv, dtype=torch.bfloat16, device=device)
+        self.nf_v = torch.empty(buffer_size_kv, dtype=torch.bfloat16, device=device)
+        self.nf_q = torch.empty(buffer_size_q,  dtype=torch.bfloat16, device=device)
+
+        print_rank0(f"{self.local_q_head_count=}", skip=False)
+        print_rank0(f"{self.local_kv_head_count=}", skip=False)
+        print_rank0(f"{self.kv_replication_factor=}", skip=False)
+        #exit()
+
+        if self.attn_head_count % self.world_size != 0:
+            raise ValueError(f"Attention head count {attn_head_count} is not divisible by SP size {self.world_size}")
+        if not (self.global_kv_head_count % self.world_size == 0 or self.world_size % self.global_kv_head_count == 0):
+            raise ValueError(f"KV attention head count {self.global_kv_head_count} is not divisible by SP size {self.world_size} or vice versa")
+
+        # XXX: working on this feature MQA and some cases of GQA
+        # if self.global_kv_head_count < self.world_size:
+        #     raise ValueError(f"KV attention head count < sp size ({self.global_kv_head_count} < {self.world_size}) is currently not supported but it can be implemented by replicating heads")
+
+        # XXX: add more constraints (some might have to go outside of this module or change the API to add more arguments if they are needed here, or perhaps add a special class method that validates the outside things)
+        # - global_seq_length is divisible by SP? but probably has to be sorted out before this module
+        # - more?
+
+        # [sl_l bs hc hs]
+        self.required_query_shape = torch.Size([local_seq_length, \
+                                                batch_size, \
+                                                attn_head_count, \
+                                                attn_head_size])
+        self.required_key_value_shape = torch.Size([local_seq_length, \
+                                                batch_size, \
+                                                kv_head_count, \
+                                                attn_head_size])
+
+        # [sl bs em_l]
+        self.required_context_shape = torch.Size([global_seq_length, \
+                                                batch_size, \
+                                                attn_head_size * attn_head_count // self.world_size])
+
+    def _combine_local_sequences(self, query, key, value) -> Tuple[Tensor, Tensor, Tensor]:
+
+        def combine_sequence(input, head_type):
+            """
+                expects inputs in shape: [sl_l bs hc hs]
+                returns output in shape: [sl bs hc_l hs]
+
+                local_head_count could be different for k,v vs q if it's not an MHA situation
+            """
+
+            print_rank0('')
+            print_rank0(f"combine {head_type}: before reshape:  {input.shape=}", skip=False)
+
+            if head_type == "q":
+                local_head_count = self.local_q_head_count
+            else: # kv
+                local_head_count = self.local_kv_head_count
+
+                # MQA and some GQA cases:
+                if self.kv_replication_factor > 1:
+                    #local_head_count *= self.kv_replication_factor
+                    # replicate heads to the kv_replication_factor on hc dimension [sl_l bs hc hs] - so dim=2
+                    input = input.repeat_interleave(self.kv_replication_factor, dim=2)
+                    print_rank0(f"combine {head_type}: after repeat interleave:  {input.shape=}", skip=False)
+
+            # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
+            input = input.reshape([self.local_seq_length, \
+                                self.batch_size, \
+                                self.world_size, \
+                                local_head_count, \
+                                self.attn_head_size])
+
+
+
+            print_rank0(f"combine {head_type}: after reshape:   {input.shape=}", skip=False)
+
+            input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
+            # print_rank0(f"combine {head_type}: after rearrange: {input.shape=}", skip=False)
+
+            output = _DimZeroAllToAll.apply(self.process_group, input)
+            #output = input
+            print_rank0(f"combine {head_type}: after all2all:   {output.shape=}", skip=False)
+
+            # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
+            output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
+            print_rank0(f"combine {head_type}: after reshape:   {output.shape=}", skip=False)
+
+            # [sl bs hc_l hs]
+            return output
+
+
+        return combine_sequence(query, head_type="q"),  combine_sequence(key, head_type="kv"),  combine_sequence(value, head_type="kv")
+
+    def _partition_global_sequence(self, input) -> Tensor:
+        """
+            expects input in shape:  [sl bs em_l]
+            returns output in shape: [sl_l bs em]
+        """
+
+        # print_rank0(f"partition: before reshape:  {input.shape=}")
+
+        # [sl bs em_l] -> [ws sl_l bs em_l]
+        input = input.reshape([self.world_size, \
+                            self.local_seq_length, \
+                            self.batch_size, \
+                            self.attn_head_size * self.attn_head_count // self.world_size]).contiguous()
+
+        # print_rank0(f"partition: after reshape:   {input.shape=}", skip=False)
+        output = _DimZeroAllToAll.apply(self.process_group, input)
+        #output = input
+        # print_rank0(f"partition: after all2all:   {output.shape=}", skip=False)
+        output = rearrange(output, 'ws sl_l bs em_l -> sl_l bs ws em_l')
+        #output = rearrange(output, 'ws sl_l bs ... -> sl_l bs ws ...')
+        # print_rank0(f"partition: after rearrange: {output.shape=}")
+
+        # [sl_l bs ws em_l] -> [sl_l bs em]
+        output = output.reshape([*output.shape[:2], -1]).contiguous()
+        # print_rank0(f"partition: after reshape:   {output.shape=}")
+
+        # [sl_l bs em]
+        return output
+
+
+    def forward(self, module: torch.nn.Module, query: Tensor, key: Tensor, value: Tensor, attention_mask: Tensor, *args: Any, **kwargs: Any) -> Tensor:
+        """ forward
+
+        Arguments:
+            query (Tensor): query input to the layer
+            key (Tensor): key input to the layer
+            value (Tensor): value input to the layer
+            attention_mask (Tensor): Attention mask
+            args: other args
+
+        Returns:
+            * output (Tensor): context output
+        """
+        # HF incoming shapes are:
+        # [batch_size, num_heads, seqlen, head_size]
+        # UlyssesAttentionHF expects:
+        # [seqlen, batch_size, num_heads, head_size]
+        # print_rank0(f"{query.shape=}")
+        # print_rank0(f"{key.shape=}")
+        # print_rank0(f"{value.shape=}")
+        # print_rank0(f"{self.required_input_shape=}")
+        #print(f"XXXX {query.shape=}")
+        #die
+        current_local_seq_length = query.shape[2]
+        if self.seq_length_is_variable and current_local_seq_length != self.required_query_shape[0]:
+            self.local_seq_length = current_local_seq_length
+            self.global_seq_length = current_local_seq_length * self.world_size
+            # update the required seqlen shapes
+            self.required_query_shape = torch.Size([self.local_seq_length] + list(self.required_query_shape)[1:])
+            self.required_key_value_shape = torch.Size([self.local_seq_length] + list(self.required_key_value_shape)[1:])
+            self.required_context_shape = torch.Size([self.global_seq_length] + list(self.required_context_shape)[1:])
+
+        # print_rank0(f"forward 1 {query.shape=}")
+        # print_rank0(f"forward 1 {key.shape=}")
+        # print_rank0(f"forward 1 {value.shape=}")
+
+        see_memory_usage(f"enter attn forward", force=False)
+
+        # make the blocks contiguous as early as possible to minimize fragmentation
+        query = rearrange(query, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
+        self.nf_q = self.nf_q.narrow(0, 0, query.numel())
+        self.nf_q.copy_(query.view(-1))
+        query.data = self.nf_q.data.view_as(query)
+
         key = rearrange(key,     'bs hc sl hs -> sl bs hc hs') # .contiguous()
         value = rearrange(value, 'bs hc sl hs -> sl bs hc hs') # .contiguous()
 
@@ -760,6 +1123,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             import torch
             from transformers import AutoConfig
             from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+            #from transformers.modeling_utils import AttentionInterface
 
             print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
             print_rank0(f"MBS  {self.config.micro_batch_size}")
@@ -788,6 +1152,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # exit()
 
             #from deepspeed.sequence.layer import DistributedAttention
+#            uattn = UlyssesAttentionHFNoFrag(
             uattn = UlyssesAttentionHF(
                 attn=core_attn_function,
                 local_seq_length=self.config.data.max_length // mpu.get_sequence_parallel_world_size(),
@@ -796,6 +1161,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 attn_head_count=hf_model_config.num_attention_heads,
                 attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
                 kv_head_count=hf_model_config.num_key_value_heads,
+                #device=self.device,
                 process_group=mpu.get_sequence_parallel_group(),
                 seq_length_is_variable=True,
             )
@@ -1106,6 +1472,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.iter_timer.start()
 
+        # enable memory history, which will
+        # add tracebacks and event history to snapshots
+        mem_profiler = True
+        if mem_profiler:
+            MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000
+            torch.cuda.memory._record_memory_history()#max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT)
+
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
         for batch in self.train_batches:
@@ -1305,11 +1678,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     log_line += f"{k}: {train_log_data[k]:{fmt}} | "
                 print(log_line)
 
-
-
-
             if self.early_stop:
                 break
+
+        if mem_profiler:
+            torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
 
     @callback_wrapper("train")
     def train(self) -> None:
