@@ -27,6 +27,7 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_data_factory
@@ -41,13 +42,10 @@ class DataSourceConfig(BaseConfig):
     """Base DataSource configuration."""
 
     type: str = ""
-    """ Data source type. """
+    """ Data source type. Defaults to 'huggingface' if only a dataset name or path is provided."""
 
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
-
-    shard: bool = True
-    """ Whether to shard the data across Data Parallel process ranks. """
 
     @property
     def data_source(self) -> Type["DataSource"]:
@@ -73,7 +71,7 @@ class DataConfig(BaseConfig):
     seed: int = 42
     """ Seed for data loading. """
 
-    use_data_cache: bool = True
+    use_data_cache: Optional[bool] = None
     """ Whether to cache loaded data. """
 
     cache_processed_data: Optional[bool] = None
@@ -86,41 +84,50 @@ class DataConfig(BaseConfig):
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)
 
-    @field_validator("cache_processed_data", mode="after")
+    @field_validator("use_data_cache", "cache_processed_data", mode="after")
     @classmethod
     def deprecate_cache_processed_data(cls, v: Optional[bool]) -> Optional[bool]:
         if v is not None:
             logger.warning(
-                "The 'cache_processed_data' field is deprecated. Please use"
-                " 'use_data_cache' instead."
+                "The 'use_data_cache' and 'cache_processed_data' fields are deprecated."
+                " Data cache is used by default now."
             )
         return v
 
     @field_validator("sources", "eval_sources", mode="before")
-    def create_source_config_from_name(
-        cls, v: List[Union[str, Dict, DataSourceConfig]]
+    def init_source_configs(
+        cls,
+        v: List[Union[str, Dict, DataSourceConfig]],
     ) -> List[DataSourceConfig]:
-        data_sources = []
-        for source in v:
-            if isinstance(source, str):
-                data_source_cls = get_registered_data_source(source)
+        """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
+        data_configs = []
+        for config in v:
+            # Support passing just a dataset name or path
+            if isinstance(config, str):
+                try:
+                    _ = get_registered_data_source(config)
+                    config = dict(type=config, name_or_path=config)
+                except RegistryError:
+                    config = dict(type="huggingface", name_or_path=config)
+
+            # Convert passed dictionary to DataSourceConfig subclass
+            if isinstance(config, dict):
+                if "type" not in config:
+                    raise KeyError(
+                        "Unspecified data source type. Please specify the 'type' field"
+                        f" in your datasource config. Error raised for input: {config}."
+                    )
+                data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
-                data_sources.append(config_cls(type=source))
+                data_configs.append(config_cls(**config))
             else:
-                data_sources.append(source)
-        return data_sources
+                data_configs.append(config)
+        return data_configs
 
     @model_validator(mode="after")
     def validate_cache_dir(self) -> Self:
-        if self.use_data_cache:
-            assert (
-                self.cache_dir is not None
-            ), "You must provide a data_cache_dir if use_data_cache is True."
-            if not self.cache_dir.exists():
-                logger.warning(
-                    f"Caching directory {self.cache_dir} does not exist. Creating it."
-                )
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self.cache_dir.exists():
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
         return self
 
     @model_validator(mode="after")

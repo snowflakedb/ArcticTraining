@@ -31,9 +31,6 @@ class SchedulerConfig(BaseConfig):
     type: str = ""
     """ Scheduler factory type. Defaults to the `scheduler_factory_type` of the trainer. """
 
-    warmup_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
-    """ The fraction of total training steps used for linear learning rate warmup. """
-
     learning_rate: Optional[float] = Field(default=None, alias="lr")
     """ The initial learning rate. Deprecated in favor of `optimizer.learning_rate`. """
 
