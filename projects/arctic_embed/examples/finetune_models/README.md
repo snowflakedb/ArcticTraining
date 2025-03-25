@@ -18,10 +18,10 @@ mv ./data.gitignore ./data/.gitignore
 
 # Ensure we have all the files you need for training downloaded from LFS.
 cd arctic-embed-ft-v1/
-git lfs pull --include="combined/pretokenized/example_dot95/" --include="eval/"
+git lfs pull --include="combined/pretokenized/example_dot95/,eval/"
 
 # Optional: Download more large files (e.g. everything but the very large precomputed embeddings).
-git lfs pull --exclude="*document_embeddings*" --exclude="*query_embeddings*"
+git lfs pull --exclude="*embeddings*"
 ```
 
 Next, adjust the `finetune_e5_base_unsupervised.py` script to meet your needs:
