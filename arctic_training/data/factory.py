@@ -92,7 +92,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                 logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
 
-            dist.barrier()  # Wait for main process to finish saving to cache
+            dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
 
             self.trainer._set_seeds(
                 self.trainer.config.seed
