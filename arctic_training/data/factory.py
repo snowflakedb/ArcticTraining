@@ -94,9 +94,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
 
-            self.trainer._set_seeds(
-                self.trainer.config.seed
-            )  # Reset seeds before processing data
+            # Reset seeds after may be processing data if cache didn't exist - so that main process ends up with the same RNG if the cache was there and if it wasn't, thus ensuring reproducibility.
+            self.trainer._set_seeds(self.trainer.config.seed)
             logger.info(f"Loading dataset from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
