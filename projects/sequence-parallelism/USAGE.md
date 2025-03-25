@@ -1,0 +1,27 @@
+# Ulysses Sequence Parallelism for HF Transformers Usage
+
+## Performance vs. Correctness
+
+### Longer Sequence Length at the potential loss of correctness
+
+By default deepspeed will use fp32 for sequence parallelism communications.
+
+If you set `"reduce_bucket_size": 5e8` in deepspeed config (default) - at bf16 (2 bytes per param) this will use 1GB of memory to reduce gradients (`2*0.5**9`). But at fp32 (4 bytes per param) this will require additional 4GB of memory:
+1. 2GB to copy bf16 to fp32 grads
+2. 2GB to reduce them
+
+So if you need to push the sequence length and want to shave some GBs off to accomodate a longer sequence length you can do 2 things:
+
+1. sacrify some of the correctness by forcing the sequence parallelism reductions to be performed in bf16, by setting:
+```
+"seq_parallel_communication_data_type": 'bf16'
+```
+in the deepspeed config.
+
+2. or you can sacrify some speed, by reducing the `reduce_bucket_size` - for example, if you set it to:
+```
+"reduce_bucket_size": 1.25e8
+```
+which makes the reduction bucket 4x smaller than `5e8` you will incur only 1GB of additional GPU memory to perform the reduction instead of 4GB, because now you have
+1. 0.5GB to copy bf16 to fp32 grads
+2. 0.5GB to reduce them
