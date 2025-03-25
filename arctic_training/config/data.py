@@ -23,7 +23,7 @@ from typing import Type
 from typing import Union
 
 from pydantic import field_validator
-from pydantic import model_validator
+from pydantic import model_validator, ValidationInfo
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
@@ -43,6 +43,14 @@ class DataSourceConfig(BaseConfig):
 
     type: str = ""
     """ Data source type. Defaults to 'huggingface' if only a dataset name or path is provided."""
+
+    split: str = ""
+    """
+    Which split the data source is used for. This will be automatically set to either "train" or "eval" if no value is passed.
+
+    For HFDataSource, this can be any value supported by Dataset slice splits:
+    https://huggingface.co/docs/datasets/en/loading#slice-splits.
+    """
 
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
@@ -101,12 +109,19 @@ class DataConfig(BaseConfig):
     def init_source_configs(
         cls,
         v: List[Union[str, Dict, DataSourceConfig]],
+        info: ValidationInfo,
     ) -> List[DataSourceConfig]:
         """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
         data_configs = []
         for config in v:
+            split = "train" if info.field_name == "sources" else "eval"
+
             # Support passing just a dataset name or path
             if isinstance(config, str):
+                # User has passed split suffix as part of the name
+                if ":" in config:
+                    config, split = config.split(":", 1)
+
                 try:
                     _ = get_registered_data_source(config)
                     config = dict(type=config, name_or_path=config)
@@ -120,6 +135,8 @@ class DataConfig(BaseConfig):
                         "Unspecified data source type. Please specify the 'type' field"
                         f" in your datasource config. Error raised for input: {config}."
                     )
+                if "split" not in config:
+                    config["split"] = split
                 data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
                 data_configs.append(config_cls(**config))

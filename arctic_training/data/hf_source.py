@@ -29,7 +29,10 @@ from arctic_training.data.utils import DatasetType
 
 class HFDataSourceConfig(DataSourceConfig):
     name_or_path: Path
-    """ Name of the dataset to load. """
+    """
+    Name or path of the dataset to load. Also accepts values for the split field
+    after a colon (e.g. "name:split", "name:split[10:20]").
+    """
 
     kwargs: Dict[str, Any] = {}
     """ Keyword arguments to pass to the datasets.load_dataset function. """
