@@ -13,12 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+<<<<<<< HEAD:arctic_training/utils.py
 import os
 from contextlib import contextmanager
 from pathlib import Path
 import deepspeed.comm as dist
+=======
+from typing import Any
+>>>>>>> main:projects/arctic_embed/src/arctic_embed/data_processing/typing_utils.py
 
+import numpy as np
+from numpy.typing import NDArray
 
+<<<<<<< HEAD:arctic_training/utils.py
 def get_local_rank() -> int:
     return int(os.getenv("LOCAL_RANK", 0))
 
@@ -265,3 +272,7 @@ def format_human_base2_number(num, suffix="B"):
             return f"{num:3.1f}{unit}{suffix}"
         num /= 1024.0
     return f"{num:.1f}Yi{suffix}"
+=======
+NDArrayOfFloat = NDArray[np.floating[Any]]
+NDArrayOfUint64 = NDArray[np.uint64]
+>>>>>>> main:projects/arctic_embed/src/arctic_embed/data_processing/typing_utils.py
