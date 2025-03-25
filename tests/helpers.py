@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 from datasets import Dataset
 from datasets import IterableDataset
 from deepspeed.ops.adam import DeepSpeedCPUAdam
@@ -40,9 +42,9 @@ class RandomWeightHFModelFactory(HFModelFactory):
 
 def modify_config_for_truncated_data(self):
     self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
-    self.config.dataset_name = self.name.removesuffix(  # Set to the real dataset name
-        "-truncated"
-    )
+    self.config.name_or_path = Path(
+        str(self.config.name_or_path).removesuffix("-truncated")
+    )  # Set real dataset name
 
 
 def sample_data_for_truncated_dataset(self, dataset: IterableDataset) -> Dataset:
