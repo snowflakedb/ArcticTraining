@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
 from pydantic import BaseModel
 from pydantic import ConfigDict
-from pydantic import computed_field
+from pydantic import Field
 
+from arctic_training.config.utils import get_global_rank
+from arctic_training.config.utils import get_local_rank
+from arctic_training.config.utils import get_world_size
 from arctic_training.logging import logger
 
 
@@ -36,17 +37,6 @@ class BaseConfig(BaseModel):
         populate_by_name=True,
     )
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def local_rank(self) -> int:
-        return int(os.getenv("LOCAL_RANK", 0))
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def global_rank(self) -> int:
-        return int(os.getenv("RANK", 0))
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def world_size(self) -> int:
-        return int(os.getenv("WORLD_SIZE", 1))
+    local_rank: int = Field(default_factory=get_local_rank, exclude=True)
+    global_rank: int = Field(default_factory=get_global_rank, exclude=True)
+    world_size: int = Field(default_factory=get_world_size, exclude=True)
