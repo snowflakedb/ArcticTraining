@@ -8,6 +8,9 @@
 
 <!--| <a href="#"><b>Discourse</b></a> | -->
 
+## Latest News
+* [2025/03] [Snowflake Arctic Embed Joins ArcticTraining: Simple And Scalable Embedding Model Training](https://www.snowflake.com/en/engineering-blog/arctic-embed-joins-arctictraining/)
+
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
 
 ArcticTraining is a framework designed to simplify and accelerate the post-training process for large language models (LLMs). It addresses challenges in current frameworks, such as limited support for rapid prototyping and the lack of native data generation tools, by offering modular trainer designs, simplified code structures, and integrated pipelines for creating and cleaning synthetic data. These features enable users to enhance LLM capabilities, like code generation and complex reasoning, with greater efficiency and flexibility. Read more about ArcticTraining [in our blog](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/).
@@ -50,6 +53,7 @@ The projects folder contains all special projects we release that build on-top o
 
 * [SwiftKV](projects/swiftkv)
 * [Speculative Decoding](projects/mlp_speculator)
+* [Arctic-Embed](projects/arctic_embed)
 
 ## Customize Training
 
