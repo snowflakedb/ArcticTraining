@@ -15,10 +15,12 @@
 
 import hashlib
 from typing import Any
+from typing import Optional
 from typing import Union
 
 from datasets import Dataset
 from datasets import IterableDataset
+from torch.utils.data import DataLoader
 
 DatasetType = Union[Dataset, IterableDataset]
 
@@ -34,3 +36,18 @@ def calculate_hash_from_args(*args: Any) -> str:
                 f" Error: {e}"
             )
     return hashlib.md5(hash_str.encode()).hexdigest()
+
+
+class OverfitOneBatchDataLoader(DataLoader):
+    """A DataLoader that repeats the first batch of a base loader for testing purposes."""
+
+    def __init__(self, base_loader: DataLoader, num_repeat: Optional[int] = None):
+        self.size = len(base_loader) if num_repeat is None else num_repeat
+        self.batch = next(iter(base_loader))
+
+    def __len__(self):
+        return self.size
+
+    def __iter__(self):
+        for _ in range(self.size):
+            yield self.batch
