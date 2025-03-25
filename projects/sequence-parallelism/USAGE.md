@@ -1,6 +1,23 @@
 # Ulysses Sequence Parallelism for HF Transformers Usage
 
+## Configuration
+
+Define the desired sequence parallelism degree in the config yaml file with:
+```
+sequence_parallel_size: 8
+```
+The degree of sequence parallelism shouldn't exceed the total number of gpus.
+
+You can use fewer than the total number of gpus for sequence parallelism, as long as the number is of base 2, for example with 8 gpus you could do:
+```
+sequence_parallel_size: 4
+```
+which would lead to 2 replicas.
+
+
 ## Performance vs. Correctness
+
+The longer the sequence the higher the performance will be.
 
 ### Longer Sequence Length at the potential loss of correctness
 
