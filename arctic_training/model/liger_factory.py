@@ -27,6 +27,11 @@ class LigerModelFactory(HFModelFactory):
                 "You need to install the liger-kernel package to use LigerKernel"
                 " models: `pip install liger-kernel`"
             )
+        liger_version_min = "0.5.5" # earlier versions were silently dropping the attn_implementation kwargs
+        liger_version_have = importlib.metadata.version('liger_kernel')
+        if version.parse(liger_version_have) < version.parse(liger_version_min):
+            raise ValueError(f"liger-kernel>={liger_version_min} is required, but you have liger-kernel=={liger_version_have}")
+
         return AutoLigerKernelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,
