@@ -54,19 +54,7 @@ from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage, pr, pr0
 from arctic_training.utils import get_local_rank, is_global_main_process, StepFlopCounter, gather_sum_number, format_human_base2_number, gather_object
 
-try:
-    from transformers.integrations.deepspeed import HfDeepSpeedConfig
-except ImportError:
-    from transformers.deepspeed import HfDeepSpeedConfig
-
-
-# x = None
-# def reenter():
-#     global x
-#     if x is None:
-#         raise ValueError("shouldn't have been called 2nd time")
-#     #assert x is None, "shouldn't have been called 2nd time"
-#     x = 1
+from transformers.integrations.deepspeed import HfDeepSpeedConfig
 
 from typing import Any, Tuple
 from torch import Tensor
@@ -436,6 +424,89 @@ class UlyssesAttentionHF(torch.nn.Module):
         return output, attn_weights
 
 
+    @classmethod
+    def register_with_transformers(cls, model_name_or_path, core_attn_implementation, sequence_parallel_size, max_length, micro_batch_size, seq_length_is_variable=True):
+        """
+        Register "ulysses" attn_implementation with HF transformers and return mpu (Megatron-LM-style parallel state object).
+        If sequence_parallel_size==1 do nothng and return None.
+
+        """
+        if sequence_parallel_size == 1:
+            return None
+
+        import arctic_training.trainer.parallel_state as mpu
+        import torch
+        from transformers import AutoConfig
+        from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+        #from transformers.modeling_utils import AttentionInterface
+
+        # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
+        # print_rank0(f"MBS  {micro_batch_size}")
+        mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
+
+        # we don't have the model yet at this stage
+        hf_model_config = AutoConfig.from_pretrained(model_name_or_path)
+
+        if core_attn_implementation not in ['flash_attention_2', 'sdpa']:
+            # - eager: The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager attention with sequence parallelism
+            # - flex_attention: haven't tried
+
+            raise ValueError(f"{core_attn_implementation} attn_implementation isn't currently supported by Ulysses sequence parallelism. Set attention_implementation to either 'flash_attention_2' and 'sdpa'.")
+
+        core_attn_function = ALL_ATTENTION_FUNCTIONS.get(core_attn_implementation, None)
+        if core_attn_function is None:
+            raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.keys()}")
+
+        uattn = UlyssesAttentionHF(
+            attn=core_attn_function,
+            local_seq_length=max_length // mpu.get_sequence_parallel_world_size(),
+            global_seq_length=max_length,
+            batch_size=micro_batch_size,
+            attn_head_count=hf_model_config.num_attention_heads,
+            attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
+            kv_head_count=hf_model_config.num_key_value_heads,
+            #device=self.device,
+            process_group=mpu.get_sequence_parallel_group(),
+            seq_length_is_variable=seq_length_is_variable,
+        )
+
+        def uattn_wrapper(
+            module: torch.nn.Module,
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            attention_mask: torch.Tensor,
+            *args,
+            **kwargs,
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+            # XXX: we are relaying on position_ids for SP to work so attention_mask has to be None
+            # the problem is that HF currently doesn't know anything about ALL_ATTENTION_FUNCTIONS["ulysses"] so it doesn't make a special case like for "flash_attention_2" and "sdpa" and it creates an attention mask on the fly and it breaks things.
+            attention_mask = None
+
+            attn_output, attn_weights = uattn(
+                module,
+                query,
+                key,
+                value,
+                attention_mask,
+                # XXX: fixme
+                *args,
+                **kwargs
+            )
+            return attn_output, attn_weights
+
+        ALL_ATTENTION_FUNCTIONS["ulysses"] = uattn_wrapper
+
+        return mpu
+
+    @classmethod
+    def validate_model(cls, model, sequence_parallel_size):
+        if sequence_parallel_size > 1:
+            if model.config._attn_implementation != "ulysses":
+                raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check whether the `register_with_transformers` method was called before the `model` has been created")
+
+
 class UlyssesAttentionHFNoFrag(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
     to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
@@ -798,9 +869,6 @@ class UlyssesAttentionHFNoFrag(torch.nn.Module):
         # expects [bs sl em]
         return output, attn_weights
 
-
-
-
 from typing import Callable, List, Optional, Tuple, Union
 from torch import nn
 
@@ -1116,86 +1184,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         import transformers.models.llama.modeling_llama
         #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
-        # XXX: find a place for this code
-        if self.config.sequence_parallel_size == 1:
-            mpu = None
-        else:
-            import arctic_training.trainer.parallel_state as mpu
-            import torch
-            from transformers import AutoConfig
-            from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-            #from transformers.modeling_utils import AttentionInterface
-
-            print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
-            print_rank0(f"MBS  {self.config.micro_batch_size}")
-            mpu.initialize_model_parallel(sequence_parallel_size=self.config.sequence_parallel_size)
-
-            # we don't have the model yet at this stage
-            hf_model_config = AutoConfig.from_pretrained(self.config.model.name_or_path)
-
-            core_attn_implementation = self.config.model.attn_implementation
-            if core_attn_implementation == "eager":
-                # The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager with sequence parallelism
-
-                # XXX: there is also flex attention but I haven't tested if it works
-                raise ValueError(f"{core_attn_implementation} attn_implementation isn't currently supported by sequence parallelism. Set attention_implementation to either 'flash_attention_2' and 'sdpa'.")
-
-            core_attn_function = ALL_ATTENTION_FUNCTIONS.get(core_attn_implementation, None)
-            if core_attn_function is None:
-                raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.keys()}")
-
-            #attn_implementation_real =  transformers.models.llama.modeling_llama.eager_attention_forward
-            #attn_implementation_real = transformers.integrations.flash_attention.flash_attention_forward
-            #attn_implementation_real = transformers.integrations.sdpa_attention.sdpa_attention_forward
-
-            # print_rank(core_attn_implementation)
-            # print_rank(core_attn_function)
-            # exit()
-
-            #from deepspeed.sequence.layer import DistributedAttention
-#            uattn = UlyssesAttentionHFNoFrag(
-            uattn = UlyssesAttentionHF(
-                attn=core_attn_function,
-                local_seq_length=self.config.data.max_length // mpu.get_sequence_parallel_world_size(),
-                global_seq_length=self.config.data.max_length,
-                batch_size=self.config.micro_batch_size,
-                attn_head_count=hf_model_config.num_attention_heads,
-                attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
-                kv_head_count=hf_model_config.num_key_value_heads,
-                #device=self.device,
-                process_group=mpu.get_sequence_parallel_group(),
-                seq_length_is_variable=True,
-            )
-
-            def uattn_wrapper(
-                module: torch.nn.Module,
-                query: torch.Tensor,
-                key: torch.Tensor,
-                value: torch.Tensor,
-                attention_mask: torch.Tensor,
-                *args,
-                **kwargs,
-            ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-                # XXX: we are relaying on position_ids for SP to work so attention_mask has to be None
-                # the problem is that HF currently doesn't know anything about ALL_ATTENTION_FUNCTIONS["ulysses"] so it doesn't make a special case like for "flash_attention_2" and "sdpa" and it creates an attention mask on the fly and it breaks things.
-                attention_mask = None
-
-                attn_output, attn_weights = uattn(
-                    module,
-                    query,
-                    key,
-                    value,
-                    attention_mask,
-                    # XXX: fixme
-                    *args,
-                    **kwargs
-                )
-                return attn_output, attn_weights
-
+        # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesAttentionHF should not have any AT-specific objects / assumptions
+        mpu = UlyssesAttentionHF.register_with_transformers(
+            model_name_or_path=self.config.model.name_or_path,
+            core_attn_implementation=self.config.model.attn_implementation,
+            sequence_parallel_size=self.config.sequence_parallel_size,
+            max_length=self.config.data.max_length,
+            micro_batch_size=self.config.micro_batch_size,
+            seq_length_is_variable=True,
+        )
+        if self.config.sequence_parallel_size > 1:
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesAttentionHF`
             self.config.model.attn_implementation = "ulysses"
-            ALL_ATTENTION_FUNCTIONS["ulysses"] = uattn_wrapper
 
         #rint(self.config.model.attn_implementation)
         #exit()
@@ -1204,10 +1204,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
-        # sanity check - w/o a proper HF API it's too easy to lose the attn_implementation override
-        if self.config.sequence_parallel_size > 1:
-            if self.model.config._attn_implementation != "ulysses":
-                raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check the injection")
+        UlyssesAttentionHF.validate_model(
+            model=self.model,
+            sequence_parallel_size=self.config.sequence_parallel_size,
+        )
+
+        # # sanity check - w/o a proper HF API it's too easy to lose the attn_implementation override
+        # if self.config.sequence_parallel_size > 1:
+        #     if self.model.config._attn_implementation != "ulysses":
+        #         raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check the injection")
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -1369,17 +1374,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 loss = average_loss
 
         else:
-            # sp will do backward inside loss
+            # sp will do backward inside sp_fwd_bwd_loss
+            # the returned loss is already averaged across ranks
             loss = self.sp_fwd_bwd_loss(batch)
 
         see_memory_usage("after backward", force=False)
 
         self.model.step()
-
-        # import math
-        # if not math.isnan(loss):
-        #     print(f"{loss=}")
-        #     self.model.step()
 
         see_memory_usage("after step", force=False)
         #exit()

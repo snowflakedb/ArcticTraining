@@ -104,10 +104,6 @@ class SFTTrainer(Trainer):
     def sp_fwd_bwd_loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
-
-
-        #print_rank(f"YYYY {batch['position_ids']=}", skip=False)
-        #exit()
         # ensure shapes are correct
         if not (batch["input_ids"].shape == batch["position_ids"].shape == batch["labels"].shape):
             raise ValueError(f'Borked batch {batch["input_ids"].shape=} != {batch["position_ids"].shape=} != {batch["labels"].shape=}) in DataLoader->iter->next, cannot continue with Sequence parallelism')
