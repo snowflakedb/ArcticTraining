@@ -1474,7 +1474,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # enable memory history, which will
         # add tracebacks and event history to snapshots
-        mem_profiler = True
+        mem_profiler = False
         if mem_profiler:
             MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000
             torch.cuda.memory._record_memory_history()#max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT)
