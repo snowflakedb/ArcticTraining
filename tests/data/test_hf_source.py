@@ -34,7 +34,7 @@ def test_huggingface_local_data_source(model_name: str, tmp_path: Path):
     # Load saved dataset using HuggingFaceLocal data source
     sft_data_factory = create_sft_data_factory(
         model_name=model_name,
-        sources=[dict(type="huggingface", name_or_path=dataset_path.as_posix())],
+        sources=[dataset_path.as_posix()],
         cache_dir=tmp_path,
     )
     training_dataloader, _ = sft_data_factory()
@@ -54,7 +54,7 @@ def test_huggingface_local_data_source_no_split(model_name: str, tmp_path: Path)
     # Load saved dataset using HuggingFaceLocal data source
     sft_data_factory = create_sft_data_factory(
         model_name=model_name,
-        sources=[dict(type="huggingface", name_or_path=dataset_path.as_posix())],
+        sources=[dataset_path.as_posix()],
         cache_dir=tmp_path,
     )
     training_dataloader, _ = sft_data_factory()
