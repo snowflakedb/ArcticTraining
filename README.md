@@ -53,7 +53,7 @@ The projects folder contains all special projects we release that build on-top o
 
 * [SwiftKV](projects/swiftkv)
 * [Speculative Decoding](projects/mlp_speculator)
-* [Arctic-Embed](projects/actic_embed)
+* [Arctic-Embed](projects/arctic_embed)
 
 ## Customize Training
 
