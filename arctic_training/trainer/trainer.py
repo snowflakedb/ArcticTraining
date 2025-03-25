@@ -1356,15 +1356,21 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.train()
         if self.config.sequence_parallel_size == 1:
-        #     avg_loss = self.model.backward(loss)
-
             loss = self.loss(batch)
-            #self.model.backward(loss)
+            self.model.backward(loss)
 
+            with torch.no_grad():
+                # average losses since they are different on each dp rank
+                losses_per_rank = torch.distributed.nn.functional.all_gather(loss)
+                #print(f"LOSS {losses_per_rank=}")
+                average_loss = torch.cat([l.unsqueeze(0) for l in losses_per_rank], dim=0).mean()
+                #print(f"LOSS {average_loss=}")
+                loss = average_loss
 
         else:
             # sp will do backward inside loss
-            loss = self.loss(batch)
+            loss = self.sp_fwd_bwd_loss(batch)
+
         see_memory_usage("after backward", force=False)
 
         self.model.step()
