@@ -13,17 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
-
-from datasets import Dataset
-from datasets import IterableDataset
 from deepspeed.ops.adam import DeepSpeedCPUAdam
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
 from arctic_training.data.factory import DataFactory
-from arctic_training.data.hf_source import SlimOrca
-from arctic_training.data.hf_source import UltraChat200K
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.factory import SchedulerFactory
@@ -38,33 +32,6 @@ class RandomWeightHFModelFactory(HFModelFactory):
             attn_implementation=self.config.attn_implementation,
             torch_dtype=self.config.dtype,
         )
-
-
-def modify_config_for_truncated_data(self):
-    self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
-    self.config.name_or_path = Path(
-        str(self.config.name_or_path).removesuffix("-truncated")
-    )  # Set real dataset name
-
-
-def sample_data_for_truncated_dataset(self, dataset: IterableDataset) -> Dataset:
-    return Dataset.from_list(list(dataset.take(20)), features=dataset.features)
-
-
-class UltraChat200KTruncated(UltraChat200K):
-    name = "HuggingFaceH4/ultrachat_200k-truncated"
-    callbacks = [
-        ("post-init", modify_config_for_truncated_data),
-        ("post-load", sample_data_for_truncated_dataset),
-    ]
-
-
-class SlimOrcaTruncated(SlimOrca):
-    name = "Open-Orca/SlimOrca-truncated"
-    callbacks = [
-        ("post-init", modify_config_for_truncated_data),
-        ("post-load", sample_data_for_truncated_dataset),
-    ]
 
 
 class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):

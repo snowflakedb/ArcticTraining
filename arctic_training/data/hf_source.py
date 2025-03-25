@@ -62,8 +62,10 @@ class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
     def pre_load_callback(self, split: str) -> str:
-        split_map = {"train": "train_sft", "test": "test_sft"}
-        return split_map.get(split, split)
+        split_map = dict(train="train_sft", eval="test_sft")
+        for original, modified in split_map.items():
+            split = split.replace(original, modified)
+        return split
 
 
 class SlimOrca(HFDataSource):

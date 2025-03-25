@@ -131,7 +131,8 @@ class CallbackMixin:
             match = callback_re.match(name)
             if match:
                 event = f"{match.group(1)}-{match.group(2).replace('_', '-')}"
-                callbacks.append((event, member))
+                if (event, member) not in callbacks:
+                    callbacks.append((event, member))
 
         return callbacks
 

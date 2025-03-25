@@ -22,8 +22,9 @@ from typing import Tuple
 from typing import Type
 from typing import Union
 
+from pydantic import ValidationInfo
 from pydantic import field_validator
-from pydantic import model_validator, ValidationInfo
+from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
