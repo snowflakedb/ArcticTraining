@@ -24,9 +24,12 @@ from .utils import create_sft_data_factory
 @pytest.mark.parametrize(
     "training_sources, expected_sum",
     [
-        (["HuggingFaceH4/ultrachat_200k-truncated"], 487103798),
+        (["HuggingFaceH4/ultrachat_200k:train[:20]"], 487103798),
         (
-            ["HuggingFaceH4/ultrachat_200k-truncated", "Open-Orca/SlimOrca-truncated"],
+            [
+                "HuggingFaceH4/ultrachat_200k:train[:20]",
+                "Open-Orca/SlimOrca:train[:20]",
+            ],
             591408621,
         ),
     ],
@@ -53,8 +56,8 @@ def test_generated_data(
 
 def test_sft_factory_cache_path_uniqueness(model_name: str, tmp_path: Path):
     data_sources = [
-        "HuggingFaceH4/ultrachat_200k-truncated",
-        "Open-Orca/SlimOrca-truncated",
+        "HuggingFaceH4/ultrachat_200k",
+        "Open-Orca/SlimOrca",
     ]
     data_factory_1 = create_sft_data_factory(
         model_name=model_name, sources=data_sources, cache_dir=tmp_path
@@ -66,10 +69,10 @@ def test_sft_factory_cache_path_uniqueness(model_name: str, tmp_path: Path):
     )
 
     cache_path_1 = data_factory_1.cache_path(
-        data_factory_1._get_data_sources(split="train"), "train"
+        data_factory_1._get_data_sources(data_factory_1.config.sources)
     )
     cache_path_2 = data_factory_2.cache_path(
-        data_factory_2._get_data_sources(split="train"), "train"
+        data_factory_2._get_data_sources(data_factory_2.config.sources)
     )
 
     assert cache_path_1 != cache_path_2, "Cache paths were not unique"
