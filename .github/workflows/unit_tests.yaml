@@ -38,6 +38,11 @@ jobs:
         with:
           path: ~/.cache/torch_extensions
           key: torch-extensions-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}
+      - name: Restore huggingface cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: huggingface-cache-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}
       - name: Setup environment
         run: |
           python -m venv .venv
