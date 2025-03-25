@@ -45,6 +45,7 @@ def create_sft_data_factory(
             tokenizer=tokenizer_config,
         ),
         tokenizer=AutoTokenizer.from_pretrained(model_name),
+        _set_seeds=lambda seed: None,
     )
 
     data_factory = data_config.factory(trainer=dummy_trainer)
