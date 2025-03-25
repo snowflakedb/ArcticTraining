@@ -61,7 +61,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self, split: str) -> DatasetType:
         disable_caching()
         cache_path = self.cache_path(split)
-        if self.data_factory.config.use_data_cache and cache_path.exists():
+        if cache_path.exists():
             logger.info(f"Loading data source from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
@@ -71,14 +71,6 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 f"Empty dataset from load() for data source type {self.name} with"
                 f" config {self.config} for split {split}"
             )
-        if self.config.shard:
-            if len(dataset) < self.world_size:
-                raise ValueError(
-                    "Sharding is enabled but the dataset size is smaller than the"
-                    f" number of shards. Dataset size: {len(dataset)}, number of"
-                    f" shards: {self.world_size}"
-                )
-            dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
             dataset = self.data_factory.process(dataset)
             if len(dataset) < 1:
@@ -87,9 +79,8 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                     f" {self.name} with config {self.config} for split {split}"
                 )
 
-        if self.data_factory.config.use_data_cache:
-            logger.info(f"Saving data source to cache path {cache_path.as_posix()}")
-            dataset.save_to_disk(cache_path.as_posix())
+        logger.info(f"Saving data source to cache path {cache_path.as_posix()}")
+        dataset.save_to_disk(cache_path.as_posix())
 
         return dataset
 
