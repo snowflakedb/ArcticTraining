@@ -86,8 +86,6 @@ class ModelFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     def global_rank(self) -> int:
         return self.trainer.global_rank
 
- 
-
     @abstractmethod
     @callback_wrapper("create-config")
     def create_config(self) -> Any:

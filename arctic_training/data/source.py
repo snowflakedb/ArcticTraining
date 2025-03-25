@@ -34,7 +34,7 @@ from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.trainer.trainer import Trainer
-from arctic_training.utils import global_main_process_first, is_global_main_process
+
 
 class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base DataSource class for loading training and evaluation data."""
@@ -61,7 +61,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self, split: str) -> DatasetType:
         disable_caching()
         cache_path = self.cache_path(split)
-        if self.data_factory.config.use_data_cache and cache_path.exists():
+        if cache_path.exists():
             logger.info(f"Loading data source from cache path {cache_path.as_posix()}")
             return load_from_disk(cache_path.as_posix())
 
@@ -71,15 +71,6 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 f"Empty dataset from load() for data source type {self.name} with"
                 f" config {self.config} for split {split}"
             )
-        if self.config.shard:
-            if len(dataset) < self.world_size:
-                raise ValueError(
-                    "Sharding is enabled but the dataset size is smaller than the"
-                    f" number of shards. Dataset size: {len(dataset)}, number of"
-                    f" shards: {self.world_size}"
-                )
-            # disable for now as switched to DistributedSampler
-            # dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
             dataset = self.data_factory.process(dataset)
             if len(dataset) < 1:
@@ -88,9 +79,8 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                     f" {self.name} with config {self.config} for split {split}"
                 )
 
-        # XXX: need to redesign this better for rank0 to save and then all other ranks just load - same as in the data/factory - instead of each rank processing
-        if is_global_main_process() and self.data_factory.config.use_data_cache:
-            dataset.save_to_disk(cache_path.as_posix())
+        logger.info(f"Saving data source to cache path {cache_path.as_posix()}")
+        dataset.save_to_disk(cache_path.as_posix())
 
         return dataset
 
@@ -120,20 +110,16 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         # - num_proc: does not affect output data
         # - train_eval_split: this is used after data is loaded/cached
         # - use_data_cache: does not affect the output data
-        exclude_fields = [
+        exclude_fields = {
             "sources",
             "eval_sources",
             "cache_dir",
             "num_proc",
             "train_eval_split",
             "use_data_cache",
-        ]
+        }
         cache_path_args = (
-            {
-                k: v
-                for k, v in self.data_factory.config.model_dump().items()
-                if k not in exclude_fields
-            },
+            self.data_factory.config.model_dump(exclude=exclude_fields),
             self.config.model_dump(),
             self.trainer.config.tokenizer.model_dump(),
         )

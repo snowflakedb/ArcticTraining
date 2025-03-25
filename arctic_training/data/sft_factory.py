@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler, DistributedSampler
+from torch.utils.data import DistributedSampler
 from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
@@ -31,15 +31,11 @@ from transformers import PreTrainedTokenizerBase
 from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
-from arctic_training.debug import print_rank0, print_rank, exit
 
 IGNORE_INDEX = -100
 
 
 # this function is modified from TRL trl.trainer.utils.py
-#
-# Avoid easy to miss divide-by-zero numpy RuntimeWarning. We want a hard error if data is bad # XXX: alternatively if it can't be fixed on the data level and the show needs to go on then at least we need to drop bad records.
-@np.errstate(all='raise')
 def pad(
     tensors: List[torch.Tensor],
     padding_value: int = 0,
@@ -133,30 +129,12 @@ class DataCollatorForCausalLM:
     def __call__(self, instances: List[Dict]) -> Dict[str, torch.Tensor]:
         input_ids = [torch.tensor(example["input_ids"]) for example in instances]
         labels = [torch.tensor(example["labels"]) for example in instances]
-
-        from arctic_training.debug import print_rank, exit
-        #[print(f'{len(example["input_ids"])=}, {len(example["position_ids"])=}') for example in instances]
-
-        #print_rank(f"{input_ids.shape=}", skip=False)
-        #print_rank(f"{labels.shape=}", skip=False)
-
         # https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_flash_attention_utils.py#L270
         # we do not need attention_mask when pos-id is provided and multi-seq packed
         # attention_mask = [
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
         if "position_ids" in instances[0]:
-            for example in instances:
-                # print(f'{len(example["input_ids"])=}')
-                # print(f'{len(example["position_ids"])=}')
-                if not (len(example["input_ids"]) == len(example["position_ids"]) == len(example["labels"])):
-                    raise ValueError(f'got a borked batch {len(example["input_ids"])=} != {len(example["position_ids"])=} != {len(example["labels"])=} ')
-                    #print(f'mismatch {len(example["input_ids"])=} != {len(example["position_ids"])=}')
-                    #print(f'mismatch {example["input_ids"]=}')
-                    #print(f'mismatch {example["position_ids"]=}')
-                # else:
-                #     print_rank0("example is ok", skip=False)
-
             position_ids = [
                 torch.tensor(example["position_ids"]) for example in instances
             ]
@@ -169,14 +147,6 @@ class DataCollatorForCausalLM:
         input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id)
         labels = pad(labels, padding_value=IGNORE_INDEX)
         position_ids = pad(position_ids, padding_value=0, is_position_id=True)
-
-        # print_rank(f"   {input_ids.shape=}", skip=False)
-        # print_rank(f"{position_ids.shape=}", skip=False)
-        # print_rank(f"      {labels.shape=}", skip=False)
-        # XXX: Added a similar check earlier - not sure if the earlier one is a better place
-        if not (input_ids.shape == position_ids.shape == labels.shape):
-            raise ValueError(f"{input_ids.shape=} != {position_ids.shape} != {labels.shape=} in DataLoader, can't continue")
-            #exit()
 
         return {
             "input_ids": input_ids,
@@ -197,7 +167,6 @@ def packing_sft_dataset(
     ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
     train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
     example: Dict[str, List] = {key: [] for key in ds_keys}
-
 
     # pack multiple samples into one sample
     # for data in dataset:
@@ -233,7 +202,6 @@ def packing_sft_dataset(
     # add the last example
     if example["input_ids"]:
         for key in train_dataset.keys():
-            #print(f"last {key} {len(example[key])}")
             train_dataset[key].append(example[key])
 
     return Dataset.from_dict(train_dataset)
@@ -305,12 +273,6 @@ class SFTDataFactory(DataFactory):
         # datasets.disable_caching()
         # tmp = tokenize_messages(datasets[0]["messages"][:2], tokenizer, mask_inputs=mask_inputs)
         # import pdb; pdb.set_trace()
-
-        # XXX: remove this
-        # self.tokenizer.chat_template = "{{- bos_token }}\n{%- if custom_tools is defined %}\n    {%- set tools = custom_tools %}\n{%- endif %}\n{%- if not tools_in_user_message is defined %}\n    {%- set tools_in_user_message = true %}\n{%- endif %}\n{%- if not date_string is defined %}\n    {%- if strftime_now is defined %}\n        {%- set date_string = strftime_now(\"%d %b %Y\") %}\n    {%- else %}\n        {%- set date_string = \"26 Jul 2024\" %}\n    {%- endif %}\n{%- endif %}\n{%- if not tools is defined %}\n    {%- set tools = none %}\n{%- endif %}\n\n{#- This block extracts the system message, so we can slot it into the right place. #}\n{%- if messages[0]['role'] == 'system' %}\n    {%- set system_message = messages[0]['content']|trim %}\n    {%- set messages = messages[1:] %}\n{%- else %}\n    {%- set system_message = \"\" %}\n{%- endif %}\n\n{#- System message #}\n{{- \"<|start_header_id|>system<|end_header_id|>\\n\\n\" }}\n{%- if tools is not none %}\n    {{- \"Environment: ipython\\n\" }}\n{%- endif %}\n{{- \"Cutting Knowledge Date: December 2023\\n\" }}\n{{- \"Today Date: \" + date_string + \"\\n\\n\" }}\n{%- if tools is not none and not tools_in_user_message %}\n    {{- \"You have access to the following functions. To call a function, please respond with JSON for a function call.\" }}\n    {{- 'Respond in the format {\"name\": function name, \"parameters\": dictionary of argument name and its value}.' }}\n    {{- \"Do not use variables.\\n\\n\" }}\n    {%- for t in tools %}\n        {{- t | tojson(indent=4) }}\n        {{- \"\\n\\n\" }}\n    {%- endfor %}\n{%- endif %}\n{{- system_message }}\n{{- \"<|eot_id|>\" }}\n\n{#- Custom tools are passed in a user message with some extra guidance #}\n{%- if tools_in_user_message and not tools is none %}\n    {#- Extract the first user message so we can plug it in here #}\n    {%- if messages | length != 0 %}\n        {%- set first_user_message = messages[0]['content']|trim %}\n        {%- set messages = messages[1:] %}\n    {%- else %}\n        {{- raise_exception(\"Cannot put tools in the first user message when there's no first user message!\") }}\n{%- endif %}\n    {{- '<|start_header_id|>user<|end_header_id|>\\n\\n' -}}\n    {{- \"Given the following functions, please respond with a JSON for a function call \" }}\n    {{- \"with its proper arguments that best answers the given prompt.\\n\\n\" }}\n    {{- 'Respond in the format {\"name\": function name, \"parameters\": dictionary of argument name and its value}.' }}\n    {{- \"Do not use variables.\\n\\n\" }}\n    {%- for t in tools %}\n        {{- t | tojson(indent=4) }}\n        {{- \"\\n\\n\" }}\n    {%- endfor %}\n    {{- first_user_message + \"<|eot_id|>\"}}\n{%- endif %}\n\n{%- for message in messages %}\n    {%- if not (message.role == 'ipython' or message.role == 'tool' or 'tool_calls' in message) %}\n        {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n'+ message['content'] | trim + '<|eot_id|>' }}\n    {%- elif 'tool_calls' in message %}\n        {%- if not message.tool_calls|length == 1 %}\n            {{- raise_exception(\"This model only supports single tool-calls at once!\") }}\n        {%- endif %}\n        {%- set tool_call = message.tool_calls[0].function %}\n        {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' -}}\n        {{- '{\"name\": \"' + tool_call.name + '\", ' }}\n        {{- '\"parameters\": ' }}\n        {{- tool_call.arguments | tojson }}\n        {{- \"}\" }}\n        {{- \"<|eot_id|>\" }}\n    {%- elif message.role == \"tool\" or message.role == \"ipython\" %}\n        {{- \"<|start_header_id|>ipython<|end_header_id|>\\n\\n\" }}\n        {%- if message.content is mapping or message.content is iterable %}\n            {{- message.content | tojson }}\n        {%- else %}\n            {{- message.content }}\n        {%- endif %}\n        {{- \"<|eot_id|>\" }}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' }}\n{%- endif %}\n"
-
-
-
         return dataset.map(
             lambda ex: {
                 **self.tokenize_messages(
@@ -401,14 +363,13 @@ class SFTDataFactory(DataFactory):
         return output
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        sampler = DistributedSampler(dataset,
-                                     num_replicas=self.world_size,
-                                     rank=self.global_rank)
         return DataLoader(
             dataset,
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=sampler,
+            sampler=DistributedSampler(
+                dataset, num_replicas=self.world_size, rank=self.global_rank
+            ),
             num_workers=self.config.num_proc,
             drop_last=True,
         )
