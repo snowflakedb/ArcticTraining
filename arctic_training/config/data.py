@@ -27,6 +27,7 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_data_factory
@@ -106,7 +107,11 @@ class DataConfig(BaseConfig):
         for config in v:
             # Support passing just a dataset name or path
             if isinstance(config, str):
-                config = dict(type=config, name_or_path=config)
+                try:
+                    _ = get_registered_data_source(config)
+                    config = dict(type=config, name_or_path=config)
+                except RegistryError:
+                    config = dict(type="huggingface", name_or_path=config)
 
             # Convert passed dictionary to DataSourceConfig subclass
             if isinstance(config, dict):
