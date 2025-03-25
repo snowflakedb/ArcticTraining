@@ -31,6 +31,7 @@ from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
 from wandb.sdk.wandb_run import Run as WandbRun
+import torch.distributed.nn
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
