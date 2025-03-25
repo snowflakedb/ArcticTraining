@@ -108,6 +108,9 @@ class TrainerConfig(BaseConfig):
 
     micro_batch_size: int = Field(default=1, ge=1)
     """ Micro batch size per GPU. """
+    
+    sequence_parallel_size: int = Field(default=1, ge=1)
+    """ Sequence Parallelism Degree. Disabled if set to 1 """
 
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """

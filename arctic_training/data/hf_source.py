@@ -68,7 +68,7 @@ from datasets import Dataset
 from datasets import IterableDataset
 def modify_config_for_truncated_data(self):
     self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
-    self.config.name = Path(self.name.removesuffix(  # Set to the real dataset name
+    self.config.name_or_path = Path(self.name.removesuffix(  # Set to the real dataset name
         "-10k")
     )
 
