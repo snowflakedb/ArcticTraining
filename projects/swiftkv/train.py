@@ -16,7 +16,7 @@
 from typing import Any
 from typing import Union
 
-import qwen2_swiftkv
+import llama_swiftkv
 import torch
 import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
@@ -42,10 +42,10 @@ class SwiftKVModelFactory(HFModelFactory):
     config: SwiftKVModelConfig
 
     def post_create_config_callback(self, hf_config):
-        qwen2_swiftkv.register_auto()
+        llama_swiftkv.register_auto()
 
         config_dict = hf_config.to_dict()
-        hf_config = qwen2_swiftkv.Qwen2SwiftKVConfig.from_dict(config_dict)
+        hf_config = llama_swiftkv.LlamaSwiftKVConfig.from_dict(config_dict)
 
         hf_config.num_key_value_layers = self.config.num_key_value_layers
         hf_config.key_value_group_size = self.config.key_value_group_size
@@ -246,8 +246,28 @@ class SwiftKVTrainer(SFTTrainer):
             #print_rank(f"{shift_labels=}", skip=False)
             see_memory_usage(f"{sub_step_id=} after shift labels", force=False)
 
-            outputs = self.model(**batch, use_cache=False)
-            logits = outputs.logits
+            with torch.no_grad():
+                self.model.swiftkv(False)
+                self.model.eval()
+                teacher_outputs = self.model(
+                    **batch,
+                    output_hidden_states=(self.config.decoder_loss_mult > 0),
+                )
+
+            self.model.swiftkv(True)
+            self.model.train()
+            student_outputs = self.model(
+                **batch,
+                output_hidden_states=(self.config.decoder_loss_mult > 0),
+            )
+
+            distill_loss = self.distillation_loss(
+                student_outputs.logits,
+                teacher_outputs.logits,
+                temperature=self.config.temperature,
+            )
+
+            logits = student_outputs.logits
 
             see_memory_usage(f"{sub_step_id=} after forward", force=False)
 
@@ -262,13 +282,18 @@ class SwiftKVTrainer(SFTTrainer):
                 loss = (logits.sum() * 0.0).float()
                 #loss = FakeLoss.apply(logits)
             else:
-                loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+                loss = self.distillation_loss(
+                    student_outputs.logits,
+                    teacher_outputs.logits,
+                    temperature=self.config.temperature,
+                )
 
             #loss = outputs.loss
             print_rank(f"LOSS local {loss=}", skip=False)
 
             # free up temp mem (e.g. outputs.logits are huge)
-            del outputs
+            del teacher_outputs
+            del student_outputs
 
             see_memory_usage(f"{sub_step_id=} before gathered loss", force=False)
             #exit()
