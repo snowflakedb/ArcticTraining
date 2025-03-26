@@ -18,14 +18,12 @@ test-gpu: ## run gpu-only tests
 
 format: ## fix formatting
 	@if [ ! -d "venv" ]; then \
-		sudo apt update; \
-		sudo apt-get install -y python3-venv; \
-		python -m venv venv; \
+		pip install virtualenv; \
+		virtualenv venv; \
 		. venv/bin/activate; \
-		pip install pre-commit -U; \
+		pip install pre-commit; \
 		pre-commit clean; \
 		pre-commit uninstall; \
 		pre-commit install; \
-                deactivate; \
 	fi
 	. venv/bin/activate && pre-commit run --all-files && deactivate
