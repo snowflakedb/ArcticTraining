@@ -15,6 +15,7 @@
 
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Tuple
 from typing import Union
 
@@ -39,10 +40,9 @@ class DPODataConfig(DataConfig):
     max_prompt_length: int = 4096
     """ Maximum prompt length of the input sequence. """
 
-    dpo_prompt_truncation_mode: str = "keep_start"
+    dpo_prompt_truncation_mode: Literal["keep_start", "keep_end"] = "keep_start"
     """
-        Truncation mode to use when the sequence exceeds max_length.
-        Possible values are "keep_end" and "keep_start".
+    Truncation mode to use when the sequence exceeds max_length. Possible values are "keep_end" and "keep_start".
     """
 
 
@@ -78,10 +78,11 @@ def add_bos_token_if_needed(
     bos_token_id: Union[None, int],
     tokens: Dict[str, List[int]],
 ) -> Dict[str, List[int]]:
+    if bos_token_id is None:
+        return tokens
+
     len_input_ids = len(tokens["prompt_input_ids"])
-    if bos_token_id is not None and (
-        len_input_ids == 0 or bos_token_id != tokens["prompt_input_ids"][0]
-    ):
+    if (len_input_ids == 0) or (bos_token_id != tokens["prompt_input_ids"][0]):
         tokens["prompt_input_ids"].insert(0, bos_token_id)
         tokens["prompt_attention_mask"].insert(0, 1)
     return tokens
