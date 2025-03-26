@@ -174,8 +174,10 @@ class UltraFeedbackBinarized(HFDataSource):
     name = "HuggingFaceH4/ultrafeedback_binarized"
 
     def pre_load_callback(self, split: str) -> str:
-        split_map = {"train": "train_prefs", "test": "test_prefs"}
-        return split_map.get(split, split)
+        split_map = dict(train="train_prefs", eval="test_prefs")
+        for original, modified in split_map.items():
+            split = split.replace(original, modified)
+        return split
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         dataset = dataset.select_columns(["chosen", "rejected"])
