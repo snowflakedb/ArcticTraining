@@ -92,6 +92,30 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             # rank 0 (depending on if file system is shared across nodes).
             if self.is_main_process_by_path(cache_path) and not cache_path.exists():
                 dataset = self.load(data_sources)
+
+                # Repeat the dataset until we have enough samples to run for min_iterations
+                if self.trainer.config.min_iterations > 0:
+                    required_samples = (
+                        self.trainer.config.min_iterations
+                        * self.trainer.config.micro_batch_size
+                        * self.trainer.config.gradient_accumulation_steps
+                        * self.world_size
+                    )
+                    if required_samples > len(dataset):
+                        num_repeats = required_samples // len(dataset) + 1
+                        dataset = concatenate_datasets([dataset] * num_repeats)
+                        dataset = dataset.select(range(required_samples))
+
+                if len(dataset) < self.world_size:
+                    raise ValueError(
+                        f"Dataset size ({len(dataset)}) is less than the data parallel"
+                        f" size ({self.world_size}) so not every rank will get a data"
+                        " sample. For development and debugging work, you can set the"
+                        " `min_iterations` parameter in the training config to"
+                        " replicate the loaded data until there is enough data samples"
+                        " to run for that many iterations."
+                    )
+
                 logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
 
