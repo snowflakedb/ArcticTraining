@@ -29,7 +29,10 @@ from arctic_training.data.utils import DatasetType
 
 class HFDataSourceConfig(DataSourceConfig):
     name_or_path: Path
-    """ Name of the dataset to load. """
+    """
+    Name or path of the dataset to load. Also accepts values for the split field
+    after a colon (e.g. "name:split", "name:split[10:20]").
+    """
 
     kwargs: Dict[str, Any] = {}
     """ Keyword arguments to pass to the datasets.load_dataset function. """
@@ -59,8 +62,10 @@ class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
     def pre_load_callback(self, split: str) -> str:
-        split_map = {"train": "train_sft", "test": "test_sft"}
-        return split_map.get(split, split)
+        split_map = dict(train="train_sft", eval="test_sft")
+        for original, modified in split_map.items():
+            split = split.replace(original, modified)
+        return split
 
 # XXX: need an easier way to create truncated datasets of desired length w/o creating new classes
 # probably expand the normal dataset config to simply include `select_range: start, stop` tuple
