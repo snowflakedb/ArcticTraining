@@ -1554,9 +1554,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             #see_memory_usage("after step", force=True)
 
-            from deepspeed.utils import groups
-            sp_group = groups._get_sequence_parallel_group()
-            sp_world_size = groups._get_sequence_parallel_world_size()
+            #from deepspeed.utils import groups
+            #sp_group = groups._get_sequence_parallel_group()
+            #sp_world_size = groups._get_sequence_parallel_world_size()
 
             # per gpu
             # tflos = self.step_flos_counter.get_total_tflos()
