@@ -109,3 +109,34 @@ One nuance is that we have to hack deepspeed to override its GAS functionality s
       average losses across batches
       self.model.set_gradient_accumulation_boundary(True)
 ```
+
+
+## Implementation details
+
+### labels need to be pre-shifted
+
+When using batch sharding one can't let the upstream `loss` function to do the labels shifting. Here is why:
+
+When calculating loss in an unsharded batch we end up with (shift left):
+
+```
+input_ids: [1 2 3 4 5 6 7    8   ]
+labels   : [1 2 3 4 5 6 7    8   ]
+shiftedl : [2 3 4 5 6 7 8 -100]
+```
+
+When sharded we lose label 5 once shifted:
+
+```
+input_ids: [1 2 3    4] [5 6 7    8]
+labels   : [1 2 3    4] [5 6 7    8]
+shiftedl : [2 3 4 -100] [6 7 8 -100]
+```
+
+So a new API was added in HF transformers to support pre-shifted labels, and then we end up with the correct labels passed to the loss function for each shard:
+
+```
+input_ids: [1 2 3 4]  [5 6 7 8]
+labels   : [1 2 3 4]  [5 6 7 8]
+shiftedl : [2 3 4 5]  [6 7 8 -100]
+```

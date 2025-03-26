@@ -37,55 +37,6 @@ def to_device(batch: Dict, device: str) -> Dict:
     return output
 
 
-# start block to remove on enabling of API_change_36607
-import torch.nn as nn
-def fixed_cross_entropy(source, target, num_items_in_batch: int = None, ignore_index: int = -100, **kwargs):
-    reduction = "sum" if num_items_in_batch is not None else "mean"
-    loss = nn.functional.cross_entropy(source, target, ignore_index=ignore_index, reduction=reduction)
-    if reduction == "sum":
-        loss = loss / num_items_in_batch
-    return loss
-
-def ForCausalLMLossSharded(
-    logits, labels, vocab_size: int, num_items_in_batch: int = None, ignore_index: int = -100, shift_labels_pad_index: int = None, **kwargs
-):
-    # Upcast to float if we need to compute the loss to avoid potential precision issues
-    logits = logits.float()
-    labels = labels.to(logits.device)
-    # Shift so that tokens < n predict n
-    if shift_labels_pad_index is None:
-        shift_labels_pad_index = ignore_index
-    labels = nn.functional.pad(labels, (0, 1), value=shift_labels_pad_index)
-    shift_labels = labels[..., 1:].contiguous()
-
-    # Flatten the tokens
-    logits = logits.view(-1, vocab_size)
-    shift_labels = shift_labels.view(-1)
-    # Enable model parallelism
-    shift_labels = shift_labels.to(logits.device)
-    loss = fixed_cross_entropy(logits, shift_labels, num_items_in_batch, ignore_index, **kwargs)
-    return loss
-# end block to remove on enabling of API_change_36607
-
-# class FakeLoss(torch.autograd.Function):
-#     """
-
-#     """
-
-#     @staticmethod
-#     def forward(ctx, logits):
-#         loss = logits.sum() * 0.0
-#         ctx.logits_shape = logits.shape
-#         ctx.device = logits.device
-#         ctx.dtype = logits.dtype
-#         return loss
-
-#     @staticmethod
-#     def backward(ctx, output_gracds):
-#         logits_grads = torch.zeros(ctx.logits_shape, device=ctx.device, dtype=ctx.dtype)
-#         return logits_grads, None, None
-
-
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory
@@ -187,22 +138,6 @@ class SFTTrainer(Trainer):
             print_rank0(f"{sub_step_id=}: {seq_length=}")
             print_rank0(f"{sub_step_id=}: {chunk_len=}")
 
-            # XXX: API_change_36607: this API will work once https://github.com/huggingface/transformers/pull/36607 is merged and a new transformers is released and we require that version or higher - then can remove all the `non API_change_36607` code branches
-            API_change_36607 = True
-            if not API_change_36607:
-                # get the first label elem of each shard to be later used in the loss function
-                # the last rank will have -100 instead
-                shift_labels_pad_index = {}
-                for rank in range(sp_world_size):
-                    # XXX: careful - assuming bs=1 - need to generalize this for bs>1
-                    if rank+1 == sp_world_size:
-                        index = -100
-                    else:
-                        index = batch["labels"][0][chunk_len*(rank+1)].item()
-                    shift_labels_pad_index[rank] = index
-                print_rank(f"{shift_labels_pad_index=}", skip=False)
-                #exit()
-
             # to enable the correct mean calculation across shards before sharding the micro batch:
             # 1. count the number of non- `-100`` elements per shard
             # 2. and subtract one more element because of label shifting
@@ -214,14 +149,14 @@ class SFTTrainer(Trainer):
                 non_skipped_items[rank] = non_skipped
             print_rank(f"{non_skipped_items=}", skip=False)
 
-            if API_change_36607:
-                # because we have to gather logits from all sp ranks we have to do the loss function ourselves
-                # therefore remove labels to avoid an attempt to calculate loss by transformers
-                labels = batch.pop("labels")
-                labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
-                batch["shift_labels"] = labels[..., 1:].contiguous()
-                # free up temp memory
-                del labels
+
+            # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+            # therefore remove labels to avoid an attempt to calculate loss by transformers
+            labels = batch.pop("labels")
+            labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+            batch["shift_labels"] = labels[..., 1:].contiguous()
+            # free up temp memory
+            del labels
 
             # batch sharding
             for k in batch.keys():
@@ -242,27 +177,14 @@ class SFTTrainer(Trainer):
             import torch.distributed as dist
             import torch
 
-            if not API_change_36607:
-                # because we have to gather logits from all sp ranks we have to do the loss function ourselves
-                # therefore remove labels to avoid an attempt to calculate loss by transformers
-                labels = batch.pop("labels")
-                labels = labels.type(torch.LongTensor)
-
-                #print_rank0(f"after sp: {k}: {batch[k].shape=}")
-                #print_rank0(f"after sp: {k}: {batch[k]=}")
             see_memory_usage(f"{sub_step_id=} before forward", force=False)
 
             print_rank(f"SLICE DECODE: {sub_step_id=} {self.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
             print_rank(f"SLICE DECODE: {sub_step_id=} {batch['position_ids'][0]=}", skip=False)
-            # if API_change_36607:
-            #     print_rank(f"SLICE DECODE: {sub_step_id=} {batch['shift_labels'][0]=}", skip=False)
-            # else:
-            #     print_rank(f"SLICE DECODE: {sub_step_id=} {batch['labels'][0]=}", skip=False)
 
-            if API_change_36607:
-                shift_labels = batch.pop("shift_labels")
-                #print_rank(f"{shift_labels=}", skip=False)
-                see_memory_usage(f"{sub_step_id=} after shift labels", force=False)
+            shift_labels = batch.pop("shift_labels")
+            #print_rank(f"{shift_labels=}", skip=False)
+            see_memory_usage(f"{sub_step_id=} after shift labels", force=False)
 
             outputs = self.model(**batch, use_cache=False)
             logits = outputs.logits
@@ -275,71 +197,12 @@ class SFTTrainer(Trainer):
             # print_rank(f"logit infs: {torch.isinf(logits).sum()}", skip=False)
 
 
-            if (not API_change_36607 and all((labels == -100).squeeze())) or (API_change_36607 and all((shift_labels == -100).squeeze())):
+            if all((shift_labels == -100).squeeze()):
                 # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
                 loss = (logits.sum() * 0.0).float()
                 #loss = FakeLoss.apply(logits)
             else:
-
-                # XXX: API-change-36607: this API will work once https://github.com/huggingface/transformers/pull/36607 is merged and a new transformers is released and we require that version or higher
-                if API_change_36607:
-                    loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
-                else:
-                    # deal with the boundary issue which would lose one label element per rank
-                    #
-                    # In unsharded string we end up with (shift left):
-                    #
-                    # input_ids: [1 2 3 4 5 6 7    8   ]
-                    # labels   : [1 2 3 4 5 6 7    8   ]
-                    # shiftedl : [2 3 4 5 6 7 8 -100]
-                    #
-                    # when sharded we lose label 5 once shifted:
-                    #
-                    # input_ids: [1 2 3    4] [5 6 7    8]
-                    # labels   : [1 2 3    4] [5 6 7    8]
-                    # shiftedl : [2 3 4 -100] [6 7 8 -100]
-                    #
-                    # since HF doesn't let us pre-shift labels - we use this workaround:
-                    # - for all but the last shards: add another column of elements so that logits[-1] is random and labels[-1] is the first labels[0] of the next shard
-                    # - for the last shard keep things the same
-                    # so that it looks like:
-                    #
-                    # input_ids: [1 2 3 4    r] [5 6 7    8]
-                    # labels   : [1 2 3 4    5] [5 6 7    8]
-                    # shiftedl : [2 3 4 5 -100] [6 7 8 -100]
-                    #
-                    # where r = a random [bs, 1, vocab-size] element
-                    #
-                    # which is the same as our original unsharded sequence
-                    #
-                    # input_ids: [1 2 3 4 5 6 7    8]
-                    # labels:    [1 2 3 4 5 6 7    8]
-                    # shiftedl : [2 3 4 5 6 7 8 -100]
-                    #
-                    # the other solution is to replace -100 padding with the first label of the next shard, so then we get:
-                    #
-                    # input_ids: [1 2 3 4]  [5 6 7 8]
-                    # labels   : [1 2 3 4]  [5 6 7 8]
-                    # shiftedl : [2 3 4 5]  [6 7 8 -100]
-
-                    # print_rank(f"b {labels.shape=}", skip=False)
-                    # print_rank(f"b {logits.shape=}", skip=False)
-                    # if sp_rank+1 != sp_world_size:
-                    #     # XXX: need to make shift_labels_pad_index work for bs>1 as it can be a different value for each bs entry
-                    #     #labels = torch.nn.functional.pad(labels, (0, 1), value=shift_labels_pad_index[sp_rank])
-                    #     labels = torch.cat((labels, torch.tensor(shift_labels_pad_index[sp_rank])[..., None, None]), dim=1)
-                    #     logits = torch.cat((logits, torch.zeros_like(logits[:,0,:])[:, None]), dim=1)
-
-                    # print_rank(f"a {labels.shape=}", skip=False)
-                    # print_rank(f"a {logits.shape=}", skip=False)
-
-                    loss = ForCausalLMLossSharded(logits=logits,
-                                                    labels=labels,
-                                                    shift_labels_pad_index=shift_labels_pad_index[sp_rank],
-                                                    vocab_size=self.model_unwrapped.config.vocab_size)
-
-
-                # loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
+                loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
 
             #loss = outputs.loss
             print_rank(f"LOSS local {loss=}", skip=False)
@@ -360,13 +223,6 @@ class SFTTrainer(Trainer):
             losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=sp_group)
             #print(f"LOSS {losses_per_rank=}")
             print_rank(f"LOSS {losses_per_rank=}", skip=False)
-
-            # # filter out nans
-            # losses_per_rank = [l for l in losses_per_rank if not torch.isnan(l)]
-            # if len(losses_per_rank) == 0 :
-            #     # XXX: weird that all ranks get it sometimes even though labels are fine - bad data? skipping as a bad batch for now
-            #     continue
-
 
             # since each shard may have a variable number of skipped elemented - need to calculate a weighted mean depending on each rank's contribution - this will also take care of loss=0 when all elements are -100 in a shard
             # XXX: not expecting a total of 0-non-skipped items for div
@@ -459,20 +315,3 @@ class SFTTrainer(Trainer):
         # gc_empty_cuda_cache()
 
         return loss
-
-    # # possible future version of integrated loss - would need to move the rest of the code into all_gather_logits_and_do_loss
-    # def loss(self, batch) -> torch.Tensor:
-    #     batch = to_device(batch, self.device)
-
-    #     if self.config.sequence_parallel_size != 1:
-    #         # because we have to gather logits from all sp ranks we have to do the loss function ourselves
-    #         # therefore remove labels to avoid an attempt to calculate loss by transformers and store those for later use
-    #         labels = batch.pop("labels")
-
-    #     outputs = self.model(**batch, use_cache=False)
-
-    #     if self.config.sequence_parallel_size == 1:
-    #         loss = outputs.loss
-    #     else:
-    #         loss = all_gather_logits_and_do_loss(outputs.logits, labels)
-    #     return loss
