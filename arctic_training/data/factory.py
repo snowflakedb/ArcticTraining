@@ -98,6 +98,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                     required_samples = (
                         self.trainer.config.min_iterations
                         * self.trainer.config.micro_batch_size
+                        * self.trainer.config.gradient_accumulation_steps
                         * self.world_size
                     )
                     if required_samples > len(dataset):
