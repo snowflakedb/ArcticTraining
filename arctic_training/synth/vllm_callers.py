@@ -25,6 +25,7 @@ from arctic_training import logger
 from arctic_training.synth.callers import InMemoryBatchProcessor
 from arctic_training.synth.utils import import_error
 from arctic_training.synth.utils import pass_function
+from arctic_training.synth.utils import recursive_to_dict
 from arctic_training.synth.vllm_utils import kill_processes
 from arctic_training.synth.vllm_utils import launch_vllm_servers
 
@@ -75,7 +76,7 @@ class VllmSynth(InMemoryBatchProcessor):
         for request, output in zip(requests, outputs):
             res = {
                 "custom_id": request["custom_id"],
-                "response": [x.text for x in output.outputs],
+                "response": recursive_to_dict(output),
             }
             responses.append(res)
         if self.work_dir is not None:
@@ -93,8 +94,8 @@ class VllmSynth(InMemoryBatchProcessor):
                 {
                     "custom_id": response["custom_id"],
                     "choices": [
-                        {"content": x, "role": "assistant"}
-                        for x in response["response"]
+                        {"content": x["text"], "role": "assistant"}
+                        for x in response["response"]["outputs"]
                     ],
                 }
             )
