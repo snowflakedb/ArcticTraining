@@ -10,7 +10,7 @@ model:
   key_value_group_size: 1
 deepspeed:
   zero_optimization:
-    stage: 2
+    stage: 3
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k

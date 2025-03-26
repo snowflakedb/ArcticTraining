@@ -63,6 +63,32 @@ class UltraChat200K(HFDataSource):
         return split_map.get(split, split)
 
 
+class OpenHermes(HFDataSource):
+    name = "teknium/OpenHermes-2.5"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        def process_example(example):
+            return {
+                "messages": [
+                    {
+                        "content": message["value"],
+                        "role": {
+                            "system": "system",
+                            "human": "user",
+                            "gpt": "assistant",
+                        }[message["from"]],
+                    }
+                    for message in example["conversations"]
+                ]
+            }
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading openhermes",
+        )
+
+
 class SlimOrca(HFDataSource):
     name = "Open-Orca/SlimOrca"
 
