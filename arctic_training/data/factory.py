@@ -103,7 +103,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                     if required_samples > len(dataset):
                         num_repeats = required_samples // len(dataset) + 1
                         dataset = concatenate_datasets([dataset] * num_repeats)
-                        dataset = dataset.sample(range(required_samples))
+                        dataset = dataset.select(range(required_samples))
 
                 if len(dataset) < self.world_size:
                     raise ValueError(
