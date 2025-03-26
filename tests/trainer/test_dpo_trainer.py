@@ -36,7 +36,7 @@ def test_dpo_trainer_cpu(model_name):
         },
         "data": {
             "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrafeedback_binarized-truncated"],
+            "sources": ["HuggingFaceH4/ultrafeedback_binarized:train[:20]"],
         },
         "deepspeed": {
             "zero_optimization": {
