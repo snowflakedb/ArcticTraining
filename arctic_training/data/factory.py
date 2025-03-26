@@ -93,15 +93,17 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             if self.is_main_process_by_path(cache_path) and not cache_path.exists():
                 dataset = self.load(data_sources)
 
+                # Repeat the dataset until we have enough samples to run for min_iterations
                 if self.trainer.config.min_iterations > 0:
                     required_samples = (
                         self.trainer.config.min_iterations
                         * self.trainer.config.micro_batch_size
                         * self.world_size
                     )
-                    num_repeats = required_samples // len(dataset) + 1
-                    dataset = concatenate_datasets([dataset] * num_repeats)
-                    dataset = dataset.sample(range(required_samples))
+                    if required_samples > len(dataset):
+                        num_repeats = required_samples // len(dataset) + 1
+                        dataset = concatenate_datasets([dataset] * num_repeats)
+                        dataset = dataset.sample(range(required_samples))
 
                 if len(dataset) < self.world_size:
                     raise ValueError(
