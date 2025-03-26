@@ -18,12 +18,6 @@ from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
 from arctic_training.data.factory import DataFactory
-<<<<<<< HEAD
-from arctic_training.data.hf_source import SlimOrca
-from arctic_training.data.hf_source import UltraChat200K
-from arctic_training.data.hf_source import UltraFeedbackBinarized
-=======
->>>>>>> 072246a20de15f293a39b3cc864f60667b79a43e
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.factory import SchedulerFactory
@@ -40,44 +34,6 @@ class RandomWeightHFModelFactory(HFModelFactory):
         )
 
 
-<<<<<<< HEAD
-def modify_config_for_truncated_data(self):
-    self.config.kwargs["streaming"] = True  # Avoid downloading entire dataset
-    self.config.dataset_name = self.name.removesuffix(  # Set to the real dataset name
-        "-truncated"
-    )
-
-
-def sample_data_for_truncated_dataset(self, dataset: IterableDataset) -> Dataset:
-    return Dataset.from_list(list(dataset.take(20)), features=dataset.features)
-
-
-class UltraChat200KTruncated(UltraChat200K):
-    name = "HuggingFaceH4/ultrachat_200k-truncated"
-    callbacks = [
-        ("post-init", modify_config_for_truncated_data),
-        ("post-load", sample_data_for_truncated_dataset),
-    ]
-
-
-class SlimOrcaTruncated(SlimOrca):
-    name = "Open-Orca/SlimOrca-truncated"
-    callbacks = [
-        ("post-init", modify_config_for_truncated_data),
-        ("post-load", sample_data_for_truncated_dataset),
-    ]
-
-
-class UltraFeedbackBinarizedTruncated(UltraFeedbackBinarized):
-    name = "HuggingFaceH4/ultrafeedback_binarized-truncated"
-    callbacks = [
-        ("post-init", modify_config_for_truncated_data),
-        ("post-load", sample_data_for_truncated_dataset),
-    ]
-
-
-=======
->>>>>>> 072246a20de15f293a39b3cc864f60667b79a43e
 class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
     name = "cpu-adam"
 

@@ -24,7 +24,7 @@ import torch
 
 # import torch.distributed as dist
 import torch.nn.functional as F
-from liger_kernel.chunked_loss import LigerFusedLinearDPOLoss
+
 from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
@@ -200,6 +200,7 @@ def init_ref_model(self: "DPOTrainer") -> None:
 
 def init_liger_dpo_loss(self: "DPOTrainer") -> None:
     try:
+        from liger_kernel.chunked_loss import LigerFusedLinearDPOLoss
         self.liger_dpo_loss = LigerFusedLinearDPOLoss(
             ignore_index=self.config.ignore_label_index, beta=self.config.beta
         )
