@@ -456,7 +456,6 @@ class UlyssesAttentionHF(torch.nn.Module):
         import torch
         from transformers import AutoConfig
         from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-        #from transformers.modeling_utils import AttentionInterface
 
         # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
         # print_rank0(f"MBS  {micro_batch_size}")
@@ -469,11 +468,11 @@ class UlyssesAttentionHF(torch.nn.Module):
             # - eager: The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager attention with sequence parallelism
             # - flex_attention: haven't tried
 
-            raise ValueError(f"{core_attn_implementation} attn_implementation isn't currently supported by Ulysses sequence parallelism. Set attention_implementation to either 'flash_attention_2' and 'sdpa'.")
+            raise ValueError(f"{core_attn_implementation} attn_implementation isn't currently supported by Ulysses sequence parallelism. Set attn_implementation to either 'flash_attention_2' and 'sdpa'.")
 
-        core_attn_function = ALL_ATTENTION_FUNCTIONS.get(core_attn_implementation, None)
-        if core_attn_function is None:
-            raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.keys()}")
+        if core_attn_implementation not in ALL_ATTENTION_FUNCTIONS:
+            raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.valid_keys()}")
+        core_attn_function = ALL_ATTENTION_FUNCTIONS[core_attn_implementation]
 
         uattn = UlyssesAttentionHF(
             attn=core_attn_function,
@@ -514,7 +513,7 @@ class UlyssesAttentionHF(torch.nn.Module):
             )
             return attn_output, attn_weights
 
-        ALL_ATTENTION_FUNCTIONS["ulysses"] = uattn_wrapper
+        ALL_ATTENTION_FUNCTIONS.register("ulysses", uattn_wrapper)
 
         return mpu
 

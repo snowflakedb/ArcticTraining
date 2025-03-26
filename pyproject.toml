@@ -39,7 +39,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.49.0", # XXX: needs to be "transformers>4.50.0" once it's released
+    "transformers>=4.49.0", # XXX: needs to be "transformers>4.50.1" once it's released
     "wandb",
 ]
 

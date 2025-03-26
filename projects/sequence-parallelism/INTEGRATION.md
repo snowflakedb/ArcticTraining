@@ -9,6 +9,12 @@ Define the desired sequence parallelism degree in the config yaml file with:
 sequence_parallel_size: 8
 ```
 
+## DataLoader
+
+Currently Ulysses Sequence Parallelism requires samples that use `position_ids` and not `attention_mask`. If your implementation already does that, there is nothing to change.
+
+Down the road we might figure out how to make it work with `attention_mask` but at the moment it doesn't work how HF Transformers has it implemented (because we are sharding batches).
+
 ## trainer super class
 
 In theory nothing needs to be changed here, but to explain how we plug sp here:
