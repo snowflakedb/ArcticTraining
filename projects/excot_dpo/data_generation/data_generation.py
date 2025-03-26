@@ -1,3 +1,20 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import argparse
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,12 +29,10 @@ from prompts.divide_and_conquer import messages as dnc_messages
 from utils.sql_exec import _load_db_metadata
 from utils.sql_exec import create_db_schema
 from utils.sql_exec import get_db_path
+from vllm import SamplingParams
 
 from arctic_training.synth import AzureOpenAISynth
-from arctic_training.synth import CortexSynth
-from arctic_training.synth import OpenAISynth
 from arctic_training.synth import VllmSynth
-
 
 
 @dataclass
@@ -294,17 +309,17 @@ def submit_requests(loaded_dataset, client, task_name="demo", model="gpt-4o", n=
 
     return extracted_messages
 
+
 def submit_requests_vllm(loaded_dataset, client, task_name="demo"):
 
     for row in loaded_dataset:
-        client.add_chat_to_batch_task(
-            task_name=task_name, messages=row["messages"]
-        )
+        client.add_chat_to_batch_task(task_name=task_name, messages=row["messages"])
 
     extracted_messages = client.extract_messages_from_responses(
         client.execute_batch_task(task_name)
     )
     return extracted_messages
+
 
 def construct_gpt_prompt(row: Union[Dict, List]):
     schema, question = row["schema"], row["question"]
@@ -334,46 +349,25 @@ def main():
     parser.add_argument(
         "--type",
         type=str,
-        choices=['vllm', 'gpt'],
+        choices=["vllm", "gpt"],
     )
-    parser.add_argument(
-        "--data-task-name",
-        type=str,
-        default='demo'
-    )
-    parser.add_argument(
-        "--vllm-output-path",
-        type=str,
-        default=None
-    )
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default=None
-    )
-    parser.add_argument(
-        "--tp-size",
-        type=int,
-        default=8
-    )
-    parser.add_argument(
-        "--n",
-        type=int,
-        default=32
-    )
+    parser.add_argument("--data-task-name", type=str, default="demo")
+    parser.add_argument("--vllm-output-path", type=str, default=None)
+    parser.add_argument("--model-name", type=str, default=None)
+    parser.add_argument("--tp-size", type=int, default=8)
+    parser.add_argument("--n", type=int, default=32)
     args = parser.parse_args()
-
 
     AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 
-    if args.type == 'gpt':
+    if args.type == "gpt":
         client = AzureOpenAISynth(
             api_key=AZURE_OPENAI_API_KEY,
             api_version="2024-07-01-preview",
             azure_endpoint=AZURE_OPENAI_ENDPOINT,
         )
-    elif args.type == 'vllm':
+    elif args.type == "vllm":
         model_params = {
             "model": args.model_name,
             "tensor_parallel_size": args.tp_size,
@@ -386,11 +380,11 @@ def main():
         }
         client = VllmSynth(
             model_params=model_params,
-            sampling_params=SamplingParams(temperature=0.0, n=args.n, max_tokens=max_tokens),
+            sampling_params=SamplingParams(
+                temperature=0.0, n=args.n, max_tokens=model_params["max_model_len"]
+            ),
             work_dir="./syth_data",
         )
-
-
 
     # Load data config
     config_path = args.config_path
@@ -401,19 +395,25 @@ def main():
         lambda row: {"messages": construct_gpt_prompt(row)}
     )
     # GPT batch job
-    if args.type == 'gpt':
-        result = submit_requests(processed_dataset, client, task_name=args.data_task_name, n=args.n)
+    if args.type == "gpt":
+        result = submit_requests(
+            processed_dataset, client, task_name=args.data_task_name, n=args.n
+        )
 
     # vLLM batch job
-    if args.type == 'vllm':
-        result = submit_requests_vllm(processed_dataset, client, task_name=args.data_task_name)
+    if args.type == "vllm":
+        result = submit_requests_vllm(
+            processed_dataset, client, task_name=args.data_task_name
+        )
         for row in result:
-            row["all_generated_queries"] = [choice['content'] for choice in row["choices"]]
+            row["all_generated_queries"] = [
+                choice["content"] for choice in row["choices"]
+            ]
         new_dataset = Dataset.from_dict(
             {
-                "custom_id": [d["custom_id"] for d in processed_data],
+                "custom_id": [d["custom_id"] for d in processed_dataset],
                 "all_generated_queries": [
-                    d["all_generated_queries"] for d in processed_data
+                    d["all_generated_queries"] for d in processed_dataset
                 ],
             }
         )

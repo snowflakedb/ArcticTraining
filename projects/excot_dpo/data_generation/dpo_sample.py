@@ -1,5 +1,26 @@
-from tqdm import tqdm
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import argparse
+
+import editdistance
+from datasets import Dataset
+from datasets import load_from_disk
 from prompts.divide_and_conquer import messages as dnc_messages
+from tqdm import tqdm
+
 
 def create_conv_v15(schema, question, chosen, reject):
     prompt = f"""
@@ -18,6 +39,7 @@ Question: {question}
         "chosen": chosen_message,
         "rejected": rejected_message,
     }
+
 
 def get_closest_match(query, candidates):
     min_distance = 10000
@@ -63,6 +85,7 @@ def sample_pairs_v1(data):
             data_pairs.append((schema, question, chosen, reject))
     return data_pairs
 
+
 def sample_pairs_v2_1(data):
     data_pairs = []
     for row in tqdm(data):
@@ -87,6 +110,7 @@ def sample_pairs_v2_1(data):
         data_pairs.append((schema, question, current_min_pair[0], current_min_pair[1]))
     return data_pairs
 
+
 def sample_pairs_v2_2(data):
     data_pairs = []
     for row in tqdm(data):
@@ -101,16 +125,13 @@ def sample_pairs_v2_2(data):
         current_max_dist = -1
         current_max_pair = None
         for i, chosen in enumerate(row["correct_answers"]):
-            reject_idx, reject, max_dist = get_max_match(
-                chosen, row["wrong_answers"]
-            )
+            reject_idx, reject, max_dist = get_max_match(chosen, row["wrong_answers"])
             if max_dist > current_max_dist:
                 current_max_dist = max_dist
                 current_max_pair = (chosen, reject)
 
         data_pairs.append((schema, question, current_max_pair[0], current_max_pair[1]))
     return data_pairs
-
 
 
 def process_data(data, version):
@@ -124,7 +145,6 @@ def process_data(data, version):
     for schema, question, chosen, reject in data_pairs:
         dpo_data.append(create_conv_v15(schema, question, chosen, reject))
     return dpo_data
-
 
 
 def main():
@@ -145,7 +165,9 @@ def main():
             "chosen": [d["chosen"] for d in dpo_data],
             "rejected": [d["rejected"] for d in dpo_data],
         }
+    )
     new_dataset.save_to_disk(args.output_path)
+
 
 if __name__ == "__main__":
     main()

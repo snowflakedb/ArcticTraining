@@ -73,7 +73,10 @@ class VllmSynth(InMemoryBatchProcessor):
         )
         responses = []
         for request, output in zip(requests, outputs):
-            res = {"custom_id": request["custom_id"], "response": [x.text for x in output.outputs]}
+            res = {
+                "custom_id": request["custom_id"],
+                "response": [x.text for x in output.outputs],
+            }
             responses.append(res)
         if self.work_dir is not None:
             with jsonlines.open(

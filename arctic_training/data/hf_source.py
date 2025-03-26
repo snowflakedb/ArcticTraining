@@ -15,15 +15,12 @@
 
 from functools import partial
 from pathlib import Path
-from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import List
 
 from datasets import DatasetDict
-from datasets import DatasetDict
 from datasets import load_dataset
-from datasets import load_from_disk
 from datasets import load_from_disk
 
 from arctic_training.config.data import DataSourceConfig
@@ -37,8 +34,6 @@ class HFDataSourceConfig(DataSourceConfig):
     Name or path of the dataset to load. Also accepts values for the split field
     after a colon (e.g. "name:split", "name:split[10:20]").
     """
-    name_or_path: Path
-    """ Name of the dataset to load. """
 
     kwargs: Dict[str, Any] = {}
     """ Keyword arguments to pass to the datasets.load_dataset function. """
@@ -51,17 +46,6 @@ class HFDataSource(DataSource):
     config: HFDataSourceConfig
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
-        # Support loading local datasets
-        if config.name_or_path.exists():
-            dataset = load_from_disk(config.name_or_path.as_posix(), **config.kwargs)
-            if isinstance(dataset, DatasetDict):
-                dataset = dataset[split]
-        else:
-            dataset = load_dataset(
-                str(config.name_or_path), split=split, **config.kwargs
-            )
-
-        return dataset
         # Support loading local datasets
         if config.name_or_path.exists():
             dataset = load_from_disk(config.name_or_path.as_posix(), **config.kwargs)
