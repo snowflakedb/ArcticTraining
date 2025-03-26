@@ -32,12 +32,17 @@ try:
 except (ImportError, ModuleNotFoundError):
     LigerFusedLinearDPOLoss = None
 
+from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
+from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.config.model import ModelConfig
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.dpo_factory import DPODataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
+from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.registry import get_registered_model_factory
+from arctic_training.scheduler.hf_factory import HFSchedulerFactory
+from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 
@@ -175,7 +180,12 @@ class DPOTrainer(Trainer):
     name = "dpo"
     config: DPOTrainerConfig
     data_factory: DPODataFactory
+    model_factory: Union[HFModelFactory, LigerModelFactory]
     ref_model_factory: Union[HFModelFactory, LigerModelFactory]
+    checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
+    optimizer_factory: FusedAdamOptimizerFactory
+    scheduler_factory: HFSchedulerFactory
+    tokenizer_factory: HFTokenizerFactory
     ref_model: torch.nn.Module
     liger_dpo_loss: Optional[LigerFusedLinearDPOLoss] = None
 
