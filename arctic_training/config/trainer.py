@@ -123,6 +123,12 @@ class TrainerConfig(BaseConfig):
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
 
+    min_iterations: int = Field(default=0, ge=0)
+    """ When >0, the training dataset will be replicated until there is enough data to run this many iterations. """
+
+    overfit_first_batch: bool = False
+    """ Train only on repetitions of the first training batch. Useful for development. """
+
     step_timer: bool = False
     """ Enable logging of every training step duration """
 
@@ -166,7 +172,10 @@ class TrainerConfig(BaseConfig):
         if isinstance(v, dict):
             config_dict = v
         else:
-            config_dict = v.model_dump()
+            # Must exclude computed fields to avoid validation errors
+            config_dict = v.model_dump(
+                exclude={"local_rank", "global_rank", "world_size"}
+            )
 
         # Determine which attribute class to use (e.g., for `model`:
         # HFModelFactory, LigerModelFactory, etc.)

@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler
+from torch.utils.data import DistributedSampler
 from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
@@ -367,7 +367,9 @@ class SFTDataFactory(DataFactory):
             dataset,
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=DistributedSampler(
+                dataset, num_replicas=self.world_size, rank=self.global_rank
+            ),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

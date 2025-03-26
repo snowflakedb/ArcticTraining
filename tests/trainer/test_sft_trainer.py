@@ -32,7 +32,7 @@ def test_sft_trainer(model_name):
         },
         "data": {
             "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
+            "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
         },
     }
 
@@ -56,7 +56,7 @@ def test_sft_trainer_cpu(model_name):
         },
         "data": {
             "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k-truncated"],
+            "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
         },
         "deepspeed": {
             "zero_optimization": {

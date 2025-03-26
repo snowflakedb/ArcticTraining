@@ -13,7 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import yaml
+
+
+def get_local_rank() -> int:
+    return int(os.getenv("LOCAL_RANK", 0))
+
+
+def get_global_rank() -> int:
+    return int(os.getenv("RANK", 0))
+
+
+def get_world_size() -> int:
+    return int(os.getenv("WORLD_SIZE", 1))
 
 
 # From https://gist.github.com/pypt/94d747fe5180851196eb?permalink_comment_id=4015118#gistcomment-4015118

@@ -18,12 +18,11 @@ from typing import List
 from typing import Literal
 from typing import Union
 
-from pydantic import field_validator
+from pydantic import model_validator
+from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.logging import LOG_LEVEL_DEFAULT
-from arctic_training.utils import get_local_rank
-from arctic_training.utils import get_world_size
 
 
 class LoggerConfig(BaseConfig):
@@ -39,25 +38,23 @@ class LoggerConfig(BaseConfig):
     file_output_ranks: Union[Literal["*"], List[int]] = "*"
     """ Which ranks will output logs to a file. Either a list of ranks or "*" for all ranks. """
 
-    @field_validator("print_output_ranks", "file_output_ranks", mode="before")
-    def fill_output_ranks(cls, v):
-        if v == "*":
-            return range(get_world_size())
-        return v
+    @model_validator(mode="after")
+    def fill_output_ranks(self) -> Self:
+        for field in ["print_output_ranks", "file_output_ranks"]:
+            if getattr(self, field) == "*":
+                setattr(self, field, list(range(self.world_size)))
+        return self
 
     @property
     def log_file(self) -> Path:
-        local_rank = get_local_rank()
-        return self.output_dir / f"rank_{local_rank}.log"
+        return self.output_dir / f"rank_{self.local_rank}.log"
 
     @property
     def file_enabled(self) -> bool:
         if self.output_dir == Path("/dev/null"):
             return False
-        local_rank = get_local_rank()
-        return local_rank in self.file_output_ranks
+        return self.local_rank in self.file_output_ranks
 
     @property
     def print_enabled(self) -> bool:
-        local_rank = get_local_rank()
-        return local_rank in self.print_output_ranks
+        return self.local_rank in self.print_output_ranks

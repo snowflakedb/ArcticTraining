@@ -17,21 +17,25 @@ from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import List
+from typing import Mapping
 from typing import Optional
 from typing import Tuple
 
-import torch
+import deepspeed.comm as dist
 from datasets import concatenate_datasets
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler
+from torch.utils.data import DistributedSampler
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.config.data import DataConfig
+from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
+from arctic_training.data.utils import is_local_fs
+from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
 from arctic_training.registry import _validate_class_attribute_type
@@ -62,7 +66,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", DataConfig)
-        _validate_class_method(cls, "load", ["self", "data_sources", "split"])
+        _validate_class_method(cls, "load", ["self", "data_sources"])
         _validate_class_method(cls, "process", ["self", "dataset"])
         _validate_class_method(cls, "split_data", ["self", "training_data"])
         _validate_class_method(cls, "create_dataloader", ["self", "dataset"])
@@ -74,25 +78,56 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._trainer = trainer
         self.config = config
 
-    def __call__(self) -> Tuple[DataLoader, Optional[DataLoader]]:
-        def get_data_split(split: str) -> Optional[DatasetType]:
-            data_sources = self._get_data_sources(split=split)
-
-            cache_path = self.cache_path(sources=data_sources, split=split)
-            if self.config.use_data_cache and cache_path.exists():
-                return load_from_disk(cache_path.as_posix())
-
-            if len(data_sources) == 0:
+    def __call__(self) -> Tuple[DataLoader, Optional[Mapping[str, DataLoader]]]:
+        def load_data_sources(
+            data_source_configs: List[DataSourceConfig],
+        ) -> Optional[DatasetType]:
+            if len(data_source_configs) == 0:
                 return None
-            dataset = self.load(data_sources, split=split)
-            dataset = self._truncate_data(dataset)
 
-            if self.config.use_data_cache:
+            data_sources = self._get_data_sources(data_source_configs)
+            cache_path = self.cache_path(sources=data_sources)
+
+            # If the cache path does not exist, load the data using local/global
+            # rank 0 (depending on if file system is shared across nodes).
+            if self.is_main_process_by_path(cache_path) and not cache_path.exists():
+                dataset = self.load(data_sources)
+
+                # Repeat the dataset until we have enough samples to run for min_iterations
+                if self.trainer.config.min_iterations > 0:
+                    required_samples = (
+                        self.trainer.config.min_iterations
+                        * self.trainer.config.micro_batch_size
+                        * self.trainer.config.gradient_accumulation_steps
+                        * self.world_size
+                    )
+                    if required_samples > len(dataset):
+                        num_repeats = required_samples // len(dataset) + 1
+                        dataset = concatenate_datasets([dataset] * num_repeats)
+                        dataset = dataset.select(range(required_samples))
+
+                if len(dataset) < self.world_size:
+                    raise ValueError(
+                        f"Dataset size ({len(dataset)}) is less than the data parallel"
+                        f" size ({self.world_size}) so not every rank will get a data"
+                        " sample. For development and debugging work, you can set the"
+                        " `min_iterations` parameter in the training config to"
+                        " replicate the loaded data until there is enough data samples"
+                        " to run for that many iterations."
+                    )
+
+                logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
-            return dataset
 
-        training_data = get_data_split("train")
-        evaluation_data = get_data_split("eval")
+            dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
+
+            # Reset seeds after may be processing data if cache didn't exist - so that main process ends up with the same RNG if the cache was there and if it wasn't, thus ensuring reproducibility.
+            self.trainer._set_seeds(self.trainer.config.seed)
+            logger.info(f"Loading dataset from cache path {cache_path.as_posix()}")
+            return load_from_disk(cache_path.as_posix())
+
+        training_data = load_data_sources(self.config.sources)
+        evaluation_data = load_data_sources(self.config.eval_sources)
 
         if self.config.train_eval_split[1] > 0.0:
             training_data, evaluation_data = self.split_data(training_data)
@@ -127,54 +162,41 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return self.config.global_rank
 
     @property
+    def local_rank(self) -> int:
+        """The local rank of the current process."""
+        return self.config.local_rank
+
+    @property
     def world_size(self) -> int:
         """The total number of processes in the world."""
         return self.config.world_size
 
-    def _get_data_sources(self, split: str) -> List["DataSource"]:
-        if split == "train":
-            data_source_configs = self.config.sources
-        elif split == "eval":
-            data_source_configs = self.config.eval_sources
-        else:
-            raise ValueError(f"Invalid split: {split}")
-
+    def _get_data_sources(
+        self, data_source_configs: List[DataSourceConfig]
+    ) -> List["DataSource"]:
         data_sources = []
         for config in data_source_configs:
             data_source = config.data_source(data_factory=self, config=config)
             data_sources.append(data_source)
         return data_sources
 
-    def _truncate_data(self, dataset: DatasetType) -> DatasetType:
-        """
-        Truncate the dataset to the shortest length across all processes.
-        This ensures that each shard/process has the same number of samples in
-        the dataset.
-        """
-        local_length = len(dataset)
-        if self.world_size > 1:
-            data_length = torch.zeros(self.world_size).to(self.trainer.device)
-            data_length[self.global_rank] = local_length
-            torch.distributed.all_reduce(data_length, op=torch.distributed.ReduceOp.SUM)
-            shortest_length = int(data_length.min().item())
-            del data_length  # clean the memory
-        else:
-            shortest_length = local_length
-        dataset = dataset.select(range(shortest_length))
-        return dataset
+    def is_main_process_by_path(self, path: Path) -> bool:
+        if is_local_fs(path):
+            return self.local_rank == 0
+        return self.global_rank == 0
 
-    def cache_path(self, sources: List["DataSource"], split: str) -> Path:
+    def cache_path(self, sources: List["DataSource"]) -> Path:
         """Returns the cache path for the processed + concatenated dataset."""
         source_cache_path_args = (s.cache_path_args for s in sources)
-        hash_str = calculate_hash_from_args(split, *source_cache_path_args)
+        hash_str = calculate_hash_from_args(*source_cache_path_args)
         return self.config.cache_dir / hash_str
 
     @callback_wrapper("load")
-    def load(self, data_sources: List["DataSource"], split: str) -> DatasetType:
+    def load(self, data_sources: List["DataSource"]) -> DatasetType:
         """Loads data from one or more data sources and concatenates into a single dataset."""
         datasets = []
         for data_source in data_sources:
-            dataset = data_source(split)
+            dataset = data_source()
             datasets.append(dataset)
         dataset = concatenate_datasets(datasets)
         return dataset
@@ -207,7 +229,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=DistributedSampler(
+                dataset, num_replicas=self.world_size, rank=self.global_rank
+            ),
             num_workers=self.config.num_proc,
             drop_last=True,
         )
