@@ -1,12 +1,12 @@
 type: swiftkv
 micro_batch_size: 1
-epochs: 1
+epochs: 2
 gradient_accumulation_steps: 1
 temperature: 2.0
 decoder_loss_mult: 0.0
 model:
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
-  num_key_value_layers: 16
+  name_or_path: Qwen/Qwen2.5-32B-Instruct
+  num_key_value_layers: 32
   key_value_group_size: 1
 deepspeed:
   zero_optimization:
@@ -14,6 +14,9 @@ deepspeed:
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
+    - teknium/OpenHermes-2.5
+    - meta-math/MetaMathQA
+    - ise-uiuc/Magicoder-OSS-Instruct-75K
   use_data_cache: true
   cache_processed_data: true
   cache_dir: /data-fast/data-cache
@@ -31,6 +34,6 @@ optimizer:
   lr: 0.0002
 checkpoint:
   - type: huggingface
-    save_every_n_steps: 10000
-    output_dir: /data-fast/swiftkv-llama-8b
+    save_every_n_steps: 2521
+    output_dir: /data-fast/swiftkv-qwen2.5-32b
     save_end_of_training: true

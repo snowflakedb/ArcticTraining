@@ -28,27 +28,27 @@ from transformers.cache_utils import StaticCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.models.llama.modeling_llama import LlamaAttention
-from transformers.models.llama.modeling_llama import LlamaForCausalLM
-from transformers.models.llama.modeling_llama import LlamaMLP
-from transformers.models.llama.modeling_llama import LlamaModel
-from transformers.models.llama.modeling_llama import LlamaRMSNorm
-from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
-from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
-from transformers.models.llama.modeling_llama import eager_attention_forward
-from transformers.models.llama.modeling_llama import repeat_kv
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
+from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
+from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Model
+from transformers.models.qwen2.modeling_qwen2 import Qwen2RMSNorm
+from transformers.models.qwen2.modeling_qwen2 import Qwen2RotaryEmbedding
+from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
+from transformers.models.qwen2.modeling_qwen2 import eager_attention_forward
+from transformers.models.qwen2.modeling_qwen2 import repeat_kv
 from transformers.processing_utils import Unpack
 from transformers.utils import logging
 
-from .config import LlamaSwiftKVConfig
+from .config import Qwen2SwiftKVConfig
 
 logger = logging.get_logger(__name__)
 
 
-class LlamaSwiftKVAttention(LlamaAttention):
+class Qwen2SwiftKVAttention(Qwen2Attention):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: LlamaSwiftKVConfig, layer_idx: int):
+    def __init__(self, config: Qwen2SwiftKVConfig, layer_idx: int):
         super().__init__(config, layer_idx=layer_idx)
 
         swiftkv_layer_idx = layer_idx - config.num_key_value_layers
@@ -56,18 +56,18 @@ class LlamaSwiftKVAttention(LlamaAttention):
             self.q_proj_swiftkv = nn.Linear(
                 config.hidden_size,
                 config.num_attention_heads * self.head_dim,
-                bias=config.attention_bias,
+                bias=True,
             )
             if swiftkv_layer_idx % config.key_value_group_size == 0:
                 self.k_proj_swiftkv = nn.Linear(
                     config.hidden_size,
                     config.num_key_value_heads * self.head_dim,
-                    bias=config.attention_bias,
+                    bias=True,
                 )
                 self.v_proj_swiftkv = nn.Linear(
                     config.hidden_size,
                     config.num_key_value_heads * self.head_dim,
-                    bias=config.attention_bias,
+                    bias=True,
                 )
 
     def forward(
@@ -106,6 +106,14 @@ class LlamaSwiftKVAttention(LlamaAttention):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
+        sliding_window = None
+        if (
+            self.config.use_sliding_window
+            and getattr(self.config, "sliding_window", None) is not None
+            and self.layer_idx >= self.config.max_window_layers
+        ):
+            sliding_window = self.config.sliding_window
+
         attention_interface: Callable = eager_attention_forward
         if self.config._attn_implementation != "eager":
             if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
@@ -124,6 +132,7 @@ class LlamaSwiftKVAttention(LlamaAttention):
             attention_mask,
             dropout=0.0 if not self.training else self.attention_dropout,
             scaling=self.scaling,
+            sliding_window=sliding_window,  # main diff with Llama
             **kwargs,
         )
 
@@ -132,17 +141,22 @@ class LlamaSwiftKVAttention(LlamaAttention):
         return attn_output, attn_weights
 
 
-class LlamaSwiftKVDecoderLayer(nn.Module):
+class Qwen2SwiftKVDecoderLayer(nn.Module):
 
-    def __init__(self, config: LlamaSwiftKVConfig, layer_idx: int):
+    def __init__(self, config: Qwen2SwiftKVConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = LlamaSwiftKVAttention(config=config, layer_idx=layer_idx)
-        self.mlp = LlamaMLP(config)
-        self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = LlamaRMSNorm(
+        self.self_attn = Qwen2SwiftKVAttention(config=config, layer_idx=layer_idx)
+        self.mlp = Qwen2MLP(config)
+        self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = Qwen2RMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        if config.sliding_window and config._attn_implementation != "flash_attention_2":
+            logger.warning_once(
+                f"Sliding Window Attention is enabled but not implemented for `{config._attn_implementation}`; "
+                "unexpected results may be encountered."
+            )
 
     def forward(
         self,
@@ -191,19 +205,19 @@ class LlamaSwiftKVDecoderLayer(nn.Module):
         return outputs
 
 
-class LlamaSwiftKVModel(LlamaModel):
+class Qwen2SwiftKVModel(Qwen2Model):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers.
-    Each layer is a [`LlamaSwiftKVDecoderLayer`].
+    Each layer is a [`Qwen2SwiftKVDecoderLayer`].
 
     Args:
-        config: LlamaSwiftKVConfig
+        config: Qwen2Config
     """
 
-    config_class = LlamaSwiftKVConfig
+    config_class = Qwen2SwiftKVConfig
 
-    def __init__(self, config: LlamaSwiftKVConfig):
-        super(LlamaModel, self).__init__(config)
+    def __init__(self, config: Qwen2SwiftKVConfig):
+        super(Qwen2Model, self).__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
@@ -212,13 +226,13 @@ class LlamaSwiftKVModel(LlamaModel):
         )
         self.layers = nn.ModuleList(
             [
-                LlamaSwiftKVDecoderLayer(config, layer_idx)
+                Qwen2SwiftKVDecoderLayer(config, layer_idx)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.norm_swiftkv = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.rotary_emb = LlamaRotaryEmbedding(config=config)
+        self.norm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm_swiftkv = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.rotary_emb = Qwen2RotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
         # Initialize weights and apply final processing
@@ -360,13 +374,13 @@ class LlamaSwiftKVModel(LlamaModel):
         return output if return_dict else output.to_tuple()
 
 
-class LlamaSwiftKVForCausalLM(LlamaForCausalLM):
+class Qwen2SwiftKVForCausalLM(Qwen2ForCausalLM):
 
-    config_class = LlamaSwiftKVConfig
+    config_class = Qwen2SwiftKVConfig
 
     def __init__(self, config):
-        super(LlamaForCausalLM, self).__init__(config)
-        self.model = LlamaSwiftKVModel(config)
+        super(Qwen2ForCausalLM, self).__init__(config)
+        self.model = Qwen2SwiftKVModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
