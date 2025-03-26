@@ -89,13 +89,6 @@ class DataConfig(BaseConfig):
     cache_dir: Path = Path("/tmp/")
     """ Directory to store cached data. """
 
-    expand_to_dp_size: bool = False
-    """
-    Repeats the loaded data until there is one sample per data parallel process
-    when the loaded dataset size is smaller than the data parallel size. Useful
-    for development and debugging work.
-    """
-
     @property
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)

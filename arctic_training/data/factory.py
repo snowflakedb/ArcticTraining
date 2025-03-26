@@ -93,19 +93,25 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             if self.is_main_process_by_path(cache_path) and not cache_path.exists():
                 dataset = self.load(data_sources)
 
-                if len(dataset) < self.world_size:
-                    if not self.config.expand_to_dp_size:
-                        raise ValueError(
-                            f"Dataset size ({len(dataset)}) is less than the data"
-                            f" parallel size ({self.world_size}). For development and"
-                            " debugging work, you can set expand_to_dp_size to True in"
-                            " the data config to repeat the dataset until it matches"
-                            " the data parallel size to ensure at least 1 sample per"
-                            " data parallel process."
-                        )
-                    num_repeats = self.world_size // len(dataset) + 1
+                if self.trainer.config.min_iterations > 0:
+                    required_samples = (
+                        self.trainer.config.min_iterations
+                        * self.trainer.config.micro_batch_size
+                        * self.world_size
+                    )
+                    num_repeats = required_samples // len(dataset) + 1
                     dataset = concatenate_datasets([dataset] * num_repeats)
-                    dataset = dataset.sample(range(self.world_size))
+                    dataset = dataset.sample(range(required_samples))
+
+                if len(dataset) < self.world_size:
+                    raise ValueError(
+                        f"Dataset size ({len(dataset)}) is less than the data parallel"
+                        f" size ({self.world_size}) so not every rank will get a data"
+                        " sample. For development and debugging work, you can set the"
+                        " `min_iterations` parameter in the training config to"
+                        " replicate the loaded data until there is enough data samples"
+                        " to run for that many iterations."
+                    )
 
                 logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
