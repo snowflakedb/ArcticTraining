@@ -49,7 +49,7 @@ class Qwen2SwiftKVAttention(Qwen2Attention):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: Qwen2SwiftKVConfig, layer_idx: int):
-        super().__init__(config, layer_idx)
+        super().__init__(config, layer_idx=layer_idx)
 
         swiftkv_layer_idx = layer_idx - config.num_key_value_layers
         if layer_idx >= config.num_key_value_layers:
@@ -207,7 +207,8 @@ class Qwen2SwiftKVDecoderLayer(nn.Module):
 
 class Qwen2SwiftKVModel(Qwen2Model):
     """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Qwen2SwiftKVDecoderLayer`]
+    Transformer decoder consisting of *config.num_hidden_layers* layers.
+    Each layer is a [`Qwen2SwiftKVDecoderLayer`].
 
     Args:
         config: Qwen2Config
