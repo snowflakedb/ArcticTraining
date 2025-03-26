@@ -195,6 +195,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.config.auto_resume:
                 engine.load(self.model)
 
+        from arctic_training.metrics import StepTimeMetric, IterTimeMetric
+        self.metrics = [StepTimeMetric(trainer=self), IterTimeMetric(trainer=self)]
+
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
         torch.manual_seed(seed)
@@ -302,6 +305,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.step(batch)
             if self.early_stop:
                 break
+
+            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
+                log_msg = "|".join(m.get_metric() for m in self.metrics)
+                logger.warning(log_msg)
 
     @callback_wrapper("train")
     def train(self) -> None:

@@ -103,6 +103,8 @@ class TrainerConfig(BaseConfig):
     loss_log_interval: int = Field(default=1, ge=0)
     """ Number of steps between logging loss. """
 
+    train_log_iter_interval: int = 1
+
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """
 
