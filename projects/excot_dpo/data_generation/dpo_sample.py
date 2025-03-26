@@ -113,7 +113,7 @@ def sample_pairs_v2_2(data):
 
 
 
-def process_data(data, version, data_version):
+def process_data(data, version):
     dpo_data = []
     if version == "random":
         data_pairs = sample_pairs_v1(data)
@@ -132,15 +132,13 @@ def main():
     parser.add_argument(
         "--dataset-path",
         type=str,
-        default="/checkpoint/text2sql_cot/bird_test/dac_v2_2-stage2",
     )
-    parser.add_argument("--data-type", type=str, default="bird")
     parser.add_argument("--version", type=str, default="v1")
     parser.add_argument("--output-path", type=str)
 
     args = parser.parse_args()
     cot_processed_data = load_from_disk(args.dataset_path)
-    dpo_data = process_data(cot_processed_data, args.version, args.data_version)
+    dpo_data = process_data(cot_processed_data, args.version)
     new_dataset = Dataset.from_dict(
         {
             "prompt": [d["prompt"] for d in dpo_data],

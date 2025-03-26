@@ -1,62 +1,137 @@
 # ExCoT-DPO Project: Training and Evaluation
-[[🤗Llama-3.1-Arctic-ExCoT-70B](https://huggingface.co/Snowflake/Llama-3.1-Arctic-ExCoT-70B)] [[🤗Qwen-2.5-coder-Arctic-ExCoT-32B](https://huggingface.co/Snowflake/Qwen-2.5-coder-Arctic-ExCoT-32B)]
 
-This repository includes demo setups for both training and evaluation of our ExCoT-DPO project.
-We begin by covering SFT and DPO data generation.
-Next, we provide demo scripts for running one SFT and one DPO training example.
-Finally, we demonstrate how to evaluate ExCoT-DPO on the BIRD and SPIDER datasets.
+This repository provides a complete demo setup for training and evaluating **ExCoT-DPO**, our framework for improved instruction tuning using explicit chain-of-thought (ExCoT) and direct preference optimization (DPO).
 
+🚀 Try our released models on Hugging Face:
+- [🤗 Llama-3.1-Arctic-ExCoT-70B](https://huggingface.co/Snowflake/Llama-3.1-Arctic-ExCoT-70B)
+- [🤗 Qwen-2.5-coder-Arctic-ExCoT-32B](https://huggingface.co/Snowflake/Qwen-2.5-coder-Arctic-ExCoT-32B)
 
-## Data Generation: SFT & DPO data generation
+### What's Inside
 
-To launch a data generation job, follow these steps:
-
-1. **Install the Arctic Training Library:**
-
-   Please refer to the root directory README for detailed instructions on installing the Arctic Training Library.
-
-2. **Install BIRD and Spider datasets:**
-
-    BIRD benchmark installation links: [train](https://bird-bench.oss-cn-beijing.aliyuncs.com/train.zip), [dev](https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip)
-
-    Spider benchmark installation links: [dataset](https://drive.google.com/file/d/1403EGqzIDoHMdQF4c9Bkyl7dZLZ5Wt6J/view)
+- **Data Preparation**: Scripts for generating data used in supervised fine-tuning (SFT) and DPO.
+- **Training Examples**: Simple, runnable scripts for:
+  - One SFT training run
+  - One DPO training run
+- **Evaluation**: Instructions for evaluating ExCoT-DPO on two benchmarks:
+  - **BIRD**: Benchmark for Instruction-following with Reasoning and Dialogue
+  - **SPIDER**: Complex text-to-SQL generation benchmark
 
 
-3. **Data Generation:**
+## Data Generation
 
-    Update configs with your data locations
-    ```ArcticTraining/projects/excot_dpo/data_generation/configs/bird_config.yaml```
-    ```ArcticTraining/projects/excot_dpo/data_generation/configs/spider_config.yaml```
+This section covers how to generate training data for both **Supervised Fine-Tuning (SFT)** and **Direct Preference Optimization (DPO)**.
 
-    Set up API and Token for GPT based data generation
-    ```bash
-    export AZURE_OPENAI_API_KEY=
-    export AZURE_OPENAI_ENDPOINT=
-    ```
+### 1. Install the Arctic Training Library
 
-    Launch GPT/vLLM based data generation, in ExCoT we use GPT based generation for SFT and Off-Policy DPO
-    ```
-    python data_generation/data_generation.py \
-        --config-path data_generation/configs/bird_config.yaml \
-        --type gpt
-    ```
-    or
-    ```
-    python data_generation/data_generation.py \
-        --config-path data_generation/configs/bird_config.yaml \
-        --type vllm \
-        --model-name MODEL_NAME \
-        --tp-size 8
-    ```
-    After data generation we can launch data_verification
-    ```
-    python data_generation/local_verificaiton.py \
-        --config-path data_generation/configs/bird_config.yaml \
-        --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
-        --output-path OUTPUT_PATH
-    ```
-    After data generation, we can sample the correct data for SFT or DPO
+Please refer to the root-level `README.md` for detailed setup instructions.
 
-    ``` sft_sample.py ``` and ``` dpo_sample.py ``` are two useful scripts to call.
+### 2. Download Datasets
 
-4. Training
+- **BIRD Benchmark**
+  - [Train Set](https://bird-bench.oss-cn-beijing.aliyuncs.com/train.zip)
+  - [Dev Set](https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip)
+
+- **SPIDER Benchmark**
+  - [Dataset (Google Drive)](https://drive.google.com/file/d/1403EGqzIDoHMdQF4c9Bkyl7dZLZ5Wt6J/view)
+
+### 3. Configure Data Generation
+
+Update the config files with your dataset paths:
+
+```text
+ArcticTraining/projects/excot_dpo/data_generation/configs/bird_config.yaml
+ArcticTraining/projects/excot_dpo/data_generation/configs/spider_config.yaml
+```
+Set your GPT API credentials (used for GPT-based data generation):
+
+```bash
+export AZURE_OPENAI_API_KEY=
+export AZURE_OPENAI_ENDPOINT=
+```
+
+### 4. Launch Data Generation
+
+**GPT-based (default for ExCoT):**
+```bash
+python data_generation/data_generation.py \
+    --config-path data_generation/configs/bird_config.yaml \
+    --type gpt
+```
+
+**vLLM-based**
+```
+python data_generation/data_generation.py \
+    --config-path data_generation/configs/bird_config.yaml \
+    --type vllm \
+    --model-name MODEL_NAME \
+    --tp-size 8
+```
+
+### 5. Verify Generated Data
+After generation, run verification:
+
+```bash
+python data_generation/local_verificaiton.py \
+    --config-path data_generation/configs/bird_config.yaml \
+    --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
+    --output-path OUTPUT_PATH
+```
+
+### 6. Sample Data for SFT and DPO
+Use the following scripts to prepare your datasets:
+* For SFT:
+```bash
+python data_generation/sft_sample.py --verify-path VERIFIED-PATH --output-path OUTPUT-PATH
+```
+* For DPO:
+```bash
+python data_generation/dpo_sample.py --dataset-path VERIFIED_PATH --version VERSION --output-path OUTPUT_PATH
+```
+✅ Once your data is ready, you can move on to model training!
+
+## Training and Evaluating ExCoT-DPO Models
+
+### 1. SFT & DPO Training
+
+We provide example YAML configuration files for launching both SFT and DPO training runs:
+
+- `sft-llama-8b.yaml`
+- `dpo-llama-8b.yaml`
+
+You can customize these YAML files to adjust model paths, batch sizes, learning rates, and other parameters to suit your setup.
+
+To launch training jobs, use:
+
+```bash
+arctic_training sft-llama-8b.yaml
+```
+or
+```bash
+arctic_training dpo-llama-8b.yaml
+```
+Make sure you’ve installed the Arctic training CLI correctly and that your environment is set up.
+
+
+### 2. Evaluate Model Checkpoints
+
+You can evaluate either:
+
+- A locally trained checkpoint
+- Or a released model from the HuggingFace model cards
+
+Please also update ```configs/bird_config.yaml``` and ```configs/spider_config.yaml```
+
+
+Run the following script:
+
+```bash
+python eval_w_arctic_syth.py \
+    --model-name {YOUR_MODEL} \
+    --data-config configs/bird_config.yaml \
+    --mode bird \
+    --task-name bird_eval
+```
+
+For Spider evaluation, simply change the ```--mode``` flag and point to the corresponding config file.
+
+✅ Evaluation results will be saved under the task name directory.

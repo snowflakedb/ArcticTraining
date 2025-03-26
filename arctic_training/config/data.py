@@ -44,8 +44,6 @@ class DataSourceConfig(BaseConfig):
 
     type: str = ""
     """ Data source type. Defaults to 'huggingface' if only a dataset name or path is provided."""
-<<<<<<< HEAD
-=======
 
     split: str = ""
     """
@@ -54,7 +52,6 @@ class DataSourceConfig(BaseConfig):
     For HFDataSource, this can be any value supported by Dataset slice splits:
     https://huggingface.co/docs/datasets/en/loading#slice-splits.
     """
->>>>>>> 072246a20de15f293a39b3cc864f60667b79a43e
 
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
@@ -110,18 +107,11 @@ class DataConfig(BaseConfig):
     def init_source_configs(
         cls,
         v: List[Union[str, Dict, DataSourceConfig]],
-<<<<<<< HEAD
-=======
         info: ValidationInfo,
->>>>>>> 072246a20de15f293a39b3cc864f60667b79a43e
     ) -> List[DataSourceConfig]:
         """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
         data_configs = []
         for config in v:
-<<<<<<< HEAD
-            # Support passing just a dataset name or path
-            if isinstance(config, str):
-=======
             split = "train" if info.field_name == "sources" else "eval"
 
             # Support passing just a dataset name or path
@@ -130,7 +120,6 @@ class DataConfig(BaseConfig):
                 if ":" in config:
                     config, split = config.split(":", 1)
 
->>>>>>> 072246a20de15f293a39b3cc864f60667b79a43e
                 try:
                     _ = get_registered_data_source(config)
                     config = dict(type=config, name_or_path=config)
@@ -144,11 +133,8 @@ class DataConfig(BaseConfig):
                         "Unspecified data source type. Please specify the 'type' field"
                         f" in your datasource config. Error raised for input: {config}."
                     )
-<<<<<<< HEAD
-=======
                 if "split" not in config:
                     config["split"] = split
->>>>>>> 072246a20de15f293a39b3cc864f60667b79a43e
                 data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
                 data_configs.append(config_cls(**config))
