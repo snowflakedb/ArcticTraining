@@ -1,73 +1,62 @@
 # ExCoT-DPO Project: Training and Evaluation
+[[🤗Llama-3.1-Arctic-ExCoT-70B](https://huggingface.co/Snowflake/Llama-3.1-Arctic-ExCoT-70B)] [[🤗Qwen-2.5-coder-Arctic-ExCoT-32B](https://huggingface.co/Snowflake/Qwen-2.5-coder-Arctic-ExCoT-32B)]
 
-This repository provides both demo training and evaluation setups for our ExCoT-DPO project. The first section covers launching a DPO demo training job, and the second section explains how to evaluate ExCoT-DPO on the BIRD and SPIDER datasets.
+This repository includes demo setups for both training and evaluation of our ExCoT-DPO project.
+We begin by covering SFT and DPO data generation.
+Next, we provide demo scripts for running one SFT and one DPO training example.
+Finally, we demonstrate how to evaluate ExCoT-DPO on the BIRD and SPIDER datasets.
 
 
-## Training Setup: DPO Demo Training Job
+## Data Generation: SFT & DPO data generation
 
-To launch a DPO demo training job, follow these steps:
+To launch a data generation job, follow these steps:
 
 1. **Install the Arctic Training Library:**
 
    Please refer to the root directory README for detailed instructions on installing the Arctic Training Library.
 
-2. **Launch the Demo Training Job:**
+2. **Install BIRD and Spider datasets:**
 
-   Execute the following command to start a demo training job using the provided configuration file:
+    BIRD benchmark installation links: [train](https://bird-bench.oss-cn-beijing.aliyuncs.com/train.zip), [dev](https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip)
 
-   ```bash
-   arctic_training projects/dpo/dpo-llama-8b.yaml
-   ```
-   This command will initiate the training process as defined in the dpo-llama-8b.yaml configuration file.
+    Spider benchmark installation links: [dataset](https://drive.google.com/file/d/1403EGqzIDoHMdQF4c9Bkyl7dZLZ5Wt6J/view)
 
-## Evaluation Setup: ExCoT-DPO on BIRD and SPIDER
 
-This section provides instructions for setting up your environment to evaluate ExCoT-DPO models on the BIRD and SPIDER datasets.
+3. **Data Generation:**
 
-### Requirements
+    Update configs with your data locations
+    ```ArcticTraining/projects/excot_dpo/data_generation/configs/bird_config.yaml```
+    ```ArcticTraining/projects/excot_dpo/data_generation/configs/spider_config.yaml```
 
-- Python 3.8+
-- pip (comes with Python)
-- [Optional] Conda (if you choose to use a Conda environment)
-
-### Environment Setup
-
-#### Using Python Virtual Environment
-
-1. **Create a Virtual Environment:**
-
+    Set up API and Token for GPT based data generation
     ```bash
-    python -m venv /data-fast/vllm-venv
+    export AZURE_OPENAI_API_KEY=
+    export AZURE_OPENAI_ENDPOINT=
     ```
-2. **Activate the Environement:**
-    ```bash
-    source /data-fast/vllm-venv/bin/activate
-    ```
-3. **Install the Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-#### Using Conda Environment
-```bash
-conda env create -f environment.yml
-conda activate dpo
-pip install -r requirements.txt
-```
 
-### Evaluation Instructions
-To evaluate the ExCoT-DPO models on BIRD and SPIDER, follow these steps:
-
-#### Dataset Download
-
-1. **Download:**
-    - Download the BIRD dataset from [BIRD Dataset](https://bird-bench.github.io/)
-2. **Configuration:**
-    - Update the [bird_config.yaml](dpo/evaluation/configs/bird_config.yaml) file with your desired evaluation settings, ensuring that it points to the correct datasets.
-3. **Run the Evaluation Script:**
-    Execute the evaluation script with the configuration file:
-    ```bash
-    python eval_w_arctic_syth.py --model-name MODEL_NAME --prompt-version divide-and-conquer --mode dev --task-name EVAL_TASK_NAME --data-config ./configs/bird_config.yaml
+    Launch GPT/vLLM based data generation, in ExCoT we use GPT based generation for SFT and Off-Policy DPO
     ```
-    ```bash
-    python eval_w_arctic_syth.py --model-name MODEL_NAME --prompt-version divide-and-conquer --mode test --task-name EVAL_TASK_NAME --data-config ./configs/spider_config.yaml
+    python data_generation/data_generation.py \
+        --config-path data_generation/configs/bird_config.yaml \
+        --type gpt
     ```
+    or
+    ```
+    python data_generation/data_generation.py \
+        --config-path data_generation/configs/bird_config.yaml \
+        --type vllm \
+        --model-name MODEL_NAME \
+        --tp-size 8
+    ```
+    After data generation we can launch data_verification
+    ```
+    python data_generation/local_verificaiton.py \
+        --config-path data_generation/configs/bird_config.yaml \
+        --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
+        --output-path OUTPUT_PATH
+    ```
+    After data generation, we can sample the correct data for SFT or DPO
+
+    ``` sft_sample.py ``` and ``` dpo_sample.py ``` are two useful scripts to call.
+
+4. Training

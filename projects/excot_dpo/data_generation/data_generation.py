@@ -1,20 +1,23 @@
 import os
-import yaml
-
-from arctic_training.synth import OpenAISynth, AzureOpenAISynth, VllmSynth, CortexSynth
-from prompts.divide_and_conquer import messages as dnc_messages
-from datasets import load_from_disk
-from datasets import Dataset
 from dataclasses import dataclass
-from datasets import load_dataset
-
-from utils.sql_exec import SqlTask, get_db_path
-from utils.sql_exec import create_db_schema
-from utils.sql_exec import _load_db_metadata
-from typing import Dict
-from typing import Union
-from typing import List
 from pathlib import Path
+from typing import Dict
+from typing import List
+from typing import Union
+
+import yaml
+from datasets import Dataset
+from datasets import load_dataset
+from prompts.divide_and_conquer import messages as dnc_messages
+from utils.sql_exec import _load_db_metadata
+from utils.sql_exec import create_db_schema
+from utils.sql_exec import get_db_path
+
+from arctic_training.synth import AzureOpenAISynth
+from arctic_training.synth import CortexSynth
+from arctic_training.synth import OpenAISynth
+from arctic_training.synth import VllmSynth
+
 
 
 @dataclass
@@ -48,11 +51,14 @@ class DataGenerationConfig:
             # Now update the attributes from the loaded YAML data
             self.train_dir = yaml_data["data"]["bird"]["train"]["data_dir"]
             self.train_db_folder_path = Path(
-                os.path.join(self.train_dir, yaml_data["data"]["bird"]["train"]["db_folder"])
+                os.path.join(
+                    self.train_dir, yaml_data["data"]["bird"]["train"]["db_folder"]
+                )
             )
             self.tables_json_path = Path(
                 os.path.join(
-                    self.train_dir, yaml_data["data"]["bird"]["train"]["tables_json_name"]
+                    self.train_dir,
+                    yaml_data["data"]["bird"]["train"]["tables_json_name"],
                 )
             )
             self.train_question_file_path = Path(
@@ -63,18 +69,26 @@ class DataGenerationConfig:
 
             self.dev_dir = yaml_data["data"]["bird"]["dev"]["data_dir"]
             self.dev_db_folder_path = Path(
-                os.path.join(self.dev_dir, yaml_data["data"]["bird"]["dev"]["db_folder"])
+                os.path.join(
+                    self.dev_dir, yaml_data["data"]["bird"]["dev"]["db_folder"]
+                )
             )
             self.dev_tables_json_path = Path(
-                os.path.join(self.dev_dir, yaml_data["data"]["bird"]["dev"]["tables_json_name"])
+                os.path.join(
+                    self.dev_dir, yaml_data["data"]["bird"]["dev"]["tables_json_name"]
+                )
             )
             self.dev_question_file_path = Path(
-                os.path.join(self.dev_dir, yaml_data["data"]["bird"]["dev"]["question_file"])
+                os.path.join(
+                    self.dev_dir, yaml_data["data"]["bird"]["dev"]["question_file"]
+                )
             )
 
             self.test_dir = yaml_data["data"]["bird"]["test"]["data_dir"]
             self.test_db_folder_path = Path(
-                os.path.join(self.test_dir, yaml_data["data"]["bird"]["test"]["db_folder"])
+                os.path.join(
+                    self.test_dir, yaml_data["data"]["bird"]["test"]["db_folder"]
+                )
             )
             self.test_tables_json_path = Path(
                 os.path.join(
@@ -82,33 +96,42 @@ class DataGenerationConfig:
                 )
             )
             self.test_question_file_path = Path(
-                os.path.join(self.test_dir, yaml_data["data"]["bird"]["test"]["question_file"])
+                os.path.join(
+                    self.test_dir, yaml_data["data"]["bird"]["test"]["question_file"]
+                )
             )
         elif "spider" in yaml_data["data"]:
             self.task = "spider"
             self.train_dir = yaml_data["data"]["spider"]["train"]["data_dir"]
             self.train_db_folder_path = Path(
-                os.path.join(self.train_dir, yaml_data["data"]["spider"]["train"]["db_folder"])
+                os.path.join(
+                    self.train_dir, yaml_data["data"]["spider"]["train"]["db_folder"]
+                )
             )
             self.tables_json_path = Path(
                 os.path.join(
-                    self.train_dir, yaml_data["data"]["spider"]["train"]["tables_json_name"]
+                    self.train_dir,
+                    yaml_data["data"]["spider"]["train"]["tables_json_name"],
                 )
             )
             self.train_question_file_path = Path(
                 os.path.join(
-                    self.train_dir, yaml_data["data"]["spider"]["train"]["question_set_file"]
+                    self.train_dir,
+                    yaml_data["data"]["spider"]["train"]["question_set_file"],
                 )
             )
             self.train_question_other_file_path = Path(
                 os.path.join(
-                    self.train_dir, yaml_data["data"]["spider"]["train"]["question_other_file"]
+                    self.train_dir,
+                    yaml_data["data"]["spider"]["train"]["question_other_file"],
                 )
             )
 
             self.dev_dir = yaml_data["data"]["spider"]["dev"]["data_dir"]
             self.dev_db_folder_path = Path(
-                os.path.join(self.dev_dir, yaml_data["data"]["spider"]["dev"]["db_folder"])
+                os.path.join(
+                    self.dev_dir, yaml_data["data"]["spider"]["dev"]["db_folder"]
+                )
             )
             self.dev_tables_json_path = Path(
                 os.path.join(
@@ -116,16 +139,21 @@ class DataGenerationConfig:
                 )
             )
             self.dev_question_file_path = Path(
-                os.path.join(self.dev_dir, yaml_data["data"]["spider"]["dev"]["question_file"])
+                os.path.join(
+                    self.dev_dir, yaml_data["data"]["spider"]["dev"]["question_file"]
+                )
             )
 
             self.test_dir = yaml_data["data"]["spider"]["test"]["data_dir"]
             self.test_db_folder_path = Path(
-                os.path.join(self.test_dir, yaml_data["data"]["spider"]["test"]["db_folder"])
+                os.path.join(
+                    self.test_dir, yaml_data["data"]["spider"]["test"]["db_folder"]
+                )
             )
             self.test_tables_json_path = Path(
                 os.path.join(
-                    self.test_dir, yaml_data["data"]["spider"]["test"]["tables_json_name"]
+                    self.test_dir,
+                    yaml_data["data"]["spider"]["test"]["tables_json_name"],
                 )
             )
             self.test_question_file_path = Path(
@@ -133,6 +161,7 @@ class DataGenerationConfig:
                     self.test_dir, yaml_data["data"]["spider"]["test"]["question_file"]
                 )
             )
+
 
 def load_bird_dataset(data_config: DataGenerationConfig, mode: str, cache_dir: str):
     if mode == "train":
@@ -200,24 +229,40 @@ def load_spider_dataset(data_config: DataGenerationConfig, mode: str, cache_dir:
 
     return db_desc_str, questions, db_folder
 
+
 def dataset_conversion(data_config):
     if data_config.task == "bird":
-        db_desc_str, questions, db_folder = load_bird_dataset(data_config, "train",
-                                                                data_config.cache_dir)
+        db_desc_str, questions, db_folder = load_bird_dataset(
+            data_config, "train", data_config.cache_dir
+        )
     elif data_config.task == "spider":
-        db_desc_str, questions, db_folder = load_spider_dataset(data_config, "train",
-                                                                    data_config.cache_dir)
+        db_desc_str, questions, db_folder = load_spider_dataset(
+            data_config, "train", data_config.cache_dir
+        )
     # import pdb; pdb.set_trace()
     all_rows = []
     for i, question in enumerate(questions):
-        db_id = question['db_id']
+        db_id = question["db_id"]
         db_desc = db_desc_str[db_id]
-        if 'evidence' in question:
-            all_rows.append({"schema": db_desc, "question": question['question'], "evidence": question["evidence"], "ground_truth": question['SQL']})
+        if "evidence" in question:
+            all_rows.append(
+                {
+                    "schema": db_desc,
+                    "question": question["question"],
+                    "evidence": question["evidence"],
+                    "ground_truth": question["SQL"],
+                }
+            )
         else:
-            all_rows.append({"schema": db_desc, "question": question['question'], "ground_truth": question['SQL']})
+            all_rows.append(
+                {
+                    "schema": db_desc,
+                    "question": question["question"],
+                    "ground_truth": question["SQL"],
+                }
+            )
 
-    if 'evidence' in questions[0]:
+    if "evidence" in questions[0]:
         new_dataset = Dataset.from_dict(
             {
                 "schema": [d["schema"] for d in all_rows],
@@ -238,14 +283,10 @@ def dataset_conversion(data_config):
     return new_dataset
 
 
-
 def submit_requests(loaded_dataset, client, task_name="demo", model="gpt-4o", n=32):
     for row in loaded_dataset:
         client.add_chat_to_batch_task(
-            task_name=task_name,
-            model=model,
-            messages=row["messages"],
-            n=n
+            task_name=task_name, model=model, messages=row["messages"], n=n
         )
     extracted_messages = client.extract_messages_from_responses(
         client.execute_batch_task(task_name)
@@ -253,6 +294,17 @@ def submit_requests(loaded_dataset, client, task_name="demo", model="gpt-4o", n=
 
     return extracted_messages
 
+def submit_requests_vllm(loaded_dataset, client, task_name="demo"):
+
+    for row in loaded_dataset:
+        client.add_chat_to_batch_task(
+            task_name=task_name, messages=row["messages"]
+        )
+
+    extracted_messages = client.extract_messages_from_responses(
+        client.execute_batch_task(task_name)
+    )
+    return extracted_messages
 
 def construct_gpt_prompt(row: Union[Dict, List]):
     schema, question = row["schema"], row["question"]
@@ -274,29 +326,98 @@ Question: {question}
 
 def main():
     # GPT data generation
-    # client = AzureOpenAISynth(api_key=...)
+    parser = argparse.ArgumentParser(description="verify the gpt result")
+    parser.add_argument(
+        "--config-path",
+        type=str,
+    )
+    parser.add_argument(
+        "--type",
+        type=str,
+        choices=['vllm', 'gpt'],
+    )
+    parser.add_argument(
+        "--data-task-name",
+        type=str,
+        default='demo'
+    )
+    parser.add_argument(
+        "--vllm-output-path",
+        type=str,
+        default=None
+    )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default=None
+    )
+    parser.add_argument(
+        "--tp-size",
+        type=int,
+        default=8
+    )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=32
+    )
+    args = parser.parse_args()
+
+
     AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 
-    client = AzureOpenAISynth(
-        api_key=AZURE_OPENAI_API_KEY,
-        api_version="2024-07-01-preview",
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    )
+    if args.type == 'gpt':
+        client = AzureOpenAISynth(
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version="2024-07-01-preview",
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        )
+    elif args.type == 'vllm':
+        model_params = {
+            "model": args.model_name,
+            "tensor_parallel_size": args.tp_size,
+            "enable_chunked_prefill": False,
+            "download_dir": "/data-fast/vllm",
+            "gpu_memory_utilization": 0.95,
+            "max_model_len": 12288,
+            "trust_remote_code": True,
+            "swap_space": 64,
+        }
+        client = VllmSynth(
+            model_params=model_params,
+            sampling_params=SamplingParams(temperature=0.0, n=args.n, max_tokens=max_tokens),
+            work_dir="./syth_data",
+        )
+
+
 
     # Load data config
-    bird_config_path = "/code/users/bohanzhai/ArcticTraining/projects/excot_dpo/data_generation/configs/bird_config.yaml"
+    config_path = args.config_path
     data_gen_config = DataGenerationConfig()
-    data_gen_config.load_yaml(bird_config_path)
+    data_gen_config.load_yaml(config_path)
     loaded_dataset = dataset_conversion(data_gen_config)
     processed_dataset = loaded_dataset.map(
         lambda row: {"messages": construct_gpt_prompt(row)}
     )
-    processed_dataset = processed_dataset.select(range(10))
     # GPT batch job
-    bird_result = submit_requests(processed_dataset, client)
-    import pdb; pdb.set_trace()
-    # spider_result = submit_requests(spider_dataset, client)
+    if args.type == 'gpt':
+        result = submit_requests(processed_dataset, client, task_name=args.data_task_name, n=args.n)
+
+    # vLLM batch job
+    if args.type == 'vllm':
+        result = submit_requests_vllm(processed_dataset, client, task_name=args.data_task_name)
+        for row in result:
+            row["all_generated_queries"] = [choice['content'] for choice in row["choices"]]
+        new_dataset = Dataset.from_dict(
+            {
+                "custom_id": [d["custom_id"] for d in processed_data],
+                "all_generated_queries": [
+                    d["all_generated_queries"] for d in processed_data
+                ],
+            }
+        )
+        new_dataset.save_to_disk(args.vllm_output_path)
 
 
 if __name__ == "__main__":

@@ -179,7 +179,7 @@ class DPODataFactory(DataFactory):
                 f" {missing_columns}"
             )
         dataset = dataset.select_columns(["prompt", "chosen", "rejected"])
-        dataset = dataset.select(range(len(dataset)))
+
         return dataset.map(
             lambda ex: {
                 **self.tokenize_messages(
@@ -355,7 +355,7 @@ class DPODataFactory(DataFactory):
             dataset,
             collate_fn=DataCollatorForPref(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),  # Debug SequentialSampler(dataset),
+            sampler=RandomSampler(dataset),#RandomSampler(dataset),  # Debug SequentialSampler(dataset),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

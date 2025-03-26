@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,8 +12,6 @@ from typing import Set
 from typing import Union
 
 import sqlglot
-import time
-
 import yaml
 from datasets import load_dataset
 
@@ -132,7 +131,6 @@ class EvalConfig:
             )
 
 
-
 class SqlEnv:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -196,6 +194,7 @@ class SqlEnv:
             # Remove the progress handler after execution.
             self.conn.set_progress_handler(None, 0)
         return output
+
 
 def _gen_data_fetch(col_name: str, table_name: str):
     col_name = col_name.replace('"', '""')
@@ -265,7 +264,10 @@ def create_db_schema(db_metadata: Dict[str, Any], db_path: str) -> str:
                 ref_text = f"{table_name}.{col_name}={ref_table_name}.{ref_col_name}"
 
             # Append formatted column description
-            column_desc = f"{col_name} [ {col_type.upper()} ] ( {sample_str} ) {primary_key_text} {ref_text}"
+            column_desc = (
+                f"{col_name} [ {col_type.upper()} ] ( {sample_str} )"
+                f" {primary_key_text} {ref_text}"
+            )
             output.append(column_desc.strip())
 
         output.append("")  # Add a blank line between tables
@@ -359,7 +361,9 @@ def load_spider_dataset(data_config: EvalConfig, mode: str, cache_dir: str):
 class SqlTask:
     """Wrapper for SQL environment, question, ground truth, and LLM template."""
 
-    def __init__(self, db_id: str, db_desc: str, db_path: str, ground_truth: str = None):
+    def __init__(
+        self, db_id: str, db_desc: str, db_path: str, ground_truth: str = None
+    ):
         self.db_id = db_id
         self.ground_truth = ground_truth
         self.db_desc = db_desc

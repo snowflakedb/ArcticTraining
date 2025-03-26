@@ -1,26 +1,27 @@
 type: dpo
-micro_batch_size: 2
+micro_batch_size: 1
 epochs: 2
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 2
 beta: 0.1
 model:
   type: liger
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  name_or_path: /data/excot-sft-llama-8b/global_step_147
   attn_implementation: flash_attention_2
 ref_model:
   type: liger
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  name_or_path: /data/excot-sft-llama-8b/global_step_147
   attn_implementation: flash_attention_2
 deepspeed:
   zero_optimization:
     stage: 3
 wandb:
   enable: true
-  project: arctic-dpo-loss-8b
-  name: arctic-dpo-8b-2
+  project: arctic-excot
+  name: arctic-excot-dpo-test
 data:
   sources:
-    - HuggingFaceH4/ultrafeedback_binarized
+    - type: huggingface
+      name_or_path: /data-fast/excot_dpo
   use_data_cache: true
   cache_processed_data: true
   cache_dir: /data-fast/data-cache
@@ -40,5 +41,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_steps: 10000
-    output_dir: /data/arctic-dpo-llama-8b
+    output_dir: /data-fast/excot-dpo-llama-8b-test
     save_end_of_training: true

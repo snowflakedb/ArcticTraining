@@ -212,8 +212,8 @@ class DPOTrainer(Trainer):
     name = "dpo"
     config: DPOTrainerConfig
     data_factory: DPODataFactory
-    model_factory: Union[HFModelFactory, LigerModelFactory]
-    ref_model_factory: Union[HFModelFactory, LigerModelFactory]
+    model_factory: Union[HFModelFactory, "LigerModelFactory"]
+    ref_model_factory: Union[HFModelFactory, "LigerModelFactory"]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: HFSchedulerFactory
@@ -227,7 +227,7 @@ class DPOTrainer(Trainer):
         teardown_wandb_cb,
     ]
     ref_model: torch.nn.Module
-    liger_dpo_loss: Union[None, LigerFusedLinearDPOLoss]
+    liger_dpo_loss: Union[None, "LigerFusedLinearDPOLoss"]
 
     def forward_model(
         self, batch: Dict[str, torch.Tensor]
@@ -238,8 +238,6 @@ class DPOTrainer(Trainer):
             use_cache=False,
             output_hidden_states=True,
         )
-        # Debug
-        # import pdb; pdb.set_trace()
         logits = outputs.logits.to(torch.float32)
         logprobs, completion_sizes = get_logprobs(
             logits, batch["labels"], self.config.ignore_label_index
@@ -278,8 +276,7 @@ class DPOTrainer(Trainer):
         chosen_reward: beta * log(pi_{\theta}(y_w | x) / pi_{ref}(y_w | x))
         rejected_reward:
         """
-        # Debug
-        # return logprobs.sum(), 1, 1
+
         batch_size = logprobs.size(0) // 2
         chosen_logprobs = logprobs[:batch_size]
         rejected_logprobs = logprobs[batch_size:]
@@ -310,11 +307,12 @@ class DPOTrainer(Trainer):
             batch
         )
         logits, logprobs, _, hidden_state = self.forward_model(batch)
+        # print(hidden_state.shape)
         # Activate if we have liger kernel
         if self.liger_dpo_loss:
-            losses, _ = self.liger_dpo_loss(
-                self.model.module.lm_head.weight,
+            losses, _, _ = self.liger_dpo_loss(
                 hidden_state,
+                self.model.module.lm_head.weight,
                 batch["labels"][:, 1:],
                 ref_input=ref_hidden_state.detach(),
                 ref_weight=self.ref_model.module.lm_head.weight,

@@ -1,0 +1,152 @@
+_wandb:
+    value:
+        cli_version: 0.19.8
+        m: []
+        python_version: 3.10.12
+        t:
+            "1":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 51
+                - 55
+                - 71
+                - 98
+            "2":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 51
+                - 55
+                - 71
+                - 98
+            "3":
+                - 13
+                - 16
+                - 23
+                - 55
+            "4": 3.10.12
+            "5": 0.19.8
+            "6": 4.49.0
+            "8":
+                - 5
+            "12": 0.19.8
+            "13": linux-x86_64
+beta:
+    value: 0.1
+checkpoint:
+    value:
+        - auto_resume: false
+          enabled: true
+          output_dir: /data-fast/excot-dpo-llama-8b-test
+          save_end_of_training: true
+          save_every_n_epochs: 0
+          save_every_n_steps: 10000
+          type: huggingface
+code:
+    value: train.py
+data:
+    value:
+        cache_dir: /data-fast/data-cache
+        cache_processed_data: true
+        eval_sources: []
+        num_proc: 16
+        seed: 42
+        sources:
+            - process: true
+              shard: true
+              type: huggingface
+        train_eval_split:
+            - 1
+            - 0
+        type: dpo
+        use_data_cache: true
+deepspeed:
+    value:
+        bfloat16:
+            enabled: true
+        gradient_clipping: 1
+        prescale_gradients: false
+        steps_per_print: 10
+        train_batch_size: 32
+        train_micro_batch_size_per_gpu: 2
+        wall_clock_breakdown: false
+        zero_optimization:
+            stage: 3
+epochs:
+    value: 2
+eval_frequency:
+    value: 0
+exit_iteration:
+    value: 0
+gradient_accumulation_steps:
+    value: 2
+ignore_label_index:
+    value: -100
+label_smoothing:
+    value: 0
+logger:
+    value:
+        file_output_ranks:
+            - 0
+        level: WARNING
+        output_dir: .
+        print_output_ranks:
+            - 0
+loss_log_interval:
+    value: 1
+micro_batch_size:
+    value: 1
+model:
+    value:
+        attn_implementation: flash_attention_2
+        disable_activation_checkpoint: false
+        dtype: torch.bfloat16
+        name_or_path: /data/excot-sft-llama-8b/global_step_147
+        peft_config: null
+        save_name: null
+        type: liger
+optimizer:
+    value:
+        betas:
+            - 0.9
+            - 0.999
+        learning_rate: 1e-06
+        type: fusedadam
+        weight_decay: 0.1
+ref_model:
+    value:
+        attn_implementation: flash_attention_2
+        disable_activation_checkpoint: false
+        dtype: torch.bfloat16
+        name_or_path: /data/excot-sft-llama-8b/global_step_147
+        peft_config: null
+        save_name: null
+        type: liger
+scheduler:
+    value:
+        learning_rate: null
+        type: huggingface
+        warmup_ratio: 0.1
+seed:
+    value: 42
+skip_validation:
+    value: false
+step_timer:
+    value: false
+tokenizer:
+    value:
+        name_or_path: /data/excot-sft-llama-8b/global_step_147
+        type: huggingface
+train_iters:
+    value: 0
+type:
+    value: dpo
+wandb:
+    value:
+        enable: true
+        entity: null
+        name: arctic-excot-dpo-test
+        project: arctic-excot
