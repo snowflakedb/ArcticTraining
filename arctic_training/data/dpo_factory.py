@@ -355,7 +355,9 @@ class DPODataFactory(DataFactory):
             dataset,
             collate_fn=DataCollatorForPref(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),#RandomSampler(dataset),  # Debug SequentialSampler(dataset),
+            sampler=RandomSampler(
+                dataset
+            ),  # RandomSampler(dataset),  # Debug SequentialSampler(dataset),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

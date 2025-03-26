@@ -1,16 +1,33 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import json
+import os
 from multiprocessing import Pool
 from multiprocessing import TimeoutError
+from typing import Dict
+from typing import List
 
 from data_generation import DataGenerationConfig
 from data_generation import dataset_conversion
 from data_generation import load_bird_dataset
 from data_generation import load_spider_dataset
 from datasets import Dataset
+from datasets import load_from_disk
 from tqdm import tqdm
-from type import Dict
-from type import List
 from utils.execute_utils import _extract_sql
 from utils.sql_exec import SqlTask
 from utils.sql_exec import get_db_path
@@ -61,10 +78,6 @@ def read_reuslts(data_result: List[Dict]):
 def verify_one_line(check_row, bird_source, db_folder):
     schema = check_row["schema"]
     question = check_row["question"]
-    if "evidence" in check_row:
-        evidence = check_row["evidence"]
-    else:
-        evidence = None
     golden_answer = check_row["golden_query"]
     custom_id = check_row["custom_id"]
 
@@ -130,7 +143,7 @@ def check_correctness(checking_list, db_desc_str, db_folder, bird_source, timeou
                     except TimeoutError:
                         # Handle the timeout case
                         eval_results.append(None)  # or any other default value
-                    except Exception as e:
+                    except Exception:
                         # Handle any other exceptions
                         eval_results.append(None)  # or handle differently as needed
     else:
@@ -169,7 +182,6 @@ class Verifier:
             db_desc_str, questions, db_folder = load_spider_dataset(
                 self.data_config, "train", self.cache_dir
             )
-
 
         if gpt_path is not None:
             gpt_json = read_jsonl(gpt_path)

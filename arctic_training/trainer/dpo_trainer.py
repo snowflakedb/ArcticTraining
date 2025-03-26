@@ -15,6 +15,7 @@
 
 from typing import Any
 from typing import Dict
+from typing import Optional
 from typing import Tuple
 from typing import Union
 from typing import cast
@@ -24,11 +25,15 @@ import torch
 
 # import torch.distributed as dist
 import torch.nn.functional as F
-
 from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
+
+try:
+    from liger_kernel.chunked_loss import LigerFusedLinearDPOLoss
+except (ImportError, ModuleNotFoundError):
+    LigerFusedLinearDPOLoss = None
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.wandb import init_wandb_project_cb
@@ -199,14 +204,10 @@ def init_ref_model(self: "DPOTrainer") -> None:
 
 
 def init_liger_dpo_loss(self: "DPOTrainer") -> None:
-    try:
-        from liger_kernel.chunked_loss import LigerFusedLinearDPOLoss
+    if LigerFusedLinearDPOLoss is not None:
         self.liger_dpo_loss = LigerFusedLinearDPOLoss(
             ignore_index=self.config.ignore_label_index, beta=self.config.beta
         )
-    except Exception:
-        print("init failed")
-        self.liger_dpo_loss = None
 
 
 class DPOTrainer(Trainer):
@@ -228,7 +229,7 @@ class DPOTrainer(Trainer):
         teardown_wandb_cb,
     ]
     ref_model: torch.nn.Module
-    liger_dpo_loss: Union[None, "LigerFusedLinearDPOLoss"]
+    liger_dpo_loss: Optional[LigerFusedLinearDPOLoss] = None
 
     def forward_model(
         self, batch: Dict[str, torch.Tensor]
