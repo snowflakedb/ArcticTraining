@@ -2,7 +2,7 @@
 
 This repository provides a complete demo setup for training and evaluating **ExCoT-DPO**, our framework for improved instruction tuning using explicit chain-of-thought (ExCoT) and direct preference optimization (DPO).
 
-🚀 Try our released models on Hugging Face:
+🚀 Try our released models on Hugging Face (coming soon!):
 - [🤗 Llama-3.1-Arctic-ExCoT-70B](https://huggingface.co/Snowflake/Llama-3.1-Arctic-ExCoT-70B)
 - [🤗 Qwen-2.5-coder-Arctic-ExCoT-32B](https://huggingface.co/Snowflake/Qwen-2.5-coder-Arctic-ExCoT-32B)
 
