@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
 from typing import Dict
 from typing import Optional
 from typing import Tuple
@@ -22,8 +21,6 @@ from typing import cast
 
 import deepspeed
 import torch
-
-# import torch.distributed as dist
 import torch.nn.functional as F
 from pydantic import ValidationInfo
 from pydantic import field_validator
@@ -35,13 +32,8 @@ try:
 except (ImportError, ModuleNotFoundError):
     LigerFusedLinearDPOLoss = None
 
-from arctic_training.callback.logging import post_loss_log_cb
-from arctic_training.callback.wandb import init_wandb_project_cb
-from arctic_training.callback.wandb import log_wandb_loss_cb
-from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
-from arctic_training.config.enums import DType
 from arctic_training.config.model import ModelConfig
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.dpo_factory import DPODataFactory
@@ -52,14 +44,7 @@ from arctic_training.registry import get_registered_model_factory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
-
-
-def to_device(batch: Dict, device: str) -> Dict:
-    output = {}
-    for k, v in batch.items():
-        if isinstance(v, torch.Tensor):
-            output[k] = v.to(device)
-    return output
+from arctic_training.trainer.utils import to_device
 
 
 def get_logprobs(
@@ -96,39 +81,24 @@ def get_logprobs(
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
 
 
-def get_eval_ds_config(stage: int = 0) -> Dict[str, Any]:
-
-    data_type = "bfloat16"
-    dtype_config = {"enabled": True}
-    zero_opt_dict = {
-        "stage": stage,
-        "stage3_param_persistence_threshold": 1e4,
-        "memory_efficient_linear": False,
-    }
-    return {
-        "train_batch_size": 32,
-        "train_micro_batch_size_per_gpu": 4,
-        "steps_per_print": 10,
-        "zero_optimization": zero_opt_dict,
-        data_type: dtype_config,
-        "gradient_clipping": 1.0,
-        "prescale_gradients": False,
-        "wall_clock_breakdown": False,
-    }
-
-
 class DPOTrainerConfig(TrainerConfig):
     ref_model: ModelConfig
+
     beta: float = 0.1
-    """Parameter controlling the deviation from the reference model.
+    """
+    Parameter controlling the deviation from the reference model.
     Higher beta means less deviation from the reference model.
     """
+
     ignore_label_index: int = -100
-    """ label value for ignored labels """
+    """ label value for ignored labels. """
+
     label_smoothing: float = 0.0
-    """Robust DPO label smoothing parameter from the [cDPO](https://ericmitchell.ai/cdpo.pdf) report
+    """
+    Robust DPO label smoothing parameter from the [cDPO](https://ericmitchell.ai/cdpo.pdf) report
     and [Robust DPO](https://huggingface.co/papers/2403.00409) paper that should be between 0.0 and 0.5.
     """
+
     reference_model_deepspeed: Dict = {}
     """ Model configuration. """
 
@@ -146,36 +116,45 @@ class DPOTrainerConfig(TrainerConfig):
         return cast(ModelConfig, subconfig)
 
     @model_validator(mode="after")
-    def build_deepspeed_config(self) -> Self:
-        ds_config = self.deepspeed
-        ds_config["train_micro_batch_size_per_gpu"] = int(self.micro_batch_size * 2)
-        ds_config["train_batch_size"] = int(
+    def update_deepspeed_dpo_config(self) -> Self:
+        """Updates deepspeed config for DPO Trainer."""
+        self.deepspeed["train_micro_batch_size_per_gpu"] = int(
+            self.micro_batch_size * 2
+        )
+        self.deepspeed["train_batch_size"] = int(
             self.micro_batch_size
             * self.gradient_accumulation_steps
             * self.world_size
             * 2
         )
-        ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
-        ds_config["zero_optimization"] = ds_config.get(
-            "zero_optimization",
-            {
-                "stage": 2,
-                "stage3_param_persistence_threshold": 1e4,
-                "stage3_max_live_parameters": 3e7,
-                "stage3_prefetch_bucket_size": 3e7,
-                "memory_efficient_linear": False,
-            },
-        )
-        if "bfloat16" not in ds_config:
-            if self.model.dtype == DType.BF16:
-                ds_config["bfloat16"] = {"enabled": True}
-        if "fp16" not in ds_config:
-            if self.model.dtype == DType.FP16:
-                ds_config["fp16"] = {"enabled": True}
+        return self
 
-        ds_config["gradient_clipping"] = ds_config.get("gradient_clipping", 1.0)
-        ds_config["prescale_gradients"] = ds_config.get("prescale_gradients", False)
-        ds_config["wall_clock_breakdown"] = ds_config.get("wall_clock_breakdown", False)
+    @model_validator(mode="after")
+    def build_ref_model_deepspeed_config(self) -> Self:
+        """Build deepspeed config for reference model."""
+        if len(self.reference_model_deepspeed) != 0:
+            raise ValueError(
+                "Reference model deepspeed config is computed based on the main model"
+                " deepspeed config and should not be passed by the user."
+            )
+
+        ref_model_deepspeed = dict(
+            train_batch_size=self.deepspeed["train_batch_size"],
+            train_micro_batch_size_per_gp=self.deepspeed[
+                "train_micro_batch_size_per_gpu"
+            ],
+            steps_per_print=self.deepspeed["steps_per_print"],
+            zero_optimization=dict(
+                stage=3 if self.deepspeed["zero_optimization"]["stage"] == 3 else 0,
+                stage3_param_persistence_threshold=1e4,
+                memory_efficient_linear=False,
+            ),
+            bfloat16=dict(enabled=True),
+            gradient_clipping=1.0,
+            prescale_gradients=False,
+            wall_clock_breakdown=False,
+        )
+        self.reference_model_deepspeed = ref_model_deepspeed
         return self
 
 
@@ -183,19 +162,6 @@ def init_ref_model(self: "DPOTrainer") -> None:
     ref_model_factory = self.config.ref_model.factory(
         trainer=self, model_config=self.config.ref_model
     )  # Be explicit about which model config to use
-    if self.config.deepspeed["zero_optimization"]["stage"] == 3:
-        ds_stage = 3
-    else:
-        ds_stage = 0
-    self.config.reference_model_deepspeed = get_eval_ds_config(stage=ds_stage)
-
-    self.config.reference_model_deepspeed["train_micro_batch_size_per_gpu"] = (
-        self.config.deepspeed["train_micro_batch_size_per_gpu"]
-    )
-    self.config.reference_model_deepspeed["train_batch_size"] = self.config.deepspeed[
-        "train_batch_size"
-    ]
-
     self.ref_model = ref_model_factory()
     # wrap the model with deepspeed
     self.ref_model, *_ = deepspeed.initialize(
@@ -214,22 +180,19 @@ class DPOTrainer(Trainer):
     name = "dpo"
     config: DPOTrainerConfig
     data_factory: DPODataFactory
-    model_factory: Union[HFModelFactory, "LigerModelFactory"]
-    ref_model_factory: Union[HFModelFactory, "LigerModelFactory"]
+    model_factory: Union[HFModelFactory, LigerModelFactory]
+    ref_model_factory: Union[HFModelFactory, LigerModelFactory]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: HFSchedulerFactory
     tokenizer_factory: HFTokenizerFactory
+    ref_model: torch.nn.Module
+    liger_dpo_loss: Optional[LigerFusedLinearDPOLoss] = None
+
     callbacks = [
         ("post-init", init_ref_model),
         ("post-init", init_liger_dpo_loss),
-        post_loss_log_cb,
-        init_wandb_project_cb,
-        log_wandb_loss_cb,
-        teardown_wandb_cb,
     ]
-    ref_model: torch.nn.Module
-    liger_dpo_loss: Optional[LigerFusedLinearDPOLoss] = None
 
     def forward_model(
         self, batch: Dict[str, torch.Tensor]
@@ -309,7 +272,7 @@ class DPOTrainer(Trainer):
             batch
         )
         logits, logprobs, _, hidden_state = self.forward_model(batch)
-        # print(hidden_state.shape)
+
         # Activate if we have liger kernel
         if self.liger_dpo_loss:
             losses, _, _ = self.liger_dpo_loss(
@@ -319,6 +282,9 @@ class DPOTrainer(Trainer):
                 ref_input=ref_hidden_state.detach(),
                 ref_weight=self.ref_model.module.lm_head.weight,
             )
-            return losses.mean()
-        losses, chosen_rewards, rejected_rewards = self.dpo_loss(logprobs, ref_logprobs)
+        else:
+            losses, chosen_rewards, rejected_rewards = self.dpo_loss(
+                logprobs, ref_logprobs
+            )
+
         return losses.mean()

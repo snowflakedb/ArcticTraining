@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict
 from typing import Union
 
 import torch
@@ -28,13 +27,7 @@ from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
-
-
-def to_device(batch: Dict, device: str) -> Dict:
-    output = {}
-    for k, v in batch.items():
-        output[k] = v.to(device)
-    return output
+from arctic_training.trainer.utils import to_device
 
 
 class SFTTrainer(Trainer):
