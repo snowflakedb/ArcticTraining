@@ -280,7 +280,7 @@ class DPOTrainer(Trainer):
         logits, logprobs, _, hidden_state = self.forward_model(batch)
 
         # Activate if we have liger kernel
-        if self.liger_dpo_loss:
+        if self.liger_dpo_loss not None:
             losses, _, _ = self.liger_dpo_loss(
                 hidden_state,
                 self.model.module.lm_head.weight,
