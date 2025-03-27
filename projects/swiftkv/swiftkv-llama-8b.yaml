@@ -4,11 +4,12 @@ epochs: 1
 gradient_accumulation_steps: 1
 temperature: 2.0
 decoder_loss_mult: 0.0
-sequence_parallel_size: 8
+#sequence_parallel_size: 8
 model:
   name_or_path: meta-llama/Llama-3.1-8B-Instruct
   num_key_value_layers: 16
   key_value_group_size: 1
+  attn_implementation: sdpa
 deepspeed:
   zero_optimization:
     stage: 3
@@ -19,6 +20,7 @@ data:
   cache_processed_data: true
   cache_dir: /data-fast/data-cache
   num_proc: 16
+  #max_length: 65536
   max_length: 8192
 logger:
   level: INFO

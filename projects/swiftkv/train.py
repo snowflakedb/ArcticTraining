@@ -65,11 +65,7 @@ class SwiftKVModelFactory(HFModelFactory):
                 layer.self_attn.q_proj_swiftkv.weight.data.copy_(
                     layer.self_attn.q_proj.weight.data
                 )
-                layer.self_attn.q_proj_swiftkv.bias.data.copy_(
-                    layer.self_attn.q_proj.bias.data
-                )
             layer.self_attn.q_proj_swiftkv.weight.requires_grad = True
-            layer.self_attn.q_proj_swiftkv.bias.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
             model.config.num_hidden_layers,
@@ -89,14 +85,6 @@ class SwiftKVModelFactory(HFModelFactory):
                         sum(weights[1:]) / model.config.key_value_group_size
                     )
                 getattr(this_attn, f"{param}_swiftkv").weight.requires_grad = True
-                biases = [getattr(this_attn, f"{param}_swiftkv").bias] + [
-                    getattr(attn, f"{param}").bias for attn in next_attn
-                ]
-                with GatheredParameters(biases, modifier_rank=0):
-                    biases[0].data.copy_(
-                        sum(biases[1:]) / model.config.key_value_group_size
-                    )
-                getattr(this_attn, f"{param}_swiftkv").bias.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
 
@@ -267,6 +255,9 @@ class SwiftKVTrainer(SFTTrainer):
                 temperature=self.config.temperature,
             )
 
+            print("LOGIT", student_outputs.logits.shape, student_outputs.logits[0].sum())
+            exit()
+
             logits = student_outputs.logits
 
             see_memory_usage(f"{sub_step_id=} after forward", force=False)
@@ -418,6 +409,9 @@ class SwiftKVTrainer(SFTTrainer):
             **batch,
             output_hidden_states=(self.config.decoder_loss_mult > 0),
         )
+
+        print("LOGIT", student_outputs.logits.shape, student_outputs.logits[0].sum())
+        exit()
 
         distill_loss = self.distillation_loss(
             student_outputs.logits,
