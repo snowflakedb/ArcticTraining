@@ -83,6 +83,12 @@ def get_logprobs(
 
 class DPOTrainerConfig(TrainerConfig):
     ref_model: ModelConfig
+    """
+    Defines the reference model used in Direct Preference Optimization (DPO) training.
+    The reference model represents the initial, unoptimized language model
+    before preference-based fine-tuning. It provides baseline log-likelihoods for
+    comparison against the policy model during training.
+    """
 
     beta: float = 0.1
     """
