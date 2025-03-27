@@ -195,7 +195,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.config.auto_resume:
                 engine.load(self.model)
 
-        from arctic_training.metrics import StepTimeMetric, IterTimeMetric
+        from arctic_training.metrics import IterTimeMetric
+        from arctic_training.metrics import StepTimeMetric
+
         self.metrics = [StepTimeMetric(trainer=self), IterTimeMetric(trainer=self)]
 
     def _set_seeds(self, seed: int) -> None:
@@ -307,7 +309,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 break
 
             if self.train_batch_idx % self.config.train_log_iter_interval == 0:
-                log_msg = "|".join(m.get_metric() for m in self.metrics)
+                log_msg = f"iter {self.train_batch_idx} | " + " | ".join(
+                    m.get_metric() for m in self.metrics
+                )
                 logger.warning(log_msg)
 
     @callback_wrapper("train")

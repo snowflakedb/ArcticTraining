@@ -14,11 +14,15 @@
 # limitations under the License.
 
 import functools
+from abc import ABC
+from abc import abstractmethod
+
 from deepspeed.utils.timer import SynchronizedWallClockTimer
-from abc import ABC, abstractmethod
+
 
 def estimate_flos(model, input_shape) -> int:
     pass
+
 
 class Metric(ABC):
     def __init__(self, trainer):
@@ -26,66 +30,70 @@ class Metric(ABC):
         self.setup(self.trainer)
 
     @abstractmethod
-    def setup(self, trainer) -> None:
-        ...
+    def setup(self, trainer) -> None: ...
 
     @abstractmethod
-    def get_metric(self) -> str:
-        ...
+    def get_metric(self) -> str: ...
+
 
 class StepTimeMetric(Metric):
     def setup(self, trainer) -> None:
         self.timer = SynchronizedWallClockTimer.Timer("step")
         self.accumulated_times = []
-        trainer.step = self._time_wrapper(trainer.step)
+        trainer.step = self._time_wrapper_step(trainer.step)
 
     def get_metric(self) -> str:
         mean_time = sum(self.accumulated_times) / len(self.accumulated_times)
-        std_time = sum((t - mean_time) ** 2 for t in self.accumulated_times) / len(self.accumulated_times)
-        self.accumulated_times = [] # reset times
-        return f"Step time: {mean_time:.2f} ± {std_time:.2f} s"
+        self.accumulated_times = []
+        return f"Step time: {mean_time:.4f} s"
 
-    def _time_wrapper(self, method):
+    def _time_wrapper_step(self, method):
         """Wraps a method to measure execution time."""
+
         @functools.wraps(method)
         def wrapper(*args, **kwargs):
-            self.timer.start()
-            result = method(*args, **kwargs)
-            self.timer.stop()
+            self.timer.start()  # Start time before step
+            result = method(*args, **kwargs)  # Run step
+            self.timer.stop()  # Stop timer and record time
             elapsed_time = self.timer.elapsed() / 1000
             self.accumulated_times.append(elapsed_time)
             return result
+
         return wrapper
+
 
 class IterTimeMetric(Metric):
     def setup(self, trainer) -> None:
         self.timer = SynchronizedWallClockTimer.Timer("iter")
         self.accumulated_times = []
-        trainer.step = self._time_wrapper(trainer.train_dataloader.__iter__)
+        trainer.step = self._time_wrapper_step(trainer.step)
+        trainer.epoch = self._time_wrapper_epoch(trainer.epoch)
 
     def get_metric(self) -> str:
         mean_time = sum(self.accumulated_times) / len(self.accumulated_times)
-        std_time = sum((t - mean_time) ** 2 for t in self.accumulated_times) / len(self.accumulated_times)
         self.accumulated_times = []
-        return f"Iter time: {mean_time:.2f} ± {std_time:.2f} s"
-    
-    def _time_wrapper(self, method):
-        """Wraps a method to measure execution time."""
+        return f"Iter time: {mean_time:.4f} s"
+
+    def _time_wrapper_epoch(self, method):
         @functools.wraps(method)
-        def wrapper(*args):
-            iterator = method(*args)
-            try:
-                print("HERE", iterator)
-                for item in iterator:
-                    if self.timer.started_:
-                        self.timer.stop()
-                        elapsed_time = self.timer.elapsed() / 1000
-                        self.accumulated_times.append(elapsed_time)
-                    self.timer.start()
-                    yield item
-            finally:
-                self.timer.stop()
-                elapsed_time = self.timer.elapsed() / 1000
-                self.accumulated_times.append(elapsed_time)
+        def wrapper(*args, **kwargs):
+            self.timer.start()  # Start timer before first data batch
+            result = method(*args, **kwargs)  # Run epoch, iterating over all batches
+            self.timer.stop()  # Stop timer on last batch
+            return result
+
+        return wrapper
+
+    def _time_wrapper_step(self, method):
+        """Wraps a method to measure execution time."""
+
+        @functools.wraps(method)
+        def wrapper(*args, **kwargs):
+            result = method(*args, **kwargs)  # Run step
+            self.timer.stop()  # Stop timer started in epoch wrapper, record time
+            elapsed_time = self.timer.elapsed() / 1000
+            self.accumulated_times.append(elapsed_time)
+            self.timer.start()  # Start new timer for next batch
+            return result
 
         return wrapper
