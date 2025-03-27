@@ -5,7 +5,7 @@ bird:
     tables_json_name: "train_tables.json"
     question_file: "train.json"
   dev:
-    data_dir: "/data/oss_data/bird/dev_240627"
+    data_dir: "/data/bird/dev_240627"
     db_folder: "dev_databases"
     tables_json_name: "dev_tables.json"
     question_file: "dev.json"
@@ -14,4 +14,4 @@ bird:
     db_folder: ""
     tables_json_name: ""
     question_file: ""
-cache_dir: "/data-fast/gen_tmp"
+cache_dir: "/data/gen_tmp"

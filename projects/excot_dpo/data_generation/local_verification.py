@@ -243,9 +243,7 @@ class Verifier:
             "correct_answers": [data["correct_answers"] for data in processed_data],
             "wrong_answers": [data["wrong_answers"] for data in processed_data],
         }
-        import pdb
 
-        pdb.set_trace()
         if "evidence" in processed_data[0]:
             dataset["evidence"] = [data["evidence"] for data in processed_data]
 

@@ -25,6 +25,12 @@ This section covers how to generate training data for both **Supervised Fine-Tun
 
 Please refer to the root-level `README.md` for detailed setup instructions.
 
+Some extra packages need to install
+```bash
+pip install sqlglot
+pip install editdistance
+```
+
 ### 2. Download Datasets
 
 Download the following datasets and extract them into a single directory. For the purposes of this tutorial we will assume they are all extracted into `/data/`. If your path differs please adjust the config files under [data_generation/configs/bird_config.yaml](data_generation/configs/bird_config.yaml) and [data_generation/configs/spider_config.yaml](data_generation/configs/spider_config.yaml).
@@ -49,44 +55,40 @@ export AZURE_OPENAI_ENDPOINT=<your-endpoint>
 ```bash
 python data_generation/data_generation.py \
     --config-path data_generation/configs/bird_config.yaml \
+    --gpt-output-path YOUR_GPT_GEN_PATH \
+    --data-task-name demo \
     --type gpt
 ```
 
 For on-policy DPO generated data we must do this from a local model hosted by vLLM which can be executed accordingly:
 
 **vLLM-based**
-```
+```bash
 python data_generation/data_generation.py \
     --config-path data_generation/configs/bird_config.yaml \
     --type vllm \
     --model-name MODEL_NAME \
-    --vllm-output-path DATASET_OUTPUT_PATH \
+    --vllm-output-path VLLM_VERIFIED_DATASET_OUTPUT_PATH \
     --tp-size 8
 ```
 
 ### 4. Verify Generated Data
-After generation, run verification. 
-
-TODO: we need to tell the user what these variables are and how to find them:
-`YOUR_GPT_GEN_PATH`
-`VERIFIED_DATASET`
-`DATASET_OUTPUT_PATH`
+After generation, run verification.
 
 ** Verify SFT and off-policy DPO data **
 
 ```bash
-python data_generation/local_verificaiton.py \
+python data_generation/local_verification.py \
     --config-path data_generation/configs/bird_config.yaml \
-    --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
+    --gpt-cot-path YOUR_GPT_GEN_PATH/demo/results.jsonl \
     --output-path VERIFIED_SFT_PATH
 ```
 ** Verify on-policy DPO data **
 
 ```bash
-python data_generation/local_verificaiton.py \
+python data_generation/local_verification.py \
     --config-path data_generation/configs/bird_config.yaml \
-    --vllm-cot-path VERIFIED_DATASET \
-    --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
+    --vllm-cot-path VLLM_VERIFIED_DATASET_OUTPUT_PATH \
     --output-path VERIFIED_DPO_PATH
 ```
 

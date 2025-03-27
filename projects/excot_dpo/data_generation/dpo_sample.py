@@ -153,7 +153,11 @@ def main():
         "--dataset-path",
         type=str,
     )
-    parser.add_argument("--version", type=str, default="v1")
+    parser.add_argument(
+        "--version",
+        type=str,
+        choices=["random", "nearest", "farthest"],
+    )
     parser.add_argument("--output-path", type=str)
 
     args = parser.parse_args()

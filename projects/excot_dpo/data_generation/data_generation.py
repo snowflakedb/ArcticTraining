@@ -353,8 +353,9 @@ def main():
     )
     parser.add_argument("--data-task-name", type=str, default="demo")
     parser.add_argument("--vllm-output-path", type=str, default=None)
+    parser.add_argument("--gpt-output-path", type=str, default=None)
     parser.add_argument("--model-name", type=str, default=None)
-    parser.add_argument("--tp-size", type=int, default=8)
+    parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--n", type=int, default=32)
     args = parser.parse_args()
 
@@ -363,6 +364,7 @@ def main():
 
     if args.type == "gpt":
         client = AzureOpenAISynth(
+            work_dir=args.gpt_output_path,
             api_key=AZURE_OPENAI_API_KEY,
             api_version="2024-07-01-preview",
             azure_endpoint=AZURE_OPENAI_ENDPOINT,
@@ -381,9 +383,9 @@ def main():
         client = VllmSynth(
             model_params=model_params,
             sampling_params=SamplingParams(
-                temperature=0.0, n=args.n, max_tokens=model_params["max_model_len"]
+                temperature=1.0, n=args.n, max_tokens=model_params["max_model_len"]
             ),
-            work_dir="./syth_data",
+            work_dir=f"{args.vllm_output_path}/syth_data",
         )
 
     # Load data config
@@ -394,7 +396,6 @@ def main():
     processed_dataset = loaded_dataset.map(
         lambda row: {"messages": construct_gpt_prompt(row)}
     )
-    # GPT batch job
     if args.type == "gpt":
         result = submit_requests(
             processed_dataset, client, task_name=args.data_task_name, n=args.n
@@ -411,10 +412,8 @@ def main():
             ]
         new_dataset = Dataset.from_dict(
             {
-                "custom_id": [d["custom_id"] for d in processed_dataset],
-                "all_generated_queries": [
-                    d["all_generated_queries"] for d in processed_dataset
-                ],
+                "custom_id": [int(d["custom_id"].split("_")[-1]) for d in result],
+                "all_generated_queries": [d["all_generated_queries"] for d in result],
             }
         )
         new_dataset.save_to_disk(args.vllm_output_path)
