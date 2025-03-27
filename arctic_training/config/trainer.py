@@ -392,7 +392,6 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
 
     trainer_cls = get_registered_trainer(trainer_type)
     config_cls = _get_class_attr_type_hints(trainer_cls, "config")[0]
-
     config = config_cls(**config_dict)
 
     return config

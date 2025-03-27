@@ -1,0 +1,18 @@
+spider:
+  train:
+    data_dir: "/data/spider"
+    db_folder: "database"
+    tables_json_name: "tables.json"
+    question_set_file: "train_spider.json"
+    question_other_file: "train_others.json"
+  dev:
+    data_dir: "/data/spider"
+    db_folder: "database"
+    tables_json_name: "tables.json"
+    question_file: "dev.json"
+  test:
+    data_dir: "/data/spider"
+    db_folder: "test_database"
+    tables_json_name: "/data/spider/test_data/tables.json"
+    question_file: "/data/spider/test_data/dev.json"
+cache_dir: "/data/gen_tmp"

@@ -25,6 +25,7 @@ from arctic_training import logger
 from arctic_training.synth.callers import InMemoryBatchProcessor
 from arctic_training.synth.utils import import_error
 from arctic_training.synth.utils import pass_function
+from arctic_training.synth.utils import recursive_to_dict
 from arctic_training.synth.vllm_utils import kill_processes
 from arctic_training.synth.vllm_utils import launch_vllm_servers
 
@@ -73,9 +74,11 @@ class VllmSynth(InMemoryBatchProcessor):
         )
         responses = []
         for request, output in zip(requests, outputs):
-            res = {"custom_id": request["custom_id"], "response": output}
+            res = {
+                "custom_id": request["custom_id"],
+                "response": recursive_to_dict(output),
+            }
             responses.append(res)
-
         if self.work_dir is not None:
             with jsonlines.open(
                 os.path.join(self.work_dir, task_name, "results.jsonl"), "w"
@@ -91,8 +94,8 @@ class VllmSynth(InMemoryBatchProcessor):
                 {
                     "custom_id": response["custom_id"],
                     "choices": [
-                        {"content": x.text, "role": "assistant"}
-                        for x in response["response"].outputs
+                        {"content": x["text"], "role": "assistant"}
+                        for x in response["response"]["outputs"]
                     ],
                 }
             )
@@ -194,7 +197,6 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
         for request, output in zip(requests, outputs):
             res = {"custom_id": request["custom_id"], "response": output}
             responses.append(res)
-
         if self.work_dir is not None:
             with jsonlines.open(
                 os.path.join(self.work_dir, task_name, "results.jsonl"), "w"
