@@ -14,6 +14,9 @@ deepspeed:
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
+    - teknium/OpenHermes-2.5
+    - meta-math/MetaMathQA
+    - ise-uiuc/Magicoder-OSS-Instruct-75K
   use_data_cache: true
   cache_processed_data: true
   cache_dir: /data-fast/data-cache

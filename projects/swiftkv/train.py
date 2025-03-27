@@ -16,7 +16,7 @@
 from typing import Any
 from typing import Union
 
-import qwen2_swiftkv
+import llama_swiftkv
 import torch
 import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
@@ -40,10 +40,10 @@ class SwiftKVModelFactory(HFModelFactory):
     config: SwiftKVModelConfig
 
     def post_create_config_callback(self, hf_config):
-        qwen2_swiftkv.register_auto()
+        llama_swiftkv.register_auto()
 
         config_dict = hf_config.to_dict()
-        hf_config = qwen2_swiftkv.Qwen2SwiftKVConfig.from_dict(config_dict)
+        hf_config = llama_swiftkv.LlamaSwiftKVConfig.from_dict(config_dict)
 
         hf_config.num_key_value_layers = self.config.num_key_value_layers
         hf_config.key_value_group_size = self.config.key_value_group_size
@@ -63,11 +63,7 @@ class SwiftKVModelFactory(HFModelFactory):
                 layer.self_attn.q_proj_swiftkv.weight.data.copy_(
                     layer.self_attn.q_proj.weight.data
                 )
-                layer.self_attn.q_proj_swiftkv.bias.data.copy_(
-                    layer.self_attn.q_proj.bias.data
-                )
             layer.self_attn.q_proj_swiftkv.weight.requires_grad = True
-            layer.self_attn.q_proj_swiftkv.bias.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
             model.config.num_hidden_layers,
@@ -87,14 +83,6 @@ class SwiftKVModelFactory(HFModelFactory):
                         sum(weights[1:]) / model.config.key_value_group_size
                     )
                 getattr(this_attn, f"{param}_swiftkv").weight.requires_grad = True
-                biases = [getattr(this_attn, f"{param}_swiftkv").bias] + [
-                    getattr(attn, f"{param}").bias for attn in next_attn
-                ]
-                with GatheredParameters(biases, modifier_rank=0):
-                    biases[0].data.copy_(
-                        sum(biases[1:]) / model.config.key_value_group_size
-                    )
-                getattr(this_attn, f"{param}_swiftkv").bias.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
 

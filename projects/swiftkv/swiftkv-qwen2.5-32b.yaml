@@ -1,6 +1,6 @@
 type: swiftkv
 micro_batch_size: 1
-epochs: 2
+epochs: 1
 gradient_accumulation_steps: 1
 temperature: 2.0
 decoder_loss_mult: 0.0
