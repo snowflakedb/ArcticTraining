@@ -27,6 +27,8 @@ Please refer to the root-level `README.md` for detailed setup instructions.
 
 ### 2. Download Datasets
 
+Download the following datasets and extract them into a single directory. For the purposes of this tutorial we will assume they are all extracted into `/data/`. If your path differs please adjust the config files under [data_generation/configs/bird_config.yaml](data_generation/configs/bird_config.yaml) and [data_generation/configs/spider_config.yaml](data_generation/configs/spider_config.yaml).
+
 - **BIRD Benchmark**
   - [Train Set](https://bird-bench.oss-cn-beijing.aliyuncs.com/train.zip)
   - [Dev Set](https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip)
@@ -34,29 +36,23 @@ Please refer to the root-level `README.md` for detailed setup instructions.
 - **SPIDER Benchmark**
   - [Dataset (Google Drive)](https://drive.google.com/file/d/1403EGqzIDoHMdQF4c9Bkyl7dZLZ5Wt6J/view)
 
-### 3. Configure Data Generation
+### 3. Launch Data Generation with Azure OpenAI endpoints
 
-Update the config files with your dataset paths:
-
-```text
-ArcticTraining/projects/excot_dpo/data_generation/configs/bird_config.yaml
-ArcticTraining/projects/excot_dpo/data_generation/configs/spider_config.yaml
-```
-Set your GPT API credentials (used for GPT-based data generation):
+In our ExCoT paper we used Azure OpenAI for SFT and off-policy DPO data generation. In order to replicate this work you will need to use this endpoint and set your GPT API credentials accordingly:
 
 ```bash
-export AZURE_OPENAI_API_KEY=
-export AZURE_OPENAI_ENDPOINT=
+export AZURE_OPENAI_API_KEY=<your-key>
+export AZURE_OPENAI_ENDPOINT=<your-endpoint>
 ```
 
-### 4. Launch Data Generation
-
-**GPT-based (default for ExCoT):**
+**Azure OpenAI GPT-based (default for ExCoT):**
 ```bash
 python data_generation/data_generation.py \
     --config-path data_generation/configs/bird_config.yaml \
     --type gpt
 ```
+
+For on-policy DPO generated data we must do this from a local model hosted by vLLM which can be executed accordingly:
 
 **vLLM-based**
 ```
@@ -64,28 +60,45 @@ python data_generation/data_generation.py \
     --config-path data_generation/configs/bird_config.yaml \
     --type vllm \
     --model-name MODEL_NAME \
+    --vllm-output-path DATASET_OUTPUT_PATH \
     --tp-size 8
 ```
 
-### 5. Verify Generated Data
-After generation, run verification:
+### 4. Verify Generated Data
+After generation, run verification. 
+
+TODO: we need to tell the user what these variables are and how to find them:
+`YOUR_GPT_GEN_PATH`
+`VERIFIED_DATASET`
+`DATASET_OUTPUT_PATH`
+
+** Verify SFT and off-policy DPO data **
 
 ```bash
 python data_generation/local_verificaiton.py \
     --config-path data_generation/configs/bird_config.yaml \
     --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
-    --output-path OUTPUT_PATH
+    --output-path VERIFIED_SFT_PATH
+```
+** Verify on-policy DPO data **
+
+```bash
+python data_generation/local_verificaiton.py \
+    --config-path data_generation/configs/bird_config.yaml \
+    --vllm-cot-path VERIFIED_DATASET \
+    --gpt-cot-path YOUR_GPT_GEN_PATH/results.jsonl \
+    --output-path VERIFIED_DPO_PATH
 ```
 
-### 6. Sample Data for SFT and DPO
+### 5. Sample Data for SFT and DPO
 Use the following scripts to prepare your datasets:
-* For SFT:
+* For SFT and off-policy DPO:
 ```bash
-python data_generation/sft_sample.py --verify-path VERIFIED-PATH --output-path OUTPUT-PATH
+python data_generation/sft_sample.py --verify-path VERIFIED_SFT_PATH --output-path OUTPUT_PATH
 ```
-* For DPO:
+* For on-policy DPO:
 ```bash
-python data_generation/dpo_sample.py --dataset-path VERIFIED_PATH --version VERSION --output-path OUTPUT_PATH
+python data_generation/dpo_sample.py --dataset-path VERIFIED_DPO_PATH --version VERSION --output-path OUTPUT_PATH
 ```
 ✅ Once your data is ready, you can move on to model training!
 
