@@ -34,7 +34,6 @@ from arctic_training.config.data import DataConfig
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
-from arctic_training.data.utils import is_local_fs
 from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
@@ -90,7 +89,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # If the cache path does not exist, load the data using local/global
             # rank 0 (depending on if file system is shared across nodes).
-            if self.is_main_process_by_path(cache_path) and not cache_path.exists():
+            if self.is_main_process_by_path and not cache_path.exists():
                 dataset = self.load(data_sources)
 
                 # Repeat the dataset until we have enough samples to run for min_iterations
@@ -180,8 +179,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             data_sources.append(data_source)
         return data_sources
 
-    def is_main_process_by_path(self, path: Path) -> bool:
-        if is_local_fs(path):
+    @property
+    def is_main_process_by_path(self) -> bool:
+        if self.config.cache_fs_type == "local":
             return self.local_rank == 0
         return self.global_rank == 0
 
