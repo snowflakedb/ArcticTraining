@@ -1,4 +1,5 @@
 type: swiftkv
+code: train_llama.py
 micro_batch_size: 1
 epochs: 1
 gradient_accumulation_steps: 1
@@ -8,9 +9,10 @@ model:
   name_or_path: meta-llama/Llama-3.1-8B-Instruct
   num_key_value_layers: 16
   key_value_group_size: 1
+  attn_implementation: flash_attention_2
 deepspeed:
   zero_optimization:
-    stage: 3
+    stage: 2
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
@@ -34,6 +36,6 @@ optimizer:
   lr: 0.0002
 checkpoint:
   - type: huggingface
-    save_every_n_steps: 10000
-    output_dir: /data-fast/swiftkv-llama-8b
+    save_every_n_epochs: 1
+    output_dir: /data-fast/swiftkv-llama-8b-fa2
     save_end_of_training: true

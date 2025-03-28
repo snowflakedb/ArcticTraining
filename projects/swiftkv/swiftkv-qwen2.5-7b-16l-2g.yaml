@@ -8,7 +8,7 @@ decoder_loss_mult: 0.0
 model:
   name_or_path: Qwen/Qwen2.5-7B-Instruct
   num_key_value_layers: 16
-  key_value_group_size: 1
+  key_value_group_size: 2
   attn_implementation: flash_attention_2
 deepspeed:
   zero_optimization:
@@ -37,5 +37,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /data-fast/icml25/qwen2.5-swiftkv-layer16-7b
+    output_dir: /checkpoint/aqiao/icml25/swiftkv-qwen2.5-7b-16l-2g.yaml
     save_end_of_training: true
