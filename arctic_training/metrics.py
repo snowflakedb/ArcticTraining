@@ -37,6 +37,8 @@ def gather_object(
 
 
 class Metrics:
+    """Class for measuring, tracking, and reporting training metrics."""
+
     def __init__(self, trainer: "Trainer") -> None:
         self.enabled = trainer.config.train_log_iter_interval > 0
         if not self.enabled:
@@ -44,7 +46,7 @@ class Metrics:
 
         self.trainer = trainer
         self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
-        self.values: Dict[str, float] = defaultdict(float)
+        self.values: Dict[str, Union[int, float]] = defaultdict(float)
 
         # Store model size values for quickly calculating tflos later
         def numel_fn(p):
@@ -64,12 +66,14 @@ class Metrics:
             self.max_iter = self.trainer.training_horizon
         self.max_iter_pad = len(str(self.max_iter))
 
-    def record(self, key: str, value: float) -> None:
+    def record(self, key: str, value: Union[int, float]) -> None:
+        """Records a value in the metrics dictionary."""
         if not self.enabled:
             return
         self.values[key] = value
 
     def start(self, key: str) -> None:
+        """Starts a timer identified by `key`. If timer does not exist, one is created."""
         if not self.enabled:
             return
         if key not in self.timers:
@@ -77,6 +81,7 @@ class Metrics:
         self.timers[key].start()
 
     def stop(self, key: str) -> None:
+        """Stops a timer identfied by `key` and records the elapsed time in the metrics dictionary."""
         if not self.enabled:
             return
         if key not in self.timers:
@@ -85,6 +90,7 @@ class Metrics:
         self.values[key] = self.timers[key].elapsed() / 1000
 
     def _estimate_tflos(self, seq_len: Union[int, float]) -> float:
+        """Given a sequence length, estimates the number of floating point operations required to run the model."""
         return (
             seq_len * self.model_size * 2 * 4
             + self.model_num_layers
@@ -96,10 +102,12 @@ class Metrics:
             * 4
         ) / 1e12
 
-    def get_values(self, key: str) -> float:
+    def get_values(self, key: str) -> Union[int, float]:
+        """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
     def print_summary(self) -> None:
+        """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
             return
 

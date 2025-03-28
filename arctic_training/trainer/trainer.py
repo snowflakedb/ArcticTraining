@@ -208,8 +208,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def model_unwrapped(self):
         """Return the original model before it was wrapped by deepspeed"""
-
-        # XXX: later might add a recursion if we have more than one level of wrapping
         if hasattr(self.model, "module"):
             return self.model.module
         else:
