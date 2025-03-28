@@ -14,46 +14,55 @@
 # limitations under the License.
 
 from collections import defaultdict
+from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Union
+from typing import cast
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 from tqdm import tqdm
 
+if TYPE_CHECKING:
+    from arctic_training.trainer.trainer import Trainer
 
-def gather_object(number, world_size, group=None) -> List:
-    """returns a list of objects"""
+
+def gather_object(
+    number: Union[float, int], world_size: int
+) -> List[Union[float, int]]:
     output = [None] * world_size
-    torch.distributed.all_gather_object(output, number, group=group)
-    return output
+    torch.distributed.all_gather_object(output, number)
+    return cast(List[Union[float, int]], output)
 
 
 class Metrics:
-    def __init__(self, trainer) -> None:
-        self.trainer = trainer
-        self.enabled = self.trainer.config.train_log_iter_interval > 0
+    def __init__(self, trainer: "Trainer") -> None:
+        self.enabled = trainer.config.train_log_iter_interval > 0
         if not self.enabled:
             return
 
+        self.trainer = trainer
         self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
         self.values: Dict[str, float] = defaultdict(float)
 
-        model = self.trainer.model_unwrapped
-
+        # Store model size values for quickly calculating tflos later
         def numel_fn(p):
             return p.ds_numel if hasattr(p, "ds_tensor") else p.numel()
 
+        model = self.trainer.model_unwrapped
         self.model_size = sum(numel_fn(p) for p in model.parameters())
         self.model_num_layers = model.config.num_hidden_layers
         self.model_hidden_size = model.config.hidden_size
 
+        # Set max_iter based on when we expect to exit training
         if self.trainer.config.exit_iteration > 0:
             self.max_iter = min(
                 self.trainer.config.exit_iteration, self.trainer.training_horizon
             )
         else:
             self.max_iter = self.trainer.training_horizon
+        self.max_iter_pad = len(str(self.max_iter))
 
     def record(self, key: str, value: float) -> None:
         if not self.enabled:
@@ -75,7 +84,7 @@ class Metrics:
         self.timers[key].stop()
         self.values[key] = self.timers[key].elapsed() / 1000
 
-    def _estimate_tflos(self, seq_len) -> float:
+    def _estimate_tflos(self, seq_len: Union[int, float]) -> float:
         return (
             seq_len * self.model_size * 2 * 4
             + self.model_num_layers
@@ -94,9 +103,20 @@ class Metrics:
         if not self.enabled:
             return
 
-        len_max_iter = len(str(self.max_iter))
-        summary_str = (
-            f"iter: {self.trainer.train_batch_idx:>{len_max_iter}} / {self.max_iter}"
+        tflos_total: float = 0.0
+        if "seqlen" in self.values:
+            tflos_total = sum(
+                gather_object(
+                    self._estimate_tflos(self.values["seqlen"]), self.trainer.world_size
+                )
+            )
+
+        summary_str = f"epoch: {self.trainer.epoch_idx}"
+
+        summary_str += (
+            " | iter:"
+            f" {self.trainer.train_batch_idx:>{self.max_iter_pad}}/{self.max_iter}"
+            f" ({100*self.trainer.train_batch_idx//self.max_iter:>3}%)"
         )
 
         if "loss" in self.values:
@@ -106,37 +126,31 @@ class Metrics:
             )
             summary_str += f" | loss: {loss:.4f}"
 
-        lr = self.trainer.model.lr_scheduler.get_last_lr()[0]
-        summary_str += f" | lr: {lr:.4E}"
-
-        tflos_total = 0
-        if "seqlen" in self.values:
-            seq_len_total = sum(
-                gather_object(self.values["seqlen"], self.trainer.world_size)
-            )
-            tflos_total = sum(
-                gather_object(
-                    self._estimate_tflos(self.values["seqlen"]), self.trainer.world_size
-                )
-            )
-            summary_str += f" | seqlen total: {seq_len_total:d}"
-
         if "iter" in self.values:
             iter_time_total = sum(
                 gather_object(self.values["iter"], self.trainer.world_size)
             )
             summary_str += (
-                f" | iter time: {iter_time_total/self.trainer.world_size:.4f}"
+                f" | iter time: {iter_time_total/self.trainer.world_size:.3f} s"
             )
             if tflos_total > 0:
                 summary_str += f" | iter tflops: {tflos_total / iter_time_total:.1f}"
+
+        lr = self.trainer.model.lr_scheduler.get_last_lr()[0]
+        summary_str += f" | lr: {lr:.3E}"
+
+        if "seqlen" in self.values:
+            seq_len_total = sum(
+                gather_object(self.values["seqlen"], self.trainer.world_size)
+            )
+            summary_str += f" | seqlen total: {seq_len_total:d}"
 
         if "step" in self.values:
             step_time_total = sum(
                 gather_object(self.values["step"], self.trainer.world_size)
             )
             summary_str += (
-                f" | step time: {step_time_total/self.trainer.world_size:.4f}"
+                f" | step time: {step_time_total/self.trainer.world_size:.3f} s"
             )
             if tflos_total > 0:
                 summary_str += f" | step tflops: {tflos_total / step_time_total:.1f}"

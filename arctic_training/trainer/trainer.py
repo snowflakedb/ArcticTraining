@@ -222,7 +222,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             range(self.epoch_idx, self.config.epochs),
             desc="Epochs",
             unit="epoch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0)
+            or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -232,7 +233,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_dataloader,
             desc="Train Batches",
             unit="batch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0)
+            or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -309,7 +311,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
-        self.train_batch_idx = 0
         self.metrics.start("iter")
         for batch in self.train_batches:
             self.train_batch_idx += 1
@@ -318,12 +319,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.metrics.start("step")
             self.step(batch)
             self.metrics.stop("step")
-            if self.early_stop:
-                break
 
             self.metrics.stop("iter")
             self.metrics.start("iter")
-            self.metrics.print_summary()
+
+            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
+                self.metrics.print_summary()
+
+            if self.early_stop:
+                break
 
     @callback_wrapper("train")
     def train(self) -> None:
