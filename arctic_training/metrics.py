@@ -72,7 +72,7 @@ class Metrics:
             return
         self.values[key] = value
 
-    def start(self, key: str) -> None:
+    def start_timer(self, key: str) -> None:
         """Starts a timer identified by `key`. If timer does not exist, one is created."""
         if not self.enabled:
             return
@@ -80,7 +80,7 @@ class Metrics:
             self.timers[key] = SynchronizedWallClockTimer().Timer(key)
         self.timers[key].start()
 
-    def stop(self, key: str) -> None:
+    def stop_timer(self, key: str) -> None:
         """Stops a timer identfied by `key` and records the elapsed time in the metrics dictionary."""
         if not self.enabled:
             return

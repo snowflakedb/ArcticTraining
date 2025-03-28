@@ -26,7 +26,6 @@ import deepspeed
 import numpy as np
 import torch
 from deepspeed.accelerator import get_accelerator
-from deepspeed.utils.timer import SynchronizedWallClockTimer
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -179,8 +178,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        self.step_timer = SynchronizedWallClockTimer.Timer("step")
-
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -276,8 +273,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
-        self.step_timer.start()
-
         self.model.train()
         loss = self.loss(batch)
         self.metrics.record("loss", loss.item())
@@ -298,10 +293,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
-        self.step_timer.stop()
-        if self.config.step_timer:
-            logger.info(f"step time: {self.step_timer.elapsed()} ms")
-
     @callback_wrapper("epoch")
     def epoch(self) -> None:
         """
@@ -309,17 +300,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
-        self.metrics.start("iter")
+        self.metrics.start_timer("iter")
         for batch in self.train_batches:
             self.train_batch_idx += 1
             self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
-            self.metrics.start("step")
+            self.metrics.start_timer("step")
             self.step(batch)
-            self.metrics.stop("step")
+            self.metrics.stop_timer("step")
 
-            self.metrics.stop("iter")
-            self.metrics.start("iter")
+            self.metrics.stop_timer("iter")
+            self.metrics.start_timer("iter")
 
             if self.train_batch_idx % self.config.train_log_iter_interval == 0:
                 self.metrics.print_summary()
