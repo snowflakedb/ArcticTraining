@@ -14,11 +14,12 @@
 # limitations under the License.
 
 from collections import defaultdict
-from functools import wraps
+from typing import Dict
 from typing import List
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
+from tqdm import tqdm
 
 
 def gather_object(number, world_size, group=None) -> List:
@@ -28,28 +29,15 @@ def gather_object(number, world_size, group=None) -> List:
     return output
 
 
-def disabled_early_exit_wrapper(method):
-    @wraps(method)
-    def wrapper(self, *args, **kwargs):
+class Metrics:
+    def __init__(self, trainer) -> None:
+        self.trainer = trainer
+        self.enabled = self.trainer.config.train_log_iter_interval > 0
         if not self.enabled:
             return
-        return method(self, *args, **kwargs)
 
-    return wrapper
-
-
-class Metrics:
-    def __init__(self, trainer):
-        self.trainer = trainer
-        enabled = self.trainer.config.train_log_iter_interval > 0
-        if not enabled:
-            return
-
-        self.timers = {
-            key: SynchronizedWallClockTimer.Timer(key) for key in ["step", "iter"]
-        }
-        self.timers = defaultdict(lambda key: SynchronizedWallClockTimer.Timer(key))
-        self.values = defaultdict(float)
+        self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
+        self.values: Dict[str, float] = defaultdict(float)
 
         model = self.trainer.model_unwrapped
 
@@ -60,16 +48,30 @@ class Metrics:
         self.model_num_layers = model.config.num_hidden_layers
         self.model_hidden_size = model.config.hidden_size
 
-    @disabled_early_exit_wrapper
+        if self.trainer.config.exit_iteration > 0:
+            self.max_iter = min(
+                self.trainer.config.exit_iteration, self.trainer.training_horizon
+            )
+        else:
+            self.max_iter = self.trainer.training_horizon
+
     def record(self, key: str, value: float) -> None:
+        if not self.enabled:
+            return
         self.values[key] = value
 
-    @disabled_early_exit_wrapper
     def start(self, key: str) -> None:
+        if not self.enabled:
+            return
+        if key not in self.timers:
+            self.timers[key] = SynchronizedWallClockTimer().Timer(key)
         self.timers[key].start()
 
-    @disabled_early_exit_wrapper
     def stop(self, key: str) -> None:
+        if not self.enabled:
+            return
+        if key not in self.timers:
+            raise KeyError(f"Timer {key} not started")
         self.timers[key].stop()
         self.values[key] = self.timers[key].elapsed() / 1000
 
@@ -85,13 +87,17 @@ class Metrics:
             * 4
         ) / 1e12
 
-    @disabled_early_exit_wrapper
-    def get_values(self) -> list[float]:
-        return self.values
+    def get_values(self, key: str) -> float:
+        return self.values[key]
 
-    @disabled_early_exit_wrapper
     def print_summary(self) -> None:
-        summary_str = f"iter: {self.trainer.train_batch_idx}"
+        if not self.enabled:
+            return
+
+        len_max_iter = len(str(self.max_iter))
+        summary_str = (
+            f"iter: {self.trainer.train_batch_idx:>{len_max_iter}} / {self.max_iter}"
+        )
 
         if "loss" in self.values:
             loss = (
@@ -135,4 +141,4 @@ class Metrics:
             if tflos_total > 0:
                 summary_str += f" | step tflops: {tflos_total / step_time_total:.1f}"
 
-        print(summary_str)
+        tqdm.write(summary_str)
