@@ -18,26 +18,17 @@ from pathlib import Path
 from .utils import create_sft_data_factory
 
 
-def test_data_source_cache_path_uniqueness(model_name: str, tmp_path: Path):
-    data_sources = [
-        "HuggingFaceH4/ultrachat_200k",
-        "Open-Orca/SlimOrca",
-    ]
+def test_min_iterations(model_name: str, tmp_path: Path):
+    # TODO: Make this test use a dummy factory of the base class rather than SFTDataFactory
     data_factory = create_sft_data_factory(
         model_name=model_name,
-        sources=data_sources,
-        eval_sources=data_sources,
+        sources=["HuggingFaceH4/ultrachat_200k:train[:1]"],
         cache_dir=tmp_path,
     )
+    data_factory.trainer.config.min_iterations = 20
 
-    cache_paths = [
-        s.cache_path
-        for s in data_factory._get_data_sources(data_factory.config.sources)
-    ] + [
-        s.cache_path
-        for s in data_factory._get_data_sources(data_factory.config.eval_sources)
-    ]
-    assert len(cache_paths) == 2 * len(
-        data_sources
-    ), "Cache paths were not generated for all data sources"
-    assert len(cache_paths) == len(set(cache_paths)), "Cache paths were not unique"
+    trainer_dataloader, _ = data_factory()
+
+    assert (
+        len(trainer_dataloader) == 20
+    ), "Dataloader did not have the correct number of batches"

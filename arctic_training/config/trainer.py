@@ -108,6 +108,9 @@ class TrainerConfig(BaseConfig):
 
     micro_batch_size: int = Field(default=1, ge=1)
     """ Micro batch size per GPU. """
+    
+    sequence_parallel_size: int = Field(default=1, ge=1)
+    """ Sequence Parallelism Degree. Disabled if set to 1 """
 
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
@@ -122,6 +125,9 @@ class TrainerConfig(BaseConfig):
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
+
+    min_iterations: int = Field(default=0, ge=0)
+    """ When >0, the training dataset will be replicated until there is enough data to run this many iterations. """
 
     overfit_first_batch: bool = False
     """ Train only on repetitions of the first training batch. Useful for development. """
