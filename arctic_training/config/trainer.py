@@ -22,6 +22,7 @@ from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Union
 from typing import cast
 
@@ -103,7 +104,8 @@ class TrainerConfig(BaseConfig):
     loss_log_interval: int = Field(default=1, ge=0)
     """ Number of steps between logging loss. """
 
-    train_log_iter_interval: int = 10
+    train_log_iter_interval: Literal[0, 1] = 1
+    """ Iters between training metric log outputs. `0` is off, only intervals of `1` currently supported. """
 
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """

@@ -43,6 +43,7 @@ from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
 from arctic_training.logging import logger
+from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
@@ -195,10 +196,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.config.auto_resume:
                 engine.load(self.model)
 
-        from arctic_training.metrics import IterTimeMetric
-        from arctic_training.metrics import StepTimeMetric
-
-        self.metrics = [StepTimeMetric(trainer=self), IterTimeMetric(trainer=self)]
+        self.metrics = Metrics(self)
 
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
@@ -206,6 +204,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         np.random.seed(seed)
         random.seed(seed)
         set_seed(seed)
+
+    @property
+    def model_unwrapped(self):
+        """Return the original model before it was wrapped by deepspeed"""
+
+        # XXX: later might add a recursion if we have more than one level of wrapping
+        if hasattr(self.model, "module"):
+            return self.model.module
+        else:
+            return self.model
 
     @property
     def epochs(self) -> tqdm:
@@ -272,6 +280,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.train()
         loss = self.loss(batch)
+        self.metrics.record("loss", loss.item())
         self.backward(loss)
         self.model.step()
 
@@ -301,18 +310,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         method on each batch.
         """
         self.train_batch_idx = 0
+        self.metrics.start("iter")
         for batch in self.train_batches:
             self.train_batch_idx += 1
+            self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
+            self.metrics.start("step")
             self.step(batch)
+            self.metrics.stop("step")
             if self.early_stop:
                 break
 
-            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
-                log_msg = f"iter {self.train_batch_idx} | " + " | ".join(
-                    m.get_metric() for m in self.metrics
-                )
-                logger.warning(log_msg)
+            self.metrics.stop("iter")
+            self.metrics.start("iter")
+            self.metrics.print_summary()
 
     @callback_wrapper("train")
     def train(self) -> None:
