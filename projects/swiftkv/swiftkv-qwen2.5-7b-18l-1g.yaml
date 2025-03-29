@@ -37,5 +37,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/icml25/swiftkv-qwen2.5-7b-18l-1g.yaml
+    output_dir: /checkpoint/aqiao/icml25/swiftkv-qwen2.5-7b-18l-1g
     save_end_of_training: true
