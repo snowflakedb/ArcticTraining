@@ -30,6 +30,9 @@ from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
 
 
+llama_swiftkv.register_auto()
+
+
 class SwiftKVModelConfig(ModelConfig):
     num_key_value_layers: int
     key_value_group_size: int = 1
@@ -57,12 +60,18 @@ class SwiftKVModelFactory(HFModelFactory):
 
         # Initialize student layers
         model.model.norm_swiftkv.weight.requires_grad = True
-        for layer in model.model.layers[model.config.num_key_value_layers :]:
-            # Initialize q_proj_swiftkv
-            with GatheredParameters(layer.parameters(), modifier_rank=0):
-                layer.self_attn.q_proj_swiftkv.weight.data.copy_(
-                    layer.self_attn.q_proj.weight.data
+        for layer_idx in range(model.config.num_key_value_layers,
+                               model.config.num_hidden_layers):
+            layer = model.model.layers[layer_idx]
+            if not model.config.swiftkv:
+                # Initialize q_proj_swiftkv
+                logger.info(
+                    f"Initializing q_proj_swiftkv for layer {layer_idx}"
                 )
+                with GatheredParameters(layer.parameters(), modifier_rank=0):
+                    layer.self_attn.q_proj_swiftkv.weight.data.copy_(
+                        layer.self_attn.q_proj.weight.data
+                    )
             layer.self_attn.q_proj_swiftkv.weight.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
@@ -78,10 +87,15 @@ class SwiftKVModelFactory(HFModelFactory):
                 weights = [getattr(this_attn, f"{param}_swiftkv").weight] + [
                     getattr(attn, f"{param}").weight for attn in next_attn
                 ]
-                with GatheredParameters(weights, modifier_rank=0):
-                    weights[0].data.copy_(
-                        sum(weights[1:]) / model.config.key_value_group_size
+                if not model.config.swiftkv:
+                    # Initialize k_proj_swiftkv and v_proj_swiftkv
+                    logger.info(
+                        f"Initializing {param}_swiftkv for layer {layer_idx}"
                     )
+                    with GatheredParameters(weights, modifier_rank=0):
+                        weights[0].data.copy_(
+                            sum(weights[1:]) / model.config.key_value_group_size
+                        )
                 getattr(this_attn, f"{param}_swiftkv").weight.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
