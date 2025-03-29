@@ -90,8 +90,8 @@ class LongAlpaca12K(HFDataSource):
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
         conversation = [
-            {"content": example[query_key], "role": "user"},
-            {"content": example[response_key], "role": "assistant"},
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
         ]
         return {
             "source": source_name,
