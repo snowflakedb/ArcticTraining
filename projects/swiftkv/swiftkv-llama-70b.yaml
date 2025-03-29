@@ -1,4 +1,5 @@
 type: swiftkv
+code: train_llama.py
 micro_batch_size: 1
 epochs: 1
 gradient_accumulation_steps: 1

@@ -68,6 +68,37 @@ class UltraChat200K(HFDataSource):
         return split
 
 
+class LongAlign10K(HFDataSource):
+    name = "THUDM/LongAlign-10k"
+
+
+class LongAlpaca12K(HFDataSource):
+    name = "Yukang/LongAlpaca-12k"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="instruction",
+                response_key="output",
+                source_name="LongAlpaca-12k",
+            ),
+            desc="Loading LongAlpaca-12K",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
+            {"content": example[query_key], "role": "user"},
+            {"content": example[response_key], "role": "assistant"},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
+
+
 class OpenHermes(HFDataSource):
     name = "teknium/OpenHermes-2.5"
 

@@ -318,11 +318,7 @@ class SwiftKVTrainer(SFTTrainer):
                 loss = (logits.sum() * 0.0).float()
                 #loss = FakeLoss.apply(logits)
             else:
-                loss = self.distillation_loss(
-                    student_outputs.logits,
-                    teacher_outputs.logits,
-                    temperature=self.config.temperature,
-                )
+                loss = distill_loss
 
             #loss = outputs.loss
             print_rank(f"LOSS local {loss=}", skip=False)
