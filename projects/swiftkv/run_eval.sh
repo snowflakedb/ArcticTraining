@@ -8,7 +8,7 @@ accelerate launch eval.py \
   --model_args pretrained=${FINAL},add_bos_token=True,attn_implementation=flash_attention_2 \
   --gen_kwargs max_gen_toks=1024 \
   --log_samples \
-  --output_path ${FINAL}
+  --output_path results/${FINAL}
 EOF
 )
 
