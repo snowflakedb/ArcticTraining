@@ -1,7 +1,7 @@
 type: swiftkv
 code: train_llama.py
 micro_batch_size: 1
-epochs: 1
+epochs: 2
 gradient_accumulation_steps: 1
 temperature: 2.0
 decoder_loss_mult: 0.0
@@ -37,5 +37,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_steps: 1000000
-    output_dir: /checkpoint/aqiao/icml25/swiftkv-llama-8b-long2
+    output_dir: /checkpoint/aqiao/icml25/swiftkv-llama-8b-long3
     save_end_of_training: true
