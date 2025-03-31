@@ -1497,12 +1497,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.iter_timer.start()
 
-        # enable memory history, which will
-        # add tracebacks and event history to snapshots
-        mem_profiler = False
+        # enable memory history, which will add tracebacks and event history to snapshots
+        mem_profiler = True
         if mem_profiler:
-            MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000
-            torch.cuda.memory._record_memory_history()#max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT)
+            torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0

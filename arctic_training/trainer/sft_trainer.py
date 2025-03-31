@@ -37,6 +37,150 @@ def to_device(batch: Dict, device: str) -> Dict:
     return output
 
 
+class ChunkedMemEfficientLoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
+        ctx.save_for_backward(logits, shift_labels)
+        ctx.loss_fn = loss_fn
+        ctx.vocab_size = vocab_size
+        ctx.shards = shards
+        #ctx.logits = logits
+        #ctx.shift_labels = shift_labels
+
+        if shards == 1:
+            with torch.no_grad():
+                loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
+            return loss
+
+        if logits.shape[1] % shards != 0:
+            raise ValueError(f"Curently expecting logits seqlen dim {logits.shape[1]} to be divisible by the num of shards {shards}, but should be able to adapt it to other use cases later.")
+
+        #logits.requires_grad=False
+        with torch.no_grad():
+            sl = len(shift_labels[0])
+            shard_step = sl // shards # XXX: check divisibility
+            loss_shards = []
+
+            for i in range(shards):
+                # XXX: here and everywhere don't make a copy, pass the slice or perhaps narrow/view?
+                shift_labels_shard = shift_labels[:,i*shard_step:(i+1)*shard_step]
+                if all((shift_labels_shard == -100).squeeze()):
+                    continue # ignore this shard
+                loss_shard = loss_fn(
+                    logits=logits[:,i*shard_step:(i+1)*shard_step],
+                    labels=None,
+                    vocab_size=vocab_size,
+                    shift_labels=shift_labels_shard)
+                loss_shards.append(loss_shard)
+                #import gc; gc.collect()
+                #print(l)
+            loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).mean()
+
+        #loss = (logits.sum() * 0.0).float()
+        # XXX: is it needed since we did no_grad above?
+        #ctx.mark_non_differentiable(loss)
+
+        #loss.requires_grad=True
+
+        return loss
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+
+        #print(f"BWD: {grads}")
+        logits, shift_labels = ctx.saved_tensors
+        loss_fn = ctx.loss_fn
+        vocab_size = ctx.vocab_size
+        shards = ctx.shards
+        #logits = ctx.logits
+        #shift_labels = ctx.shift_labels
+
+        grad = grads[0] #
+
+        # XXX: we don't really need a special case for shards==1, the sharded one will do the same
+        if shards == 1:
+            logits.grad = None
+            with torch.enable_grad():
+                loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
+            torch.autograd.backward(loss, grad)
+            #print(f"returning {logits.grad.norm()=}")
+            #print(f"returning {logits.grad=}")
+            #grads = logits.grad.clone().detach()
+            return None, logits.grad, None, None, None
+            #return None, grads, None, None, None
+
+        sl = len(shift_labels[0])
+        shard_step = sl // shards # XXX: check divisibility
+        logits_shard_grads = []
+
+        # XXX: should the grad be in fp32?
+        logits_grad = torch.zeros_like(logits)
+        #print(f"{logits_grad=}")
+        #print(f"{logits.shape=}")
+        #logits_grad1  = torch.zeros([1, 16384, 131072], device=logits.device, dtype=logits.dtype, requires_grad=logits.requires_grad)
+        #print(f"{logits_grad1.cpu()=}")
+        #del logits_grad1
+
+        logits_shards       = list(torch.chunk(logits, chunks=shards, dim=1))
+        shift_labels_shards = list(torch.chunk(shift_labels, chunks=shards, dim=1))
+        del logits
+        #del ctx.logits
+
+        #logits.grad = None
+        for i in range(shards):
+            logits_shard       = logits_shards.pop(0)
+            shift_labels_shard = shift_labels_shards.pop(0)
+            #loss_shards = []
+
+            #print(f"{logits_grad=}")
+
+            shard_offset = i * logits_shard.numel()
+            # this will enable gradual population of the pre-allocated `logits_shard.grad` during `torch.autograd.backward` calls
+            logits_shard.grad = logits_grad.view(-1).narrow(0, shard_offset, logits_shard.numel()).view_as(logits_shard)
+
+            with torch.enable_grad():
+                if all((shift_labels_shard == -100).squeeze()):
+                    # fake loss calculation, since CE will return nan, but grads will be set
+                    loss_shard = (logits_shard.sum() * 0.0).float()
+                else:
+                    loss_shard = loss_fn(
+                        logits=logits_shard.requires_grad_(),
+                        labels=None,
+                        vocab_size=vocab_size,
+                        shift_labels=shift_labels_shard,
+                    )
+                #loss_shards.append(loss_shard)
+
+            # XXX: what if there is a downstream grad that isn't 1?
+            torch.autograd.backward(loss_shard, grad)
+            #print(f"{logits_shard.grad=}")
+            #print(f"{logits_grad=}")
+            # logits_shard_grads.append(logits_shard.grad)
+
+            #with torch.enable_grad():
+            # XXX: Is this really needed, so that we get the grad right?
+            #loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).mean()
+
+            #import gc; gc.collect()
+            #print(l)
+
+        # with torch.no_grad():
+        #     logits_grad = torch.cat(logits_shard_grads, dim=1)
+
+        logits_grad /= shards
+
+        ctx.loss_fn = None
+        ctx.logits = None
+        ctx.vocab_size = None
+        ctx.shift_labels = None
+        ctx.shards = None
+        #print(f"returning {logits_grad.norm()=}")
+        #print(f"returning {logits_grad=}")
+        # only logits (2nd arg) needs grads
+        return None, logits_grad, None, None, None
+
+
+
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory
@@ -199,10 +343,42 @@ class SFTTrainer(Trainer):
 
             if all((shift_labels == -100).squeeze()):
                 # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
+                # XXX: should this be float and not the original dtype?
                 loss = (logits.sum() * 0.0).float()
                 #loss = FakeLoss.apply(logits)
             else:
-                loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+                #import gc; gc.collect()
+                #torch.cuda.empty_cache()
+                #see_memory_usage(f"{sub_step_id=} before loss", force=True)
+                #loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+
+                shards = 8
+                loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
+
+                #from cut_cross_entropy import linear_cross_entropy
+                #loss = linear_cross_entropy(shift_embeddings, classifier, shift_labels)
+
+                # # a hack to dramatically reduce memory usage, by sharding loss calculation in chunks
+                # sl = len(shift_labels[0])
+                # shards = 16
+                # shard_step = sl // shards # XXX: check divisibility
+                # loss_shards = []
+                # with torch.no_grad():
+                #     for i in range(shards):
+                #         shift_labels_shard = shift_labels[:,i*shard_step:(i+1)*shard_step]
+                #         logits_shard       = logits[:,i*shard_step:(i+1)*shard_step].to(torch.float32)
+                #         if all((shift_labels_shard == -100).squeeze()):
+                #             continue # ignore this shard
+                #         l = self.model_unwrapped.loss_function(logits=logits_shard, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels_shard)
+                #         loss_shards.append(l)
+                #         #import gc; gc.collect()
+                #         #print(l)
+                #     loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).mean()
+                # loss = (logits.sum() * 0.0).float()
+
+
+#                loss = self.model_unwrapped.loss_function(logits=logits[:,:10], labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels[:,:10])
+                #see_memory_usage(f"{sub_step_id=} after loss", force=True)
 
             #loss = outputs.loss
             print_rank(f"LOSS local {loss=}", skip=False)

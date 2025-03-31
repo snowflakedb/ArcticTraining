@@ -45,7 +45,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
     gc.collect()
 
     # XXX: I think torch.cuda.empty_cache() needs to be called here after gc.collect! (this is the deepspeed version still)
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
 
     # collect raw memory usage outside pytorch
     pynvml.nvmlInit()
