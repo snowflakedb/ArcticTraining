@@ -143,7 +143,8 @@ Run the following script:
 python eval_w_arctic_syth.py \
     --model-name {YOUR_MODEL} \
     --data-config configs/bird_config.yaml \
-    --mode bird \
+    --prompt-version "divide-and-conquer" \
+    --mode dev \
     --task-name bird_eval
 ```
 
