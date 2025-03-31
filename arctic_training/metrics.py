@@ -22,7 +22,6 @@ from typing import cast
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
-from tqdm import tqdm
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -94,6 +93,10 @@ class Metrics:
             raise KeyError(f"Timer {key} not started")
         self.timers[key].stop()
         self.values[f"{key}_time"] = self.timers[key].elapsed() / 1000
+
+    def restart_timer(self, key: str) -> None:
+        self.stop_timer(key)
+        self.start_timer(key)
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model."""
@@ -170,4 +173,4 @@ class Metrics:
             if tflos_total > 0:
                 summary_str += f" | step tflops: {tflos_total / step_time_total:.1f}"
 
-        tqdm.write(summary_str)
+        print(summary_str)

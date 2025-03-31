@@ -309,8 +309,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.step(batch)
             self.metrics.stop_timer("step")
 
-            self.metrics.stop_timer("iter")
-            self.metrics.start_timer("iter")
+            self.metrics.restart_timer("iter")
 
             if self.train_batch_idx % self.config.train_log_iter_interval == 0:
                 self.metrics.print_summary()
