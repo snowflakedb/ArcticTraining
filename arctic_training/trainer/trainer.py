@@ -25,6 +25,7 @@ from typing import Tuple
 import deepspeed
 import numpy as np
 import torch
+import wandb
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
@@ -34,9 +35,6 @@ from wandb.sdk.wandb_run import Run as WandbRun
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.callback.wandb import init_wandb_project_cb
-from arctic_training.callback.wandb import log_wandb_loss_cb
-from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
@@ -118,9 +116,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     callbacks: List[Tuple[str, Callable]] = [
         post_loss_log_cb,
-        init_wandb_project_cb,
-        log_wandb_loss_cb,
-        teardown_wandb_cb,
     ]
     """
     A list of callbacks for the trainer. Callbacks are specified as tuples of a
@@ -194,6 +189,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 engine.load(self.model)
 
         self.metrics = Metrics(self)
+
+        if self.global_rank == 0 and self.config.wandb.enable:
+            # Note: wandb.init() is not type annotated so we need to use type: ignore
+            self.wandb_experiment = wandb.init(  # type: ignore
+                entity=self.config.wandb.entity,
+                project=self.config.wandb.project,
+                name=self.config.wandb.name,
+                config=self.config.model_dump(),
+            )
 
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
@@ -313,6 +317,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             if self.train_batch_idx % self.config.train_log_iter_interval == 0:
                 self.metrics.print_summary()
+                if self.wandb_experiment is not None:
+                    self.wandb_experiment.log(self.metrics.summary_dict)
 
             if self.early_stop:
                 break
@@ -336,6 +342,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             logger.error(f"Training failed with error: {e}")
             # logger.info(f"{self._trainer_state}")
             raise (e)
+        finally:
+            if self.wandb_experiment is not None:
+                self.wandb_experiment.finish()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:

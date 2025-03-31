@@ -44,6 +44,7 @@ class Metrics:
             return
 
         self.trainer = trainer
+        self.summary_dict: Dict[str, Union[int, float]] = {}
         self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
         self.values: Dict[str, Union[int, float]] = defaultdict(float)
 
@@ -120,6 +121,11 @@ class Metrics:
         if not self.enabled:
             return
 
+        self.summary_dict.clear()
+        self.summary_dict["epoch"] = self.trainer.epoch_idx
+        self.summary_dict["iter"] = self.trainer.train_batch_idx
+        self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
+
         tflos_total: float = 0.0
         if "seqlen" in self.values:
             tflos_total = sum(
@@ -129,50 +135,55 @@ class Metrics:
                 )
             )
 
-        summary_str = f"epoch: {self.trainer.epoch_idx}"
-
-        summary_str += (
-            " | iter:"
-            f" {self.trainer.train_batch_idx:>{self.max_iter_pad}}/{self.max_iter}"
-            f" ({100*self.trainer.train_batch_idx//self.max_iter:>3}%)"
-        )
-
         if "loss" in self.values:
             loss = (
                 sum(gather_object(self.values["loss"], self.trainer.world_size))
                 / self.trainer.world_size
             )
-            summary_str += f" | loss: {loss:.4f}"
+            self.summary_dict["loss"] = loss
 
         if "iter_time" in self.values:
             iter_time_total = sum(
                 gather_object(self.values["iter_time"], self.trainer.world_size)
             )
-            summary_str += (
-                f" | iter time: {iter_time_total/self.trainer.world_size:.3f} s"
-            )
+            self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
             if tflos_total > 0:
-                summary_str += f" | iter tflops: {tflos_total / iter_time_total:.1f}"
-
-        lr = self.trainer.model.lr_scheduler.get_last_lr()[0]
-        summary_str += f" | lr: {lr:.3E}"
+                self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
 
         if "seqlen" in self.values:
             seq_len_total = sum(
                 gather_object(self.values["seqlen"], self.trainer.world_size)
             )
-            summary_str += f" | seqlen total: {seq_len_total:d}"
+            self.summary_dict["seqlen_total"] = seq_len_total
 
         if "step_time" in self.values:
             step_time_total = sum(
                 gather_object(self.values["step_time"], self.trainer.world_size)
             )
-            summary_str += (
-                f" | step time: {step_time_total/self.trainer.world_size:.3f} s"
-            )
+            self.summary_dict["step_time"] = step_time_total / self.trainer.world_size
             if tflos_total > 0:
-                summary_str += f" | step tflops: {tflos_total / step_time_total:.1f}"
+                self.summary_dict["step_tflops"] = tflos_total / step_time_total
 
         self.values.clear()
+
+        summary_str = f"epoch: {self.summary_dict['epoch']}"
+        summary_str += (
+            " | iter:"
+            f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
+            f" ({100*self.summary_dict['iter']//self.max_iter:>3}%)"
+        )
+        if "loss" in self.summary_dict:
+            summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
+        if "iter_time" in self.summary_dict:
+            summary_str += f" | iter time: {self.summary_dict['iter_time']:.3f} s"
+        if "iter_tflops" in self.summary_dict:
+            summary_str += f" | iter tflops: {self.summary_dict['iter_tflops']:.1f}"
+        summary_str += f" | lr: {self.summary_dict['lr']:.3E}"
+        if "seqlen_total" in self.summary_dict:
+            summary_str += f" | seqlen total: {self.summary_dict['seqlen_total']:.1f}"
+        if "step_time" in self.summary_dict:
+            summary_str += f" | step time: {self.summary_dict['step_time']:.3f} s"
+        if "step_tflops" in self.summary_dict:
+            summary_str += f" | step tflops: {self.summary_dict['step_tflops']:.1f}"
 
         print(summary_str)
