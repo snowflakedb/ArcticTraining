@@ -26,7 +26,6 @@ import deepspeed
 import numpy as np
 import torch
 from deepspeed.accelerator import get_accelerator
-from deepspeed.utils.timer import SynchronizedWallClockTimer
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -43,6 +42,7 @@ from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
 from arctic_training.logging import logger
+from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
@@ -178,8 +178,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        self.step_timer = SynchronizedWallClockTimer.Timer("step")
-
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -195,6 +193,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.config.auto_resume:
                 engine.load(self.model)
 
+        self.metrics = Metrics(self)
+
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
         torch.manual_seed(seed)
@@ -203,13 +203,22 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         set_seed(seed)
 
     @property
+    def model_unwrapped(self):
+        """Return the original model before it was wrapped by deepspeed"""
+        if hasattr(self.model, "module"):
+            return self.model.module
+        else:
+            return self.model
+
+    @property
     def epochs(self) -> tqdm:
         """Epochs iterator."""
         return tqdm(
             range(self.epoch_idx, self.config.epochs),
             desc="Epochs",
             unit="epoch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0)
+            or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -219,7 +228,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_dataloader,
             desc="Train Batches",
             unit="batch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0)
+            or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -263,10 +273,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
-        self.step_timer.start()
-
         self.model.train()
         loss = self.loss(batch)
+        self.metrics.record("loss", loss.item())
         self.backward(loss)
         self.model.step()
 
@@ -284,10 +293,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
-        self.step_timer.stop()
-        if self.config.step_timer:
-            logger.info(f"step time: {self.step_timer.elapsed()} ms")
-
     @callback_wrapper("epoch")
     def epoch(self) -> None:
         """
@@ -295,11 +300,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
-        self.train_batch_idx = 0
+        self.metrics.start_timer("iter")
         for batch in self.train_batches:
             self.train_batch_idx += 1
+            self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
+            self.metrics.start_timer("step")
             self.step(batch)
+            self.metrics.stop_timer("step")
+
+            self.metrics.restart_timer("iter")
+
+            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
+                self.metrics.print_summary()
+
             if self.early_stop:
                 break
 
