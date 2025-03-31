@@ -318,7 +318,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if self.train_batch_idx % self.config.train_log_iter_interval == 0:
                 self.metrics.print_summary()
                 if self.wandb_experiment is not None:
-                    self.wandb_experiment.log(self.metrics.summary_dict)
+                    self.wandb_experiment.log(self.metrics.summary_dict, step=self.model.global_steps)
 
             if self.early_stop:
                 break
