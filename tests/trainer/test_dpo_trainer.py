@@ -16,54 +16,40 @@
 from arctic_training.config.trainer import get_config
 from arctic_training.registry import get_registered_trainer
 
-from .utils import models_are_equal
 
-
-def test_ds_engine(tmp_path, model_name):
+def test_dpo_trainer_cpu(model_name):
     config_dict = {
-        "type": "sft",
-        "exit_iteration": 2,
+        "type": "dpo",
+        "beta": 0.1,
         "skip_validation": True,
-        "train_log_iter_interval": 0,
+        "exit_iteration": 2,
+        "micro_batch_size": 1,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": model_name,
             "dtype": "float32",
         },
+        "ref_model": {
+            "type": "random-weight-hf",
+            "name_or_path": model_name,
+            "dtype": "float32",
+        },
         "data": {
-            "type": "noop",
-            "sources": [],
+            "max_length": 2048,
+            "sources": ["HuggingFaceH4/ultrafeedback_binarized:train[:20]"],
+        },
+        "deepspeed": {
+            "zero_optimization": {
+                "stage": 0,
+            },
         },
         "optimizer": {
             "type": "cpu-adam",
-        },
-        "scheduler": {
-            "type": "noop",
-        },
-        "checkpoint": {
-            "type": "deepspeed",
-            "auto_resume": True,
-            "output_dir": str(tmp_path / "checkpoints"),
-            "save_end_of_training": True,
         },
     }
 
     config = get_config(config_dict)
     trainer_cls = get_registered_trainer(config.type)
     trainer = trainer_cls(config)
-
-    # Force checkpoint to be saved despite no training happening
-    trainer.training_finished = True
-    trainer.checkpoint()
-
-    # Store original model for comparison later
-    original_model = trainer.model
-
-    config_dict["seed"] = 0  # Make sure newly initialized model is different
-    config = get_config(config_dict)
-    trainer_cls = get_registered_trainer(config.type)
-    trainer = trainer_cls(config)
-
-    loaded_model = trainer.model
-    assert models_are_equal(original_model, loaded_model), "Models are not equal"
-    # TODO: Add assertion on optimizer state
+    trainer.train()
+    assert trainer.global_step > 0, "Training did not run"

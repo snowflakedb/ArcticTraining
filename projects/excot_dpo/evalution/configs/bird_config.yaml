@@ -1,0 +1,17 @@
+bird:
+  train:
+    data_dir: ""
+    db_folder: "train_databases"
+    tables_json_name: "train_tables.json"
+    question_file: "train.json"
+  dev:
+    data_dir: "/data/bird/dev_240627"
+    db_folder: "dev_databases"
+    tables_json_name: "dev_tables.json"
+    question_file: "dev.json"
+  test:
+    data_dir: ""
+    db_folder: ""
+    tables_json_name: ""
+    question_file: ""
+cache_dir: "/data/gen_tmp"

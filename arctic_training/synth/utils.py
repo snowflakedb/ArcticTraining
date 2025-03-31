@@ -20,3 +20,21 @@ def import_error(**kwargs):
 
 def pass_function(**kwargs):
     pass
+
+
+def recursive_to_dict(obj):
+    # If the object has a __dict__ attribute, use it for conversion.
+    if hasattr(obj, "__dict__"):
+        return recursive_to_dict(obj.__dict__)
+    # If it's a dictionary, process each key/value pair.
+    elif isinstance(obj, dict):
+        return {key: recursive_to_dict(value) for key, value in obj.items()}
+    # If it's a list, process each element.
+    elif isinstance(obj, list):
+        return [recursive_to_dict(item) for item in obj]
+    # If it's a tuple, process each element and return a tuple.
+    elif isinstance(obj, tuple):
+        return tuple(recursive_to_dict(item) for item in obj)
+    # For other types (e.g., int, float, str), return as is.
+    else:
+        return obj

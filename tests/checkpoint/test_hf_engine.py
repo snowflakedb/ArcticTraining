@@ -23,6 +23,7 @@ def test_hf_engine(tmp_path, model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
+        "train_log_iter_interval": 0,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": model_name,

@@ -25,8 +25,8 @@ import copy
 import deepspeed
 import numpy as np
 import torch
+import wandb
 from deepspeed.accelerator import get_accelerator
-from deepspeed.utils.timer import SynchronizedWallClockTimer
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -36,13 +36,11 @@ import torch.distributed.nn
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.callback.wandb import init_wandb_project_cb
-from arctic_training.callback.wandb import log_wandb_loss_cb
-from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.logging import logger
+from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
@@ -1139,9 +1137,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     callbacks: List[Tuple[str, Callable]] = [
         post_loss_log_cb,
-        init_wandb_project_cb,
-        log_wandb_loss_cb,
-        teardown_wandb_cb,
     ]
     """
     A list of callbacks for the trainer. Callbacks are specified as tuples of a
@@ -1237,9 +1232,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        self.step_timer = SynchronizedWallClockTimer.Timer("step")
-        self.iter_timer = SynchronizedWallClockTimer.Timer("iteration")
-
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -1272,6 +1264,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.config.auto_resume:
                 engine.load(self.model)
 
+        self.metrics = Metrics(self)
+
+        if self.global_rank == 0 and self.config.wandb.enable:
+            # Note: wandb.init() is not type annotated so we need to use type: ignore
+            self.wandb_experiment = wandb.init(  # type: ignore
+                entity=self.config.wandb.entity,
+                project=self.config.wandb.project,
+                name=self.config.wandb.name,
+                config=self.config.model_dump(),
+            )
+
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
         torch.manual_seed(seed)
@@ -1280,13 +1283,22 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         set_seed(seed)
 
     @property
+    def model_unwrapped(self):
+        """Return the original model before it was wrapped by deepspeed"""
+        if hasattr(self.model, "module"):
+            return self.model.module
+        else:
+            return self.model
+
+    @property
     def epochs(self) -> tqdm:
         """Epochs iterator."""
         return tqdm(
             range(self.epoch_idx, self.config.epochs),
             desc="Epochs",
             unit="epoch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0)
+            or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -1296,7 +1308,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_dataloader,
             desc="Train Batches",
             unit="batch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0)
+            or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -1397,6 +1410,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         see_memory_usage("after backward", force=False)
 
+        self.metrics.record("loss", loss.item())
+
         self.model.step()
 
         see_memory_usage("after step", force=False)
@@ -1480,12 +1495,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
-        self.step_timer.stop()
-        step_time_secs = self.step_timer.elapsed() / 1000
-        if self.config.step_timer:
-            logger.info(f"step time: {step_time_secs} secs")
-
-        return loss, step_time_secs
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
@@ -1494,8 +1503,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
-
-        self.iter_timer.start()
+        self.metrics.start_timer("iter")
 
         # enable memory history, which will add tracebacks and event history to snapshots
         mem_profiler = True
@@ -1508,198 +1516,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            #continue
+            self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
-            # if (batch["position_ids"] == 0).sum() > 1:
-            #     print("{self.train_batch_idx} run into a packed sample, skipping")
-            #     continue
+            self.metrics.start_timer("step")
+            self.step(batch)
+            self.metrics.stop_timer("step")
 
-            # if self.train_batch_idx < 8:
-            #     continue
-            # if self.train_batch_idx == 4:
-            #     exit()
-            # if self.train_batch_idx == 8:
-            #     continue
+            self.metrics.restart_timer("iter")
 
-            #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False, force=True)
-            #exit()
-
-            # print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
-            # print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
-                #print_rank0(f"before gather: {k}: {batch[k]=}")
-            #exit()
-
-            # since different ranks may have different batches of different seqlen for the correct flop counting we need the total seqlen across all ranks
-            #
-            # since we could have sp>1+dp>1 gather across all ranks
-            seqlen_local = len(batch["input_ids"][0])
-            gathered_seqlen_total = gather_sum_number(seqlen_local, device=self.device, group=None)
-            gathered_seqlens = gather_object(seqlen_local, device=self.device, group=None)
-
-            #see_memory_usage("before step", force=True)
-
-            # # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
-            # orig_model = self.model
-            # self.model = self.meta_model
-            # with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
-            #     loss, step_time_secs = self.step(batch)
-            # self.model = orig_model
-
-            # # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
-            # with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
-            #     loss, step_time_secs = self.step(batch)
-            loss, step_time_secs = self.step(batch)
-
-            #see_memory_usage("after step", force=True)
-
-            #from deepspeed.utils import groups
-            #sp_group = groups._get_sequence_parallel_group()
-            #sp_world_size = groups._get_sequence_parallel_world_size()
-
-            # per gpu
-            # tflos = self.step_flos_counter.get_total_tflos()
-            # #tflos *= sp_world_size # bug in FlopCounterMode
-
-            # print(f"measured {tflos=}")
-            # #print(f"{step_time_secs=}")
-
-            #gathered_step_tflos = gather_sum_number(tflos, device=self.device)
-            #gathered_step_tflos = gather_sum_number(0, device=self.device)
-
-            # XXX: this is sort of pointless, since all gpus are synced - so a local measurement is already the same elsewhere usually
-            gathered_step_time_total = gather_sum_number(step_time_secs, device=self.device)
-            gathered_step_times = gather_object(step_time_secs, device=self.device)
-            #print(gathered_step_times)
-
-            # gathered_step_tflops = gathered_step_tflos / gathered_step_time_total * sp_world_size
-            gathered_step_time_mean = gathered_step_time_total / self.world_size
-
-            import functools
-
-            from functools import wraps
-            # https://stackoverflow.com/a/78988160/9201239
-            def memoize_2nd_arg(func):
-                """Memoize like functools.cache, but only cache based on the 2nd argument.
-                this version only works with *args calling interface - will not work with **kwargs
-                """
-                cache = func.cache = {}
-
-                @wraps(func)
-                def memoizer(arg1, arg2, *args):
-                    if arg2 not in cache:
-                        cache[arg2] = func(arg1, arg2, *args)
-                    return cache[arg2]
-                return memoizer
-
-            #@memoize_2nd_arg
-            def estimate_tflos(model, seq_len):
-                """
-                this is an estimator for a collective computation across SP ranks (divide the result by SP size to get for one rank) with the result adapted to a single gpu
-
-                it assumes dtype bf16 (2 bytes) and recalculation of activations (could make it a parameter - will be a multiplier of 3 instead of 4 then. 4 is 2 fwd + 2 bwd, 3 is 1 fwd + 2 bwd)
-
-                Formulae: (seq * model_size * 2 * 4 + num_layers * seq * seq * hidden_size * 2 * 2 * 4) / 1e12
-
-                model: unwrapped model
-                seq_len: 1 batch sample seqlen
-
-                it expects a deepspeed zero sharded model
-                returns estimated tflos computed by one gpu
-                """
-                def numel_fn(p):
-                    return p.ds_numel if hasattr(p, "ds_tensor") else p.numel()
-                model_size = sum(numel_fn(p) for p in model.parameters())
-                num_layers = model.config.num_hidden_layers
-                hidden_size = model.config.hidden_size
-                # print(f"{model_size=}")
-                # print(f"{num_layers=}")
-                # print(f"{hidden_size=}")
-                # print(f"{seq_len=}")
-                tflos_estimated = (seq_len * model_size * 2 * 4 + num_layers * seq_len * seq_len * hidden_size * 2 * 2 * 4 ) / 1e12
-
-                return tflos_estimated
-
-            # because of the seq**2 in the formula calculate flos for each seqlen separately and sum up
-            tflos_estimated_total = sum(estimate_tflos(self.model_unwrapped, gathered_seqlens[rank]) for rank in range(self.world_size))
-            # XXX: what happens when it's dp=2 sp=4? which world size are we caclulating over?
-            tflos = tflos_estimated_total / self.world_size
-            # print(f"estimated {tflos=}")
-            # print(f"{tflos_estimated_total=}")
-            # print(f"{gathered_step_time_total=}")
-
-            #dist.barrier()
-
-            # try to get the iteration timer stop as close as possible to the point of end of logging
-            # alternatively could put it at the end of the logger and let the next iteration absorb the previous iteration's logging overhead
-            self.iter_timer.stop()
-            iter_time_secs = self.iter_timer.elapsed() / 1000
-             # any of the remaining logging overhead will get counted in the next iteration along with the DL.iter().next()
-            self.iter_timer.start()
-
-            iter_time_total = iter_time_secs * self.world_size
-            step_tflops = tflos_estimated_total / gathered_step_time_total
-            iter_tflops = tflos_estimated_total / iter_time_total
-
-            # XXX: this should become the point where we actually log train data in one go
-            # but the problem is that we are still iterating over epochs so there could be all kinds of reset side-effects - watch this
-            train_log_data = dict(
-                iter=self.model.global_steps,
-                iter_tflops=iter_tflops,
-                iter_time=iter_time_secs,
-                step_tflops=step_tflops,
-                step_time=gathered_step_time_mean,
-                loss=loss,
-                lr=self.model.lr_scheduler.get_last_lr()[0],
-                seqlen_total=gathered_seqlen_total,
-            )
-
-            # the reason for a special list is 2-fold:
-            # 1. to allow logging only some metrics and not all in the dense one line log
-            # 2. to put the key metrics first
-            # but the full log can be dumped to include all logging data
-            train_log_key_order = [
-                "iter",
-                "loss",
-                "iter_time",
-                "step_time",
-                "iter_tflops",
-                "step_tflops",
-                "lr",
-                "seqlen_total",
-            ]
-            # can skip entries that require no special formatting
-            # XXX: perhaps the values can be a list like [fmt, str]? that way we can automatically add the measurement identifier, [".1f", "secs"] and [".2f", "TFLOPS"]? resulting in "0.50 secs" and "450 TFLOPS"? on the other hand the name of the field often implies what it is - not sure
-            train_log_key_fmt = dict(
-                iter_tflops=".1f",
-                step_tflops=".1f",
-                iter="",
-                loss=".4f",
-                lr=".4E",
-                step_time=".4f",
-                iter_time=".4f",
-            )
-
-            # we log to wandb unconditionally every step
-            if self.wandb_experiment is not None:
-                self.wandb_experiment.log(train_log_data, step=self.model.global_steps)
-
-            # XXX: add `train_log_interval` to config and integrate it here, hardcoding for now
-            # once added this code will need to change to accumulate, average, etc - e.g. say if we interval=10
-            train_log_interval = 1
-            if (is_global_main_process() and self.train_batch_idx % train_log_interval == 0
-                and self.train_batch_idx != 1 # don't log step 0 as it is a massive outlier and messes up plots like time
-            ):
-
-
-                # This is Megatron-LM style dense human redable essentials logging - one iteration per iterval
-                # how can we automate this? a special format time where it's a fn instead of a string format
-                train_log_data["seqlen_total"] = format_human_base2_number(train_log_data["seqlen_total"], suffix="")
-                log_line = ""
-                # XXX: currently missing progress indication 5/1000 (1%)
-                for k in train_log_key_order:
-                    fmt = train_log_key_fmt.get(k, "")
-                    log_line += f"{k}: {train_log_data[k]:{fmt}} | "
-                print(log_line)
+            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
+                self.metrics.print_summary()
+                if self.wandb_experiment is not None:
+                    self.wandb_experiment.log(
+                        self.metrics.summary_dict, step=self.model.global_steps
+                    )
 
             if self.early_stop:
                 break
@@ -1729,6 +1559,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             logger.error(f"Training failed with error: {e}")
             # logger.info(f"{self._trainer_state}")
             raise (e)
+        finally:
+            if self.wandb_experiment is not None:
+                self.wandb_experiment.finish()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
