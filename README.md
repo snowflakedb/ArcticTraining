@@ -10,10 +10,20 @@
 
 ## Latest News
 * [2025/03] [Snowflake Arctic Embed Joins ArcticTraining: Simple And Scalable Embedding Model Training](https://www.snowflake.com/en/engineering-blog/arctic-embed-joins-arctictraining/)
+* [2025/01] [ArcticTraining: Simplifying and Accelerating Post-Training for LLMs](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/)
+* [2024/12] [SwiftKV: Accelerating Enterprise LLM Workloads with Knowledge Preserving Compute Reduction](https://www.snowflake.com/en/engineering-blog/swiftkv-llm-compute-reduction/)
 
 # ArcticTraining: Simplifying and Accelerating Post-Training for LLMs
 
 ArcticTraining is a framework designed to simplify and accelerate the post-training process for large language models (LLMs). It addresses challenges in current frameworks, such as limited support for rapid prototyping and the lack of native data generation tools, by offering modular trainer designs, simplified code structures, and integrated pipelines for creating and cleaning synthetic data. These features enable users to enhance LLM capabilities, like code generation and complex reasoning, with greater efficiency and flexibility. Read more about ArcticTraining [in our blog](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/).
+
+# Projects
+
+The projects folder contains various special projects we have released that build on-top of ArcticTraining. Each project includes it's own README and associated assets to get started:
+
+* [SwiftKV](projects/swiftkv)
+* [Speculative Decoding](projects/mlp_speculator)
+* [Arctic-Embed](projects/arctic_embed)
 
 # Quickstart
 
@@ -46,14 +56,6 @@ checkpoint:
 ```bash
 arctic_training path/to/sft-recipe.yaml
 ```
-
-## Projects
-
-The projects folder contains all special projects we release that build on-top of ArcticTraining. For example yamls and to dive deeper into the training code please see the following projects:
-
-* [SwiftKV](projects/swiftkv)
-* [Speculative Decoding](projects/mlp_speculator)
-* [Arctic-Embed](projects/arctic_embed)
 
 ## Customize Training
 
