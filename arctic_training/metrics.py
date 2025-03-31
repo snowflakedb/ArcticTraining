@@ -70,6 +70,12 @@ class Metrics:
         """Records a value in the metrics dictionary."""
         if not self.enabled:
             return
+        if key in self.values:
+            raise KeyError(
+                f"Key {key} already exists. You are trying to write a value that has"
+                " not yet been reported. This can happen if you try to write to a"
+                " given value more than once in a training iteration loop."
+            )
         self.values[key] = value
 
     def start_timer(self, key: str) -> None:
@@ -81,15 +87,15 @@ class Metrics:
         self.timers[key].start()
 
     def stop_timer(self, key: str) -> None:
-        """Stops a timer identfied by `key` and records the elapsed time in the metrics dictionary."""
+        """Stops a timer identfied by `key` and records the elapsed time in seconds to the metrics dictionary."""
         if not self.enabled:
             return
         if key not in self.timers:
             raise KeyError(f"Timer {key} not started")
         self.timers[key].stop()
-        self.values[key] = self.timers[key].elapsed() / 1000
+        self.values[f"{key}_time"] = self.timers[key].elapsed() / 1000
 
-    def _estimate_tflos(self, seq_len: Union[int, float]) -> float:
+    def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model."""
         return (
             seq_len * self.model_size * 2 * 4
@@ -102,7 +108,7 @@ class Metrics:
             * 4
         ) / 1e12
 
-    def get_values(self, key: str) -> Union[int, float]:
+    def get_value(self, key: str) -> Union[int, float]:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
@@ -115,7 +121,8 @@ class Metrics:
         if "seqlen" in self.values:
             tflos_total = sum(
                 gather_object(
-                    self._estimate_tflos(self.values["seqlen"]), self.trainer.world_size
+                    self._estimate_decoder_transformer_tflos(self.values["seqlen"]),
+                    self.trainer.world_size,
                 )
             )
 
@@ -134,9 +141,9 @@ class Metrics:
             )
             summary_str += f" | loss: {loss:.4f}"
 
-        if "iter" in self.values:
+        if "iter_time" in self.values:
             iter_time_total = sum(
-                gather_object(self.values["iter"], self.trainer.world_size)
+                gather_object(self.values["iter_time"], self.trainer.world_size)
             )
             summary_str += (
                 f" | iter time: {iter_time_total/self.trainer.world_size:.3f} s"
@@ -153,9 +160,9 @@ class Metrics:
             )
             summary_str += f" | seqlen total: {seq_len_total:d}"
 
-        if "step" in self.values:
+        if "step_time" in self.values:
             step_time_total = sum(
-                gather_object(self.values["step"], self.trainer.world_size)
+                gather_object(self.values["step_time"], self.trainer.world_size)
             )
             summary_str += (
                 f" | step time: {step_time_total/self.trainer.world_size:.3f} s"
