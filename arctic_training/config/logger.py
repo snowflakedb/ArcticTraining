@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 from typing import List
 from typing import Literal
@@ -43,6 +44,11 @@ class LoggerConfig(BaseConfig):
         for field in ["print_output_ranks", "file_output_ranks"]:
             if getattr(self, field) == "*":
                 setattr(self, field, list(range(self.world_size)))
+        return self
+
+    @model_validator(mode="after")
+    def set_wandb_output_dir(self) -> Self:
+        os.environ["WANDB_DATA_DIR"] = os.getenv("WANDB_DATA_DIR", str(self.output_dir))
         return self
 
     @property
