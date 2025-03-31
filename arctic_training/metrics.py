@@ -45,7 +45,7 @@ class Metrics:
 
         self.trainer = trainer
         self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
-        self.values: Dict[str, Union[int, float]] = defaultdict(float)
+        self.values: Dict[str, List[Union[int, float]]] = defaultdict(list)
 
         # Store model size values for quickly calculating tflos later
         def numel_fn(p):
@@ -69,13 +69,7 @@ class Metrics:
         """Records a value in the metrics dictionary."""
         if not self.enabled:
             return
-        if key in self.values:
-            raise KeyError(
-                f"Key {key} already exists. You are trying to write a value that has"
-                " not yet been reported. This can happen if you try to write to a"
-                " given value more than once in a training iteration loop."
-            )
-        self.values[key] = value
+        self.values[key].append(value)
 
     def start_timer(self, key: str) -> None:
         """Starts a timer identified by `key`. If timer does not exist, one is created."""
@@ -92,7 +86,7 @@ class Metrics:
         if key not in self.timers:
             raise KeyError(f"Timer {key} not started")
         self.timers[key].stop()
-        self.values[f"{key}_time"] = self.timers[key].elapsed() / 1000
+        self.values[f"{key}_time"].append(self.timers[key].elapsed() / 1000)
 
     def restart_timer(self, key: str) -> None:
         self.stop_timer(key)
@@ -111,8 +105,8 @@ class Metrics:
             * 4
         ) / 1e12
 
-    def get_value(self, key: str) -> Union[int, float]:
-        """Returns the value stored in the metrics dictionary for the given key."""
+    def get_values(self, key: str) -> List[Union[int, float]]:
+        """Returns the accumulated values stored in the metrics dictionary for the given key."""
         return self.values[key]
 
     def print_summary(self) -> None:
