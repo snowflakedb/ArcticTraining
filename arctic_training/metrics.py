@@ -173,4 +173,6 @@ class Metrics:
             if tflos_total > 0:
                 summary_str += f" | step tflops: {tflos_total / step_time_total:.1f}"
 
+        self.values.clear()
+
         print(summary_str)
