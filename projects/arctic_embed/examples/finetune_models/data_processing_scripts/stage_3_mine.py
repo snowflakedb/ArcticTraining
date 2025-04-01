@@ -48,9 +48,7 @@ def main(
     df_labels = pd.read_parquet(labels_pq_path)
     qid_to_label_idx = df_labels.groupby("QUERY_ID").indices
     qid_to_score_idx = df_relevance_scores.groupby("QUERY_ID").indices
-    union_query_ids = sorted(
-        set(qid_to_label_idx.keys()) & set(qid_to_score_idx.keys())
-    )
+    union_query_ids = sorted(set(qid_to_label_idx.keys()) & set(qid_to_score_idx.keys()))
     label_docid_array = df_labels["DOCUMENT_ID"].to_numpy()
     score_docid_array = df_relevance_scores["DOCUMENT_ID"].to_numpy()
     score_value_array = df_relevance_scores["SCORE"].to_numpy()
@@ -93,8 +91,7 @@ def main(
             # Optimization: Finish fast if we have no labeled positives.
             if np.sum(is_pos_doc) == 0:
                 logger.debug(
-                    "None of the labeled positive docs have scores in the top "
-                    f"{len(doc_ids):,} scores. Skipping."
+                    f"None of the labeled positive docs have scores in the top {len(doc_ids):,} scores. Skipping."
                 )
                 skip_count += 1
                 continue
@@ -107,9 +104,7 @@ def main(
             drop_pos_count += len(sorted_pos_ids[max_positives_per_query:])
 
             # Use minimum score of used positives as the score for thresholding.
-            min_score_position = (
-                min(len(idx_pos_score_sort), max_positives_per_query) - 1
-            )
+            min_score_position = min(len(idx_pos_score_sort), max_positives_per_query) - 1
             pos_score = pos_scores[idx_pos_score_sort[min_score_position]]
             cutoff = max_negative_to_positive_relevance_threshold * pos_score
 
@@ -118,13 +113,10 @@ def main(
             is_neg_eligible = is_low_false_negative_risk & (~is_pos_doc)
             neg_eligible_scores = scores[is_neg_eligible]
             idx_neg_score_sort = np.argsort(neg_eligible_scores)[::-1]
-            negative_doc_ids = doc_ids[is_neg_eligible][idx_neg_score_sort][
-                :negative_samples_per_query
-            ]
+            negative_doc_ids = doc_ids[is_neg_eligible][idx_neg_score_sort][:negative_samples_per_query]
             if len(negative_doc_ids) < negative_samples_per_query:
                 logger.debug(
-                    f"Query {query_id} has fewer than {negative_samples_per_query} "
-                    "negative samples. Skipping"
+                    f"Query {query_id} has fewer than {negative_samples_per_query} negative samples. Skipping"
                 )
                 skip_count += 1
                 continue
@@ -146,14 +138,10 @@ def main(
             yield chunk_qids, chunk_dids, chunk_relations
 
         if skip_count > 0:
-            logger.warning(
-                f"Dropped {skip_count:,}/{len(union_query_ids):,} queries due "
-                "to false negative risk."
-            )
+            logger.warning(f"Dropped {skip_count:,}/{len(union_query_ids):,} queries due to false negative risk.")
         if drop_pos_count > 0:
             logger.warning(
-                f"Dropped {drop_pos_count:,} positive documents because we were "
-                f"limited to {max_positives_per_query=}"
+                f"Dropped {drop_pos_count:,} positive documents because we were limited to {max_positives_per_query=}"
             )
 
     # Write the mined relevances to disk chunk by chunk.

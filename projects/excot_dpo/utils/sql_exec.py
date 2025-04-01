@@ -161,10 +161,7 @@ def create_db_schema(db_metadata: Dict[str, Any], db_path: str) -> str:
                 ref_text = f"{table_name}.{col_name}={ref_table_name}.{ref_col_name}"
 
             # Append formatted column description
-            column_desc = (
-                f"{col_name} [ {col_type.upper()} ] ( {sample_str} )"
-                f" {primary_key_text} {ref_text}"
-            )
+            column_desc = f"{col_name} [ {col_type.upper()} ] ( {sample_str} ) {primary_key_text} {ref_text}"
             output.append(column_desc.strip())
 
         output.append("")  # Add a blank line between tables
@@ -191,9 +188,7 @@ def get_db_path(db_folder: Path, db_name: str) -> str:
 class SqlTask:
     """Wrapper for SQL environment, question, ground truth, and LLM template."""
 
-    def __init__(
-        self, db_id: str, db_desc: str, db_path: str, ground_truth: str = None
-    ):
+    def __init__(self, db_id: str, db_desc: str, db_path: str, ground_truth: str = None):
         self.db_id = db_id
         self.ground_truth = ground_truth
         self.db_desc = db_desc

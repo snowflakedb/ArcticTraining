@@ -37,9 +37,7 @@ def main():
             new_messages = construct_gpt_prompt(row)
             if len(new_messages) > 2:
                 new_messages = [new_messages[0], new_messages[-1]]
-            new_messages.append(
-                {"role": "assistant", "content": row["correct_answers"][0]}
-            )
+            new_messages.append({"role": "assistant", "content": row["correct_answers"][0]})
             new_data.append(new_messages)
 
     new_dataset = Dataset.from_dict(

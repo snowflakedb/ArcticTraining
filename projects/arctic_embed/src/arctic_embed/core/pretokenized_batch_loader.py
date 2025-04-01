@@ -63,21 +63,13 @@ class ContrastiveLearningBatch(NamedTuple):
     document_attention_mask: Tensor
     relevance_labels: Tensor  # NOTE: This should be a sparse COO tensor!
 
-    def to_device(
-        self, device: torch.device, non_blocking: bool = False
-    ) -> ContrastiveLearningBatch:
+    def to_device(self, device: torch.device, non_blocking: bool = False) -> ContrastiveLearningBatch:
         return ContrastiveLearningBatch(
             query_tokens=self.query_tokens.to(device, non_blocking=non_blocking),
-            query_attention_mask=self.query_attention_mask.to(
-                device, non_blocking=non_blocking
-            ),
+            query_attention_mask=self.query_attention_mask.to(device, non_blocking=non_blocking),
             document_tokens=self.document_tokens.to(device, non_blocking=non_blocking),
-            document_attention_mask=self.document_attention_mask.to(
-                device, non_blocking=non_blocking
-            ),
-            relevance_labels=self.relevance_labels.to(
-                device, non_blocking=non_blocking
-            ),
+            document_attention_mask=self.document_attention_mask.to(device, non_blocking=non_blocking),
+            relevance_labels=self.relevance_labels.to(device, non_blocking=non_blocking),
         )
 
 
@@ -149,14 +141,10 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
             max_seq_len_doc=self.max_seq_len_doc,
         )
         split_batches = split_batch(un_split_batch, self.split_factor)
-        split_sharded_batches = [
-            shard_batch(b, self.shard_id, self.world_size) for b in split_batches
-        ]
+        split_sharded_batches = [shard_batch(b, self.shard_id, self.world_size) for b in split_batches]
         # Move only the first split batch to the device, to avoid hogging device memory.
         if self.device is not None:
-            split_sharded_batches[0] = split_sharded_batches[0].to_device(
-                self.device, non_blocking=True
-            )
+            split_sharded_batches[0] = split_sharded_batches[0].to_device(self.device, non_blocking=True)
         return split_sharded_batches
 
     def __iter__(self) -> Iterator[ContrastiveLearningBatch]:
@@ -176,9 +164,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
             # Fall back to not displaying metadata.
             else:
                 tokenization_metadata = "<no tokenization metadata found>"
-        logger.info(
-            f"Iterating dataset:  {self.root_directory} | {tokenization_metadata}"
-        )
+        logger.info(f"Iterating dataset:  {self.root_directory} | {tokenization_metadata}")
 
         # Initialize iteration over batch paths.
         path_iter = iter(self.batch_paths)
@@ -190,9 +176,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
 
         # Set up a pool of a single thread for concurrent work.
         with ThreadPool(1) as pool:
-            future: Optional[AsyncResult] = pool.apply_async(
-                func=self._read_batches_for_path, args=(first_path,)
-            )
+            future: Optional[AsyncResult] = pool.apply_async(func=self._read_batches_for_path, args=(first_path,))
 
             # Loop until we've loaded everything (and have no future).
             while future is not None:
@@ -223,9 +207,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
                 future = next_future
 
 
-def read_dataset_metadata(
-    root_directory: str, filesystem: fsspec.AbstractFileSystem
-) -> Dict[str, Any]:
+def read_dataset_metadata(root_directory: str, filesystem: fsspec.AbstractFileSystem) -> Dict[str, Any]:
     meatadata_json = filesystem.read_text(join(root_directory, "metadata.json"))
     metadata = json.loads(meatadata_json)
     return metadata
@@ -259,12 +241,8 @@ def read_batch(
     # Collate the tokens.
     tokens_q = t_query.column(COLNAME_QUERY_TOKENS)
     tokens_d = t_doc.column(COLNAME_DOCUMENT_TOKENS)
-    coll_q = collate_tokens(
-        tokens_q, pad_value=pad_value, left_pad=left_pad, max_seq_len=max_seq_len_query
-    )
-    coll_d = collate_tokens(
-        tokens_d, pad_value=pad_value, left_pad=left_pad, max_seq_len=max_seq_len_doc
-    )
+    coll_q = collate_tokens(tokens_q, pad_value=pad_value, left_pad=left_pad, max_seq_len=max_seq_len_query)
+    coll_d = collate_tokens(tokens_d, pad_value=pad_value, left_pad=left_pad, max_seq_len=max_seq_len_doc)
 
     # Create attention masks.
     attn_q = attn_from_lengths(coll_q.seq_lens, is_left_paddded=coll_q.is_left_padded)
@@ -294,9 +272,7 @@ def read_batch(
     )
 
 
-def shard_batch(
-    batch: ContrastiveLearningBatch, shard_id: int, world_size: int
-) -> ContrastiveLearningBatch:
+def shard_batch(batch: ContrastiveLearningBatch, shard_id: int, world_size: int) -> ContrastiveLearningBatch:
     """Shard a batch of data for distributed training."""
     assert 0 <= shard_id < world_size
 
@@ -333,9 +309,7 @@ def shard_batch(
     )
 
 
-def split_batch(
-    batch: ContrastiveLearningBatch, total_splits: int
-) -> List[ContrastiveLearningBatch]:
+def split_batch(batch: ContrastiveLearningBatch, total_splits: int) -> List[ContrastiveLearningBatch]:
     """Split a larger batch into smaller ones.
 
     This is intended to support use-cases in which the data is pre-batched to a
@@ -364,9 +338,7 @@ def split_batch(
 
         # Slice the relevance labels via sparse matrix manipulation.
         relevance_labels = batch.relevance_labels.coalesce()
-        sliced_relevance_labels = slice_sparse_coo_tensor(
-            relevance_labels, [(q_start, q_end), (d_start, d_end)]
-        )
+        sliced_relevance_labels = slice_sparse_coo_tensor(relevance_labels, [(q_start, q_end), (d_start, d_end)])
 
         # Construct the new split batch.
         split_batch = ContrastiveLearningBatch(
@@ -421,9 +393,7 @@ def collate_tokens(
     )
 
 
-def attn_from_lengths(
-    sequence_lengths: NDArray[np.int64], is_left_paddded: bool = False
-) -> NDArray[np.int64]:
+def attn_from_lengths(sequence_lengths: NDArray[np.int64], is_left_paddded: bool = False) -> NDArray[np.int64]:
     """Create an bidirectional attention mask from sequence lengths."""
     batch_size = sequence_lengths.shape[0]
     max_seq_len = sequence_lengths.max()

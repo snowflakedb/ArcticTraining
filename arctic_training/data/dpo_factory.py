@@ -59,18 +59,12 @@ def _adjust_prompt_length(
         prompt_token[k] = v[:min_len]
 
     num_diff_tokens = sum(
-        [
-            a != b
-            for a, b in zip(
-                chosen_token["prompt_input_ids"], rejected_token["prompt_input_ids"]
-            )
-        ]
+        [a != b for a, b in zip(chosen_token["prompt_input_ids"], rejected_token["prompt_input_ids"])]
     )
     num_diff_len = abs(c_len - r_len)
     if num_diff_tokens > 1 or num_diff_len > 1:
         raise ValueError(
-            "Chosen and rejected prompt_input_ids might only differ on the last token"
-            " due to tokenizer merge ops."
+            "Chosen and rejected prompt_input_ids might only differ on the last token due to tokenizer merge ops."
         )
 
 
@@ -104,17 +98,12 @@ def add_eos_token_if_needed(
     return tokens
 
 
-def _build_sequence_tokens(
-    tokens: Dict[str, List[int]], prefix: str
-) -> Dict[str, List[int]]:
-    sequence_tokens = {
-        f"{prefix}_{k}": tokens[f"prompt_{k}"] + tokens[k]
-        for k in ["input_ids", "attention_mask"]
-    }
+def _build_sequence_tokens(tokens: Dict[str, List[int]], prefix: str) -> Dict[str, List[int]]:
+    sequence_tokens = {f"{prefix}_{k}": tokens[f"prompt_{k}"] + tokens[k] for k in ["input_ids", "attention_mask"]}
     sequence_tokens[f"{prefix}_labels"] = sequence_tokens[f"{prefix}_input_ids"][:]
-    sequence_tokens[f"{prefix}_labels"][: len(tokens["prompt_input_ids"])] = [
-        IGNORE_INDEX
-    ] * len(tokens["prompt_input_ids"])
+    sequence_tokens[f"{prefix}_labels"][: len(tokens["prompt_input_ids"])] = [IGNORE_INDEX] * len(
+        tokens["prompt_input_ids"]
+    )
     return sequence_tokens
 
 
@@ -133,15 +122,15 @@ class DataCollatorForPref:
         chosen_text = [example["chosen_text"] for example in instances]
         rejected_text = [example["rejected_text"] for example in instances]
 
-        input_ids = [
-            torch.tensor(example["chosen_input_ids"]) for example in instances
-        ] + [torch.tensor(example["rejected_input_ids"]) for example in instances]
+        input_ids = [torch.tensor(example["chosen_input_ids"]) for example in instances] + [
+            torch.tensor(example["rejected_input_ids"]) for example in instances
+        ]
         labels = [torch.tensor(example["chosen_labels"]) for example in instances] + [
             torch.tensor(example["rejected_labels"]) for example in instances
         ]
-        attention_mask = [
-            torch.tensor(example["chosen_attention_mask"]) for example in instances
-        ] + [torch.tensor(example["rejected_attention_mask"]) for example in instances]
+        attention_mask = [torch.tensor(example["chosen_attention_mask"]) for example in instances] + [
+            torch.tensor(example["rejected_attention_mask"]) for example in instances
+        ]
 
         input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id)
         labels = pad(labels, padding_value=IGNORE_INDEX)
@@ -164,15 +153,11 @@ class DPODataFactory(DataFactory):
     config: DPODataConfig
 
     def convert_text(self, tokenizer, conversations: List[Dict[str, str]]) -> str:
-        chosen_text = tokenizer.apply_chat_template(
-            conversation=conversations, tokenize=False
-        )
+        chosen_text = tokenizer.apply_chat_template(conversation=conversations, tokenize=False)
         return chosen_text
 
     def process(self, dataset: DatasetType) -> DatasetType:
-        missing_columns = [
-            c for c in ("prompt", "chosen", "rejected") if c not in dataset.column_names
-        ]
+        missing_columns = [c for c in ("prompt", "chosen", "rejected") if c not in dataset.column_names]
         if len(missing_columns) > 0:
             raise ValueError(
                 "Dataset must have 'prompt', 'chosen', and 'rejected' columns to"
@@ -203,13 +188,9 @@ class DPODataFactory(DataFactory):
         prompt_tokenized = tokenizer(prompt, add_special_tokens=False)
         prompt_input_ids = prompt_tokenized["input_ids"]
         answer_input_ids = full_tokenized["input_ids"][len(prompt_input_ids) :]
-        answer_attention_mask = full_tokenized["attention_mask"][
-            len(prompt_input_ids) :
-        ]
+        answer_attention_mask = full_tokenized["attention_mask"][len(prompt_input_ids) :]
         if len(full_tokenized["input_ids"]) != len(prompt_input_ids + answer_input_ids):
-            raise ValueError(
-                "Prompt input ids and answer input ids should have the same length."
-            )
+            raise ValueError("Prompt input ids and answer input ids should have the same length.")
 
         # On some tokenizers, like Llama-2 tokenizer, there are occasions where tokens
         # can be merged together when tokenizing prompt+answer. This could result
@@ -219,21 +200,14 @@ class DPODataFactory(DataFactory):
 
         # If tokenized prompt is different than both prompt+answer, then it means the
         # last token has changed due to merging.
-        if (
-            prompt_input_ids
-            != full_tokenized["input_ids"][:response_token_ids_start_idx]
-        ):
+        if prompt_input_ids != full_tokenized["input_ids"][:response_token_ids_start_idx]:
             response_token_ids_start_idx -= 1
 
         prompt_input_ids = full_tokenized["input_ids"][:response_token_ids_start_idx]
-        prompt_attention_mask = full_tokenized["attention_mask"][
-            :response_token_ids_start_idx
-        ]
+        prompt_attention_mask = full_tokenized["attention_mask"][:response_token_ids_start_idx]
 
         if len(prompt_input_ids) != len(prompt_attention_mask):
-            raise ValueError(
-                "Prompt input ids and attention mask should have the same length."
-            )
+            raise ValueError("Prompt input ids and attention mask should have the same length.")
         return {
             "prompt_input_ids": prompt_input_ids,
             "prompt_attention_mask": prompt_attention_mask,
@@ -251,41 +225,25 @@ class DPODataFactory(DataFactory):
         Truncates the tokens in chosen, rejected, and prompt sequences to ensure they fit within the maximum length constraints.
         """
         if self.config.dpo_prompt_truncation_mode not in ["keep_start", "keep_end"]:
-            raise ValueError(
-                f"Invalid truncation mode: {self.config.dpo_prompt_truncation_mode}"
-            )
+            raise ValueError(f"Invalid truncation mode: {self.config.dpo_prompt_truncation_mode}")
 
-        longer_response_length = max(
-            len(chosen_tokens["input_ids"]), len(rejected_tokens["input_ids"])
-        )
+        longer_response_length = max(len(chosen_tokens["input_ids"]), len(rejected_tokens["input_ids"]))
 
         # if combined sequence is too long, truncate the prompt
         for answer_tokens in [chosen_tokens, rejected_tokens, prompt_tokens]:
-            if (
-                len(answer_tokens["prompt_input_ids"]) + longer_response_length
-                > self.config.max_length
-            ):
+            if len(answer_tokens["prompt_input_ids"]) + longer_response_length > self.config.max_length:
                 if self.config.dpo_prompt_truncation_mode == "keep_start":
                     for k in ["prompt_input_ids", "prompt_attention_mask"]:
-                        answer_tokens[k] = answer_tokens[k][
-                            : self.config.max_prompt_length
-                        ]
+                        answer_tokens[k] = answer_tokens[k][: self.config.max_prompt_length]
                 elif self.config.dpo_prompt_truncation_mode == "keep_end":
                     for k in ["prompt_input_ids", "prompt_attention_mask"]:
-                        answer_tokens[k] = answer_tokens[k][
-                            -self.config.max_prompt_length :
-                        ]
+                        answer_tokens[k] = answer_tokens[k][-self.config.max_prompt_length :]
 
         # if that's still too long, truncate the response from the end
         for answer_tokens in [chosen_tokens, rejected_tokens]:
-            if (
-                len(answer_tokens["prompt_input_ids"]) + longer_response_length
-                > self.config.max_length
-            ):
+            if len(answer_tokens["prompt_input_ids"]) + longer_response_length > self.config.max_length:
                 for k in ["input_ids", "attention_mask"]:
-                    answer_tokens[k] = answer_tokens[k][
-                        : self.config.max_length - self.config.max_prompt_length
-                    ]
+                    answer_tokens[k] = answer_tokens[k][: self.config.max_length - self.config.max_prompt_length]
 
         return chosen_tokens, rejected_tokens, prompt_tokens
 
@@ -327,13 +285,9 @@ class DPODataFactory(DataFactory):
 
         prompt_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, prompt_tokens)
         chosen_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, chosen_tokens)
-        rejected_tokens = add_bos_token_if_needed(
-            tokenizer.bos_token_id, rejected_tokens
-        )
+        rejected_tokens = add_bos_token_if_needed(tokenizer.bos_token_id, rejected_tokens)
         chosen_tokens = add_eos_token_if_needed(tokenizer.eos_token_id, chosen_tokens)
-        rejected_tokens = add_eos_token_if_needed(
-            tokenizer.eos_token_id, rejected_tokens
-        )
+        rejected_tokens = add_eos_token_if_needed(tokenizer.eos_token_id, rejected_tokens)
 
         chosen_tokens, rejected_tokens, prompt_tokens = self._truncate_tokens(
             chosen_tokens, rejected_tokens, prompt_tokens
@@ -356,9 +310,7 @@ class DPODataFactory(DataFactory):
             dataset,
             collate_fn=DataCollatorForPref(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(
-                dataset, num_replicas=self.world_size, rank=self.global_rank
-            ),
+            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

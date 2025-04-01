@@ -36,11 +36,7 @@ class WSDSchedulerFactory(SchedulerFactory):
     config: WSDSchedulerConfig
 
     def create_scheduler(self, optimizer: Any) -> LambdaLR:
-        num_stable_steps = (
-            self.trainer.training_horizon
-            - self.config.num_warmup_steps
-            - self.config.num_decay_steps
-        )
+        num_stable_steps = self.trainer.training_horizon - self.config.num_warmup_steps - self.config.num_decay_steps
         return get_wsd_schedule(
             optimizer=optimizer,
             num_warmup_steps=self.config.num_warmup_steps,

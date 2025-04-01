@@ -53,9 +53,7 @@ class TokenizerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_attribute_type(cls, "config", TokenizerConfig)
         _validate_class_method(cls, "create_tokenizer", ["self"])
 
-    def __init__(
-        self, trainer: "Trainer", tokenizer_config: Optional[TokenizerConfig] = None
-    ) -> None:
+    def __init__(self, trainer: "Trainer", tokenizer_config: Optional[TokenizerConfig] = None) -> None:
         if tokenizer_config is None:
             tokenizer_config = trainer.config.tokenizer
 
