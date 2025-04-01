@@ -53,7 +53,7 @@ class LoggerConfig(BaseConfig):
 
     @property
     def log_file(self) -> Path:
-        return self.output_dir / f"rank_{self.local_rank}.log"
+        return self.output_dir / "logs" / f"rank_{self.local_rank}.log"
 
     @property
     def file_enabled(self) -> bool:

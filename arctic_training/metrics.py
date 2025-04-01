@@ -116,6 +116,10 @@ class Metrics:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
+    def get_summary_dict(self, exclude: List[str] = []) -> Dict[str, Union[int, float]]:
+        """Returns a copy of the summary dictionary."""
+        return {k: v for k, v in self.summary_dict.items() if k not in exclude}
+
     def print_summary(self) -> None:
         """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
@@ -166,24 +170,25 @@ class Metrics:
 
         self.values.clear()
 
-        summary_str = f"epoch: {self.summary_dict['epoch']}"
-        summary_str += (
-            " | iter:"
+        summary_str = (
+            "iter:"
             f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
             f" ({100*self.summary_dict['iter']//self.max_iter:>3}%)"
         )
         if "loss" in self.summary_dict:
             summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
         if "iter_time" in self.summary_dict:
-            summary_str += f" | iter time: {self.summary_dict['iter_time']:.3f} s"
+            summary_str += f" | iter time: {self.summary_dict['iter_time']:.1f} s"
         if "iter_tflops" in self.summary_dict:
             summary_str += f" | iter tflops: {self.summary_dict['iter_tflops']:.1f}"
         summary_str += f" | lr: {self.summary_dict['lr']:.3E}"
         if "seqlen_total" in self.summary_dict:
             summary_str += f" | seqlen total: {self.summary_dict['seqlen_total']:.1f}"
         if "step_time" in self.summary_dict:
-            summary_str += f" | step time: {self.summary_dict['step_time']:.3f} s"
+            summary_str += f" | step time: {self.summary_dict['step_time']:.1f} s"
         if "step_tflops" in self.summary_dict:
             summary_str += f" | step tflops: {self.summary_dict['step_tflops']:.1f}"
+        summary_str += f" | epoch: {self.summary_dict['epoch']}"
 
-        print(summary_str)
+        if self.trainer.global_rank == 0:
+            print(summary_str)

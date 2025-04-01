@@ -315,11 +315,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
+            if (
+                self.config.train_log_iter_interval != 0
+                and self.train_batch_idx % self.config.train_log_iter_interval == 0
+            ):
                 self.metrics.print_summary()
-                if self.wandb_experiment is not None:
+                if self.global_rank == 0 and self.wandb_experiment is not None:
                     self.wandb_experiment.log(
-                        self.metrics.summary_dict, step=self.model.global_steps
+                        self.metrics.get_summary_dict(exclude=["iter", "epoch"]),
+                        step=self.model.global_steps,
                     )
 
             if self.early_stop:
