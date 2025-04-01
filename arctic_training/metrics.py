@@ -173,7 +173,7 @@ class Metrics:
         summary_str = (
             "iter:"
             f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
-            f" ({100*self.summary_dict['iter']//self.max_iter:>3}%)"
+            f" {100*self.summary_dict['iter']//self.max_iter:>3}%"
         )
         if "loss" in self.summary_dict:
             summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
