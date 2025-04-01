@@ -116,10 +116,6 @@ class Metrics:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
-    def get_summary_dict(self, exclude: List[str] = []) -> Dict[str, Union[int, float]]:
-        """Returns a copy of the summary dictionary."""
-        return {k: v for k, v in self.summary_dict.items() if k not in exclude}
-
     def print_summary(self) -> None:
         """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
