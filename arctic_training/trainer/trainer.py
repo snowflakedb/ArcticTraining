@@ -88,7 +88,7 @@ class _DimZeroAllToAll(torch.autograd.Function):
 """
 Some additional Ulysses docs that perhaps should go elsewhere:
 
-If you want to try to push the seqlen higher w/o using more gpus, try to add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (but measure the performance - it could be slower)
+If you want to try to push the seqlen higher w/o using more gpus, try to add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (but measure the performance - it could be slower). This should help with minimizing fragmentation.
 
 """
 class UlyssesAttentionHF(torch.nn.Module):
@@ -99,6 +99,8 @@ class UlyssesAttentionHF(torch.nn.Module):
     bugs in scenarios where batch size > 1 and when using different versions of
     flash attention each of which takes different input shape. Those should be handled by
     the actual attn implementation, and not by this module.
+
+    This class then has been further adapted to work with HF Transformers' supported attention mechanism.
 
     Dimension annotation:
         bs   = bs
@@ -1178,8 +1180,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._set_seeds(self.config.seed)
 
         # enable memory history, which will add tracebacks and event history to snapshots
-        self.mem_profiler = True
-        # profiling from here is very slow, best to start at top of `epoch`
+        self.mem_profiler = False
+        # profiling from here is slower, best to start at top of `epoch`
         if self.mem_profiler:
             torch.cuda.memory._record_memory_history(max_entries=100_000)
 
@@ -1404,7 +1406,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         else:
             # sp will do backward inside sp_fwd_bwd_loss
             # the returned loss is already averaged across ranks and it's a float
-            loss = self.sp_fwd_bwd_loss(batch)
+            loss = self.sp_fwd_loss_bwd(batch)
 
         see_memory_usage("after backward", force=False)
 

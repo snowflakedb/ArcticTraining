@@ -30,6 +30,9 @@ from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 from arctic_training.debug import see_memory_usage, print_rank0, print_rank
 
+
+
+
 class ChunkedMemEfficientLoss(torch.autograd.Function):
     @staticmethod
     def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
@@ -40,10 +43,10 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
         #ctx.logits = logits
         #ctx.shift_labels = shift_labels
 
-        if shards == 1:
-            with torch.no_grad():
-                loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
-            return loss
+        # if shards == 1:
+        #     with torch.no_grad():
+        #         loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
+        #     return loss
 
         if logits.shape[1] % shards != 0:
             raise ValueError(f"Curently expecting logits seqlen dim {logits.shape[1]} to be divisible by the num of shards {shards}, but should be able to adapt it to other use cases later.")
@@ -90,17 +93,17 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
 
         grad = grads[0] #
 
-        # XXX: we don't really need a special case for shards==1, the sharded one will do the same
-        if shards == 1:
-            logits.grad = None
-            with torch.enable_grad():
-                loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
-            torch.autograd.backward(loss, grad)
-            #print(f"returning {logits.grad.norm()=}")
-            #print(f"returning {logits.grad=}")
-            #grads = logits.grad.clone().detach()
-            return None, logits.grad, None, None, None
-            #return None, grads, None, None, None
+        # # XXX: we don't really need a special case for shards==1, the sharded one will do the same
+        # if shards == 1:
+        #     logits.grad = None
+        #     with torch.enable_grad():
+        #         loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
+        #     torch.autograd.backward(loss, grad)
+        #     #print(f"returning {logits.grad.norm()=}")
+        #     #print(f"returning {logits.grad=}")
+        #     #grads = logits.grad.clone().detach()
+        #     return None, logits.grad, None, None, None
+        #     #return None, grads, None, None, None
 
         sl = len(shift_labels[0])
         shard_step = sl // shards # XXX: check divisibility
@@ -173,6 +176,57 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
         return None, logits_grad, None, None, None
 
 
+import math
+def next_power_of_2(x):
+    """
+    take any number and find the next power of 2
+    7.5 => 8
+    8 => 8
+    9 => 16
+    """
+    return 1<<(math.ceil(x)-1).bit_length()
+
+class UlyssesSequenceParallelismFwdLossBwdWithLogits():
+    def __init__(self, trainer, shards="auto"):
+        self.trainer = trainer
+        self.shards = shards
+
+        self.model = trainer.model
+        self.model_unwrapped = trainer.model_unwrapped
+
+    #def massage_labels
+
+    def forward(self, batch):
+        # critical: the labels shouldn't be in batch
+        outputs = self.model(**batch, use_cache=False)
+        self.logits = outputs.logits
+        self.outputs = outputs
+        return outputs
+
+    def compute_loss(self, labels, shift_labels):
+        if all((shift_labels == -100).squeeze()):
+            # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
+            # XXX: should this be float and not the original dtype?
+            loss = (self.logits.sum() * 0.0).float()
+        else:
+            # XXX: parameterize to about 1GB logits shards
+            if self.shards == "auto":
+                size_in_gb = self.logits.numel() * 2 / 2**30 # bf16
+                self.shards = next_power_of_2(size_in_gb)
+                print(f"derived {self.shards} shards for size {size_in_gb}GB")
+            #shards = 8
+            if self.shards > 1:
+                loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.shards)
+            else:
+                # XXX: for some reason this fails with zero1
+                loss = self.model_unwrapped.loss_function(logits=self.logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+
+        self.loss = loss
+        return loss
+
+    def backward(self):
+        self.model.backward(self.loss)
+
 
 class SFTTrainer(Trainer):
     name = "sft"
@@ -189,8 +243,11 @@ class SFTTrainer(Trainer):
         loss = outputs.loss
         return loss
 
-    def sp_fwd_bwd_loss(self, batch) -> torch.Tensor:
+    # XXX: return tensor like normal `loss`?
+    def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
+
+        yyy = UlyssesSequenceParallelismFwdLossBwdWithLogits(trainer=self, shards="auto")
 
         # ensure shapes are correct
         if not (batch["input_ids"].shape == batch["position_ids"].shape == batch["labels"].shape):
@@ -200,7 +257,6 @@ class SFTTrainer(Trainer):
         # Important: DL doesn't always yield max_length batches. Different ranks may have different seqlen and each could be <= max_length (but always divisible by 256)
         from deepspeed.utils import groups
         import torch
-        # XXX: should it be torch.dist? when to use ds dist?
         import deepspeed.comm as dist
         sp_group = groups._get_sequence_parallel_group()
         sp_world_size = groups._get_sequence_parallel_world_size()
@@ -323,7 +379,8 @@ class SFTTrainer(Trainer):
             #print_rank(f"{shift_labels=}", skip=False)
             see_memory_usage(f"{sub_step_id=} after shift labels", force=False)
 
-            outputs = self.model(**batch, use_cache=False)
+            outputs = yyy.forward(batch)
+            #outputs = self.model(**batch, use_cache=False)
             logits = outputs.logits
 
             see_memory_usage(f"{sub_step_id=} after forward", force=False)
@@ -332,45 +389,25 @@ class SFTTrainer(Trainer):
             #print_rank(f"{logits=}", skip=False)
             # print_rank(f"logit nans: {torch.isnan(logits).sum()}", skip=False)
             # print_rank(f"logit infs: {torch.isinf(logits).sum()}", skip=False)
+            #see_memory_usage(f"{sub_step_id=} before loss", force=True)
+            loss = yyy.compute_loss(labels=None, shift_labels=shift_labels)
+
+            # if all((shift_labels == -100).squeeze()):
+            #     # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
+            #     # XXX: should this be float and not the original dtype?
+            #     loss = (logits.sum() * 0.0).float()
+            #     #loss = FakeLoss.apply(logits)
+            # else:
+            #     #import gc; gc.collect()
+            #     #torch.cuda.empty_cache()
+            #     #see_memory_usage(f"{sub_step_id=} before loss", force=True)
+            #     #loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
 
 
-            if all((shift_labels == -100).squeeze()):
-                # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
-                # XXX: should this be float and not the original dtype?
-                loss = (logits.sum() * 0.0).float()
-                #loss = FakeLoss.apply(logits)
-            else:
-                #import gc; gc.collect()
-                #torch.cuda.empty_cache()
-                #see_memory_usage(f"{sub_step_id=} before loss", force=True)
-                #loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
-
-                shards = 8
-                loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
-
-                #from cut_cross_entropy import linear_cross_entropy
-                #loss = linear_cross_entropy(shift_embeddings, classifier, shift_labels)
-
-                # # a hack to dramatically reduce memory usage, by sharding loss calculation in chunks
-                # sl = len(shift_labels[0])
-                # shards = 16
-                # shard_step = sl // shards # XXX: check divisibility
-                # loss_shards = []
-                # with torch.no_grad():
-                #     for i in range(shards):
-                #         shift_labels_shard = shift_labels[:,i*shard_step:(i+1)*shard_step]
-                #         logits_shard       = logits[:,i*shard_step:(i+1)*shard_step].to(torch.float32)
-                #         if all((shift_labels_shard == -100).squeeze()):
-                #             continue # ignore this shard
-                #         l = self.model_unwrapped.loss_function(logits=logits_shard, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels_shard)
-                #         loss_shards.append(l)
-                #         #import gc; gc.collect()
-                #         #print(l)
-                #     loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).mean()
-                # loss = (logits.sum() * 0.0).float()
+            #     shards = 8
+            #     loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
 
 
-#                loss = self.model_unwrapped.loss_function(logits=logits[:,:10], labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels[:,:10])
                 #see_memory_usage(f"{sub_step_id=} after loss", force=True)
 
             #loss = outputs.loss
@@ -444,8 +481,8 @@ class SFTTrainer(Trainer):
 
             see_memory_usage(f"{sub_step_id=} before backward", force=False)
             #import gc; gc.collect()
-            self.model.backward(loss)
-
+            #self.model.backward(loss)
+            yyy.backward()
 
             # print_rank(f"{labels[0][70:80]=}", skip=False)
             # print_rank(f"{logits[0][70:80]=}", skip=False)
