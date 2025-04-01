@@ -22,6 +22,7 @@ from typing import cast
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
+from arctic_training.utils import is_global_main_process
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -116,7 +117,7 @@ class Metrics:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
-    def print_summary(self) -> None:
+    def compute(self) -> None:
         """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
             return
@@ -164,8 +165,6 @@ class Metrics:
             if tflos_total > 0:
                 self.summary_dict["step_tflops"] = tflos_total / step_time_total
 
-        self.values.clear()
-
         summary_str = f"epoch: {self.summary_dict['epoch']}"
         summary_str += (
             " | iter:"
@@ -186,4 +185,11 @@ class Metrics:
         if "step_tflops" in self.summary_dict:
             summary_str += f" | step tflops: {self.summary_dict['step_tflops']:.1f}"
 
-        print(summary_str)
+        self.summary_str = summary_str
+
+    def print_summary(self):
+        print(self.summary_str)
+
+    def reset(self):
+        self.summary_dict.clear()
+        self.values.clear()

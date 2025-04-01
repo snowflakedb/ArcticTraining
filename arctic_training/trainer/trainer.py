@@ -1177,19 +1177,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self._set_seeds(self.config.seed)
 
+        # enable memory history, which will add tracebacks and event history to snapshots
+        self.mem_profiler = True
+        # profiling from here is very slow, best to start at top of `epoch`
+        if self.mem_profiler:
+            torch.cuda.memory._record_memory_history(max_entries=100_000)
+
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
-
-        # from arctic_training.utils import get_local_rank
-        # self.local_rank = get_local_rank()
-        # if self.local_rank == 0:
-        #     data_factory = self.config.data.factory(self)
-        # dist.barrier()
-        # if self.local_rank != 0:
-        #     data_factory = self.config.data.factory(self)
 
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
@@ -1360,7 +1358,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
-        self.step_timer.start()
+
 
         #import deepspeed.comm as dist
         # import q
@@ -1405,12 +1403,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         else:
             # sp will do backward inside sp_fwd_bwd_loss
-            # the returned loss is already averaged across ranks
+            # the returned loss is already averaged across ranks and it's a float
             loss = self.sp_fwd_bwd_loss(batch)
 
         see_memory_usage("after backward", force=False)
 
-        self.metrics.record("loss", loss.item())
+        def maybe_item(v):
+            return v.item() if torch.is_tensor(v) else v
+        self.metrics.record("loss", maybe_item(loss))
 
         self.model.step()
 
@@ -1423,63 +1423,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # #exit()
 
 
-        # if 1:
-        #     # XXX: probably need to do padding so that all sequence chunks are the same?!
-        #     import math
-        #     print_rank0(f"{len(batch['input_ids'][0])=}")
-        #     #print_rank0(f"{len(batch['input_ids'][1])=}")
-        #     #seq_length = len(batch["input_ids"][0])
-        #     seq_length = self.config.data.max_length
-
-        #     sp_world_size = groups._get_sequence_parallel_world_size()
-        #     sp_rank = groups._get_sequence_parallel_rank()
-        #     chunk_len = math.ceil(seq_length / sp_world_size)
-        #     print_rank0(f"{seq_length=}")
-        #     print_rank0(f"{chunk_len=}")
-
-        #     # this is the original chunking logic
-        #     for k in batch.keys():
-        #         if sp_world_size > 1 and k in ["input_ids", "position_ids"]: # , "labels"]:
-        #         #if sp_world_size > 1 and k in ["input_ids"]:
-        #             batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
-        #         else:
-        #             batch[k] = batch[k].to(self.device)
-        #         print_rank0(f"{k} {batch[k].shape=}")
-
-
-        # else:
-        #     # non-sp original version
-        #     self.model.train()
-        #     # XXX: fixme
-        #     #self.global_step = self.model.global_steps
-        #     loss = self.loss(batch)
-        #     print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
-        #     print_rank(f"{self.train_batch_idx}: {loss=}")
-
-        #     #self.model.backward(loss)
-        #     avg_loss = self.model.backward(loss)
-        #     print_rank0(f"zero loss: {avg_loss}")
 
         from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
-        # print_rank0(f"!!! {torch.norm(safe_get_full_fp32_param(self.model.lm_head.weight))} lm_head.weight", skip=False)
-        # print_rank0(f"!!! {torch.norm(safe_get_full_fp32_param(self.model.model.layers[0].self_attn.q_proj.weight))} q.weight", skip=False)
-
-        # # print_rank(f"end loss = {loss}")
-        # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))} lm_head.grad", skip=False)
-        # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))} q.grad", skip=False)
-        #exit()
-
-        # for n, p in self.model.named_parameters():
-        #     print_rank(f"!!! {torch.norm(safe_get_full_fp32_param(p)):6.2f} {n}", skip=False)
-        # for n, p in self.model.named_parameters():
-        #     print_rank(f"!!! {torch.norm(safe_get_full_grad(p)):6.2f} {n}", skip=False)
-        # for n, p in self.model.named_parameters():
-        #     nans = torch.isnan(p).sum()
-        #     infs = torch.isinf(p).sum()
-        #     if nans > 0: print_rank(f"!!! Got NANs {nans} {n}", skip=False)
-        #     if infs > 0: print_rank(f"!!! Got INFs {infs} {n}", skip=False)
-
-        #print(f"ITERATION {loss=}")
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
@@ -1505,9 +1450,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         self.metrics.start_timer("iter")
 
-        # enable memory history, which will add tracebacks and event history to snapshots
-        mem_profiler = True
-        if mem_profiler:
+        # # enable memory history, which will add tracebacks and event history to snapshots
+        if self.mem_profiler:
             torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         # XXX: this counter must not be reset between epochs
@@ -1525,16 +1469,23 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.metrics.restart_timer("iter")
 
             if self.train_batch_idx % self.config.train_log_iter_interval == 0:
-                self.metrics.print_summary()
-                if self.wandb_experiment is not None:
-                    self.wandb_experiment.log(
-                        self.metrics.summary_dict, step=self.model.global_steps
-                    )
+
+                # we log on rank 0, but compute involves gathering from all ranks
+                self.metrics.compute()
+
+                if is_global_main_process():
+                    self.metrics.print_summary()
+
+                    if self.wandb_experiment is not None:
+                        self.wandb_experiment.log(
+                            self.metrics.summary_dict, step=self.model.global_steps
+                        )
+            self.metrics.reset()
 
             if self.early_stop:
                 break
 
-        if mem_profiler:
+        if self.mem_profiler:
             torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
 
     @callback_wrapper("train")
