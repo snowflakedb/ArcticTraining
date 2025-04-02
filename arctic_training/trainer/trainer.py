@@ -322,7 +322,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 self.metrics.print_summary()
                 if (
                     self.global_rank == 0
-                    and self.train_batch_idx > 0
+                    and self.train_batch_idx > 1  # first iter is a massive outlier
                     and self.wandb_experiment is not None
                 ):
                     self.wandb_experiment.log(
