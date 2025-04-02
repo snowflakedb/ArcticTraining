@@ -21,7 +21,7 @@ def human_format_base2_number(num: float, suffix: str = "") -> str:
         return f"0{suffix}"
 
     units = ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi", "Yi"]
-    exponent = min(int(math.log(num, 1024)), len(units) - 1)
+    exponent = min(int(math.log(abs(num), 1024)), len(units) - 1)
     value = num / (1024**exponent)
 
     return f"{value:_.1f}{units[exponent]}{suffix}"
@@ -32,7 +32,7 @@ def human_format_base10_number(num: float, suffix: str = "") -> str:
         return f"0{suffix}"
 
     units = ["", "K", "M", "B", "T", "Qa", "Qi"]  # Qa: Quadrillion, Qi: Quintillion
-    exponent = min(int(math.log(num, 1000)), len(units) - 1)
+    exponent = min(int(math.log(abs(num), 1000)), len(units) - 1)
     value = num / (1000**exponent)
 
     return f"{value:_.1f}{units[exponent]}{suffix}"
