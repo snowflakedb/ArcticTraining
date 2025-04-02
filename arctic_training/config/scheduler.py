@@ -38,10 +38,7 @@ class SchedulerConfig(BaseConfig):
     @classmethod
     def _deprecated_learning_rate(cls, value: Optional[float]) -> Optional[float]:
         if value is not None:
-            raise ValueError(
-                "scheduler.learning_rate is deprecated. Use optimizer.learning_rate"
-                " instead."
-            )
+            raise ValueError("scheduler.learning_rate is deprecated. Use optimizer.learning_rate instead.")
         return value
 
     @property

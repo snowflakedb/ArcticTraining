@@ -49,16 +49,12 @@ class BiencoderModelFactory(ModelFactory):
     def create_config(self):
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
-        return AutoConfig.from_pretrained(
-            self.config.name_or_path, **arctic_training_model_config.kwargs
-        )
+        return AutoConfig.from_pretrained(self.config.name_or_path, **arctic_training_model_config.kwargs)
 
     def create_model(self, model_config: AutoConfig) -> Biencoder:
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
-        trust_remote_code = arctic_training_model_config.kwargs.get(
-            "trust_remote_code", None
-        )
+        trust_remote_code = arctic_training_model_config.kwargs.get("trust_remote_code", None)
         encoder = AutoModel.from_pretrained(
             self.config.name_or_path,
             config=model_config,
@@ -76,8 +72,6 @@ class BiencoderModelFactory(ModelFactory):
 
         if not self.config.disable_activation_checkpoint:
             model.encoder.gradient_checkpointing_enable()
-            model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(
-                model.encoder
-            )
+            model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(model.encoder)
 
         return model

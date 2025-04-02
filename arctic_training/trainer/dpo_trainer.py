@@ -74,9 +74,7 @@ def get_logprobs(
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == ignore_label_index] = 0
 
-    per_token_logps = torch.gather(
-        logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)
-    ).squeeze(2)
+    per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
     return (per_token_logps * loss_mask).sum(-1), loss_mask.sum(-1)
 
@@ -110,9 +108,7 @@ class DPOTrainerConfig(TrainerConfig):
 
     @field_validator("ref_model", mode="before")
     @classmethod
-    def init_ref_model_config(
-        cls, v: Union[Dict, ModelConfig], info: ValidationInfo
-    ) -> ModelConfig:
+    def init_ref_model_config(cls, v: Union[Dict, ModelConfig], info: ValidationInfo) -> ModelConfig:
         subconfig = cls._get_subconfig_object(
             v=v,
             info=info,
@@ -124,14 +120,9 @@ class DPOTrainerConfig(TrainerConfig):
     @model_validator(mode="after")
     def update_deepspeed_dpo_config(self) -> Self:
         """Updates deepspeed config for DPO Trainer."""
-        self.deepspeed["train_micro_batch_size_per_gpu"] = int(
-            self.micro_batch_size * 2
-        )
+        self.deepspeed["train_micro_batch_size_per_gpu"] = int(self.micro_batch_size * 2)
         self.deepspeed["train_batch_size"] = int(
-            self.micro_batch_size
-            * self.gradient_accumulation_steps
-            * self.world_size
-            * 2
+            self.micro_batch_size * self.gradient_accumulation_steps * self.world_size * 2
         )
         return self
 
@@ -146,9 +137,7 @@ class DPOTrainerConfig(TrainerConfig):
 
         ref_model_deepspeed = dict(
             train_batch_size=self.deepspeed["train_batch_size"],
-            train_micro_batch_size_per_gp=self.deepspeed[
-                "train_micro_batch_size_per_gpu"
-            ],
+            train_micro_batch_size_per_gp=self.deepspeed["train_micro_batch_size_per_gpu"],
             steps_per_print=self.deepspeed["steps_per_print"],
             zero_optimization=dict(
                 stage=3 if self.deepspeed["zero_optimization"]["stage"] == 3 else 0,
@@ -170,9 +159,7 @@ def init_ref_model(self: "DPOTrainer") -> None:
     )  # Be explicit about which model config to use
     self.ref_model = ref_model_factory()
     # wrap the model with deepspeed
-    self.ref_model, *_ = deepspeed.initialize(
-        model=self.ref_model, config=self.config.reference_model_deepspeed
-    )
+    self.ref_model, *_ = deepspeed.initialize(model=self.ref_model, config=self.config.reference_model_deepspeed)
 
 
 def init_liger_dpo_loss(self: "DPOTrainer") -> None:
@@ -210,9 +197,7 @@ class DPOTrainer(Trainer):
             output_hidden_states=True,
         )
         logits = outputs.logits.to(torch.float32)
-        logprobs, completion_sizes = get_logprobs(
-            logits, batch["labels"], self.config.ignore_label_index
-        )
+        logprobs, completion_sizes = get_logprobs(logits, batch["labels"], self.config.ignore_label_index)
         return logits, logprobs, completion_sizes, outputs.hidden_states[-1]
 
     def forward_reference_model(
@@ -226,9 +211,7 @@ class DPOTrainer(Trainer):
                 output_hidden_states=True,
             )
             logits = output.logits.to(torch.float32)
-            logprobs, completion_sizes = get_logprobs(
-                logits, batch["labels"], self.config.ignore_label_index
-            )
+            logprobs, completion_sizes = get_logprobs(logits, batch["labels"], self.config.ignore_label_index)
         return (
             logits.detach(),
             logprobs.detach(),
@@ -262,21 +245,15 @@ class DPOTrainer(Trainer):
             -F.logsigmoid(self.config.beta * logits) * (1 - self.config.label_smoothing)
             - F.logsigmoid(-self.config.beta * logits) * self.config.label_smoothing
         )
-        chosen_rewards = (
-            self.config.beta * (chosen_logprobs - ref_chosen_logprobs).detach()
-        )
-        rejected_rewards = (
-            self.config.beta * (rejected_logprobs - ref_rejected_logprobs).detach()
-        )
+        chosen_rewards = self.config.beta * (chosen_logprobs - ref_chosen_logprobs).detach()
+        rejected_rewards = self.config.beta * (rejected_logprobs - ref_rejected_logprobs).detach()
 
         return losses, chosen_rewards, rejected_rewards
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
-        ref_logits, ref_logprobs, _, ref_hidden_state = self.forward_reference_model(
-            batch
-        )
+        ref_logits, ref_logprobs, _, ref_hidden_state = self.forward_reference_model(batch)
         logits, logprobs, _, hidden_state = self.forward_model(batch)
 
         # Activate if we have liger kernel
@@ -289,8 +266,6 @@ class DPOTrainer(Trainer):
                 ref_weight=self.ref_model.module.lm_head.weight,
             )
         else:
-            losses, chosen_rewards, rejected_rewards = self.dpo_loss(
-                logprobs, ref_logprobs
-            )
+            losses, chosen_rewards, rejected_rewards = self.dpo_loss(logprobs, ref_logprobs)
 
         return losses.mean()

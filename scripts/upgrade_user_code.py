@@ -37,9 +37,7 @@ def update_file(file_path: Path):
     for attr in class_attrs:
         content = re.sub(
             rf"{attr}\s*=\s*([A-Za-z_][A-Za-z0-9_]*)",
-            lambda match, attr_name=attr.replace(
-                "_type", ""
-            ): f"{attr_name}: {match.group(1)}",
+            lambda match, attr_name=attr.replace("_type", ""): f"{attr_name}: {match.group(1)}",
             content,
         )
 
@@ -51,9 +49,7 @@ def update_file(file_path: Path):
     for attr in class_attrs:
         content = re.sub(
             rf"{attr}\s*=\s*\[([A-Za-z0-9_,\s]+)\]",
-            lambda match, attr_name=attr.replace("_type", ""): replace_with_union(
-                match, attr_name
-            ),
+            lambda match, attr_name=attr.replace("_type", ""): replace_with_union(match, attr_name),
             content,
         )
 

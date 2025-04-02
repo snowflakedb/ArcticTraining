@@ -23,9 +23,7 @@ from arctic_training.config.wandb import WandBConfig
 
 
 def test_wandb_callback():
-    pytest.skip(
-        "Skipping test for now until we refactor to use a proper DummyTrainer class"
-    )
+    pytest.skip("Skipping test for now until we refactor to use a proper DummyTrainer class")
     os.environ["WANDB_MODE"] = "offline"
     wandb_config = WandBConfig(
         enable=True,

@@ -93,9 +93,7 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
             and self.config.save_every_n_steps
             and self.trainer.global_step > 0
         ):
-            return_value = (
-                self.trainer.global_step % self.config.save_every_n_steps == 0
-            )
+            return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
         if self.config.save_every_n_epochs:
             return_value = (self.trainer.epoch_idx > 0) and (
                 self.trainer.epoch_idx % self.config.save_every_n_epochs
@@ -107,9 +105,7 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def checkpoint_dir(self) -> Path:
         """Returns the directory where the checkpoint will be saved."""
-        checkpoint_dir = (
-            self.config.output_dir / f"global_step_{self.trainer.global_step}"
-        )
+        checkpoint_dir = self.config.output_dir / f"global_step_{self.trainer.global_step}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         return checkpoint_dir
 

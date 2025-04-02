@@ -58,39 +58,21 @@ class EvalConfig:
             self.task = "bird"
             # Now update the attributes from the loaded YAML data
             self.train_dir = yaml_data["bird"]["train"]["data_dir"]
-            self.train_db_folder_path = Path(
-                os.path.join(self.train_dir, yaml_data["bird"]["train"]["db_folder"])
-            )
-            self.tables_json_path = Path(
-                os.path.join(
-                    self.train_dir, yaml_data["bird"]["train"]["tables_json_name"]
-                )
-            )
+            self.train_db_folder_path = Path(os.path.join(self.train_dir, yaml_data["bird"]["train"]["db_folder"]))
+            self.tables_json_path = Path(os.path.join(self.train_dir, yaml_data["bird"]["train"]["tables_json_name"]))
             self.train_question_file_path = Path(
-                os.path.join(
-                    self.train_dir, yaml_data["bird"]["train"]["question_file"]
-                )
+                os.path.join(self.train_dir, yaml_data["bird"]["train"]["question_file"])
             )
 
             self.dev_dir = yaml_data["bird"]["dev"]["data_dir"]
-            self.dev_db_folder_path = Path(
-                os.path.join(self.dev_dir, yaml_data["bird"]["dev"]["db_folder"])
-            )
-            self.dev_tables_json_path = Path(
-                os.path.join(self.dev_dir, yaml_data["bird"]["dev"]["tables_json_name"])
-            )
-            self.dev_question_file_path = Path(
-                os.path.join(self.dev_dir, yaml_data["bird"]["dev"]["question_file"])
-            )
+            self.dev_db_folder_path = Path(os.path.join(self.dev_dir, yaml_data["bird"]["dev"]["db_folder"]))
+            self.dev_tables_json_path = Path(os.path.join(self.dev_dir, yaml_data["bird"]["dev"]["tables_json_name"]))
+            self.dev_question_file_path = Path(os.path.join(self.dev_dir, yaml_data["bird"]["dev"]["question_file"]))
 
             self.test_dir = yaml_data["bird"]["test"]["data_dir"]
-            self.test_db_folder_path = Path(
-                os.path.join(self.test_dir, yaml_data["bird"]["test"]["db_folder"])
-            )
+            self.test_db_folder_path = Path(os.path.join(self.test_dir, yaml_data["bird"]["test"]["db_folder"]))
             self.test_tables_json_path = Path(
-                os.path.join(
-                    self.test_dir, yaml_data["bird"]["test"]["tables_json_name"]
-                )
+                os.path.join(self.test_dir, yaml_data["bird"]["test"]["tables_json_name"])
             )
             self.test_question_file_path = Path(
                 os.path.join(self.test_dir, yaml_data["bird"]["test"]["question_file"])
@@ -98,51 +80,31 @@ class EvalConfig:
         elif "spider" in yaml_data:
             self.task = "spider"
             self.train_dir = yaml_data["spider"]["train"]["data_dir"]
-            self.train_db_folder_path = Path(
-                os.path.join(self.train_dir, yaml_data["spider"]["train"]["db_folder"])
-            )
+            self.train_db_folder_path = Path(os.path.join(self.train_dir, yaml_data["spider"]["train"]["db_folder"]))
             self.tables_json_path = Path(
-                os.path.join(
-                    self.train_dir, yaml_data["spider"]["train"]["tables_json_name"]
-                )
+                os.path.join(self.train_dir, yaml_data["spider"]["train"]["tables_json_name"])
             )
             self.train_question_file_path = Path(
-                os.path.join(
-                    self.train_dir, yaml_data["spider"]["train"]["question_set_file"]
-                )
+                os.path.join(self.train_dir, yaml_data["spider"]["train"]["question_set_file"])
             )
             self.train_question_other_file_path = Path(
-                os.path.join(
-                    self.train_dir, yaml_data["spider"]["train"]["question_other_file"]
-                )
+                os.path.join(self.train_dir, yaml_data["spider"]["train"]["question_other_file"])
             )
 
             self.dev_dir = yaml_data["spider"]["dev"]["data_dir"]
-            self.dev_db_folder_path = Path(
-                os.path.join(self.dev_dir, yaml_data["spider"]["dev"]["db_folder"])
-            )
+            self.dev_db_folder_path = Path(os.path.join(self.dev_dir, yaml_data["spider"]["dev"]["db_folder"]))
             self.dev_tables_json_path = Path(
-                os.path.join(
-                    self.dev_dir, yaml_data["spider"]["dev"]["tables_json_name"]
-                )
+                os.path.join(self.dev_dir, yaml_data["spider"]["dev"]["tables_json_name"])
             )
-            self.dev_question_file_path = Path(
-                os.path.join(self.dev_dir, yaml_data["spider"]["dev"]["question_file"])
-            )
+            self.dev_question_file_path = Path(os.path.join(self.dev_dir, yaml_data["spider"]["dev"]["question_file"]))
 
             self.test_dir = yaml_data["spider"]["test"]["data_dir"]
-            self.test_db_folder_path = Path(
-                os.path.join(self.test_dir, yaml_data["spider"]["test"]["db_folder"])
-            )
+            self.test_db_folder_path = Path(os.path.join(self.test_dir, yaml_data["spider"]["test"]["db_folder"]))
             self.test_tables_json_path = Path(
-                os.path.join(
-                    self.test_dir, yaml_data["spider"]["test"]["tables_json_name"]
-                )
+                os.path.join(self.test_dir, yaml_data["spider"]["test"]["tables_json_name"])
             )
             self.test_question_file_path = Path(
-                os.path.join(
-                    self.test_dir, yaml_data["spider"]["test"]["question_file"]
-                )
+                os.path.join(self.test_dir, yaml_data["spider"]["test"]["question_file"])
             )
 
 
@@ -279,10 +241,7 @@ def create_db_schema(db_metadata: Dict[str, Any], db_path: str) -> str:
                 ref_text = f"{table_name}.{col_name}={ref_table_name}.{ref_col_name}"
 
             # Append formatted column description
-            column_desc = (
-                f"{col_name} [ {col_type.upper()} ] ( {sample_str} )"
-                f" {primary_key_text} {ref_text}"
-            )
+            column_desc = f"{col_name} [ {col_type.upper()} ] ( {sample_str} ) {primary_key_text} {ref_text}"
             output.append(column_desc.strip())
 
         output.append("")  # Add a blank line between tables
@@ -327,8 +286,7 @@ def load_bird_dataset(data_config: EvalConfig, mode: str, cache_dir: str):
     )
     db_schema_generator = create_db_schema
     db_desc_str = {
-        db_id: db_schema_generator(raw_metadata[db_id], get_db_path(db_folder, db_id))
-        for db_id in raw_metadata
+        db_id: db_schema_generator(raw_metadata[db_id], get_db_path(db_folder, db_id)) for db_id in raw_metadata
     }
 
     return db_desc_str, questions, db_folder
@@ -360,14 +318,10 @@ def load_spider_dataset(data_config: EvalConfig, mode: str, cache_dir: str):
             questions_other = json.load(f)
         questions += questions_other
 
-    questions = [
-        {"db_id": q["db_id"], "question": q["question"], "SQL": q["query"]}
-        for q in questions
-    ]
+    questions = [{"db_id": q["db_id"], "question": q["question"], "SQL": q["query"]} for q in questions]
     db_schema_generator = create_db_schema
     db_desc_str = {
-        db_id: db_schema_generator(raw_metadata[db_id], get_db_path(db_folder, db_id))
-        for db_id in raw_metadata
+        db_id: db_schema_generator(raw_metadata[db_id], get_db_path(db_folder, db_id)) for db_id in raw_metadata
     }
 
     return db_desc_str, questions, db_folder
@@ -376,9 +330,7 @@ def load_spider_dataset(data_config: EvalConfig, mode: str, cache_dir: str):
 class SqlTask:
     """Wrapper for SQL environment, question, ground truth, and LLM template."""
 
-    def __init__(
-        self, db_id: str, db_desc: str, db_path: str, ground_truth: str = None
-    ):
+    def __init__(self, db_id: str, db_desc: str, db_path: str, ground_truth: str = None):
         self.db_id = db_id
         self.ground_truth = ground_truth
         self.db_desc = db_desc

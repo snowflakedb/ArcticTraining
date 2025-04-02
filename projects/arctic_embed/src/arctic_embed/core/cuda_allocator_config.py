@@ -42,11 +42,7 @@ class CudaAllocatorConfig(NamedTuple):
 
     @property
     def env(self) -> Dict[str, str]:
-        return {
-            "PYTORCH_CUDA_ALLOC_CONF": ",".join(
-                f"{k}:{v}" for k, v in self._asdict().items() if v is not None
-            )
-        }
+        return {"PYTORCH_CUDA_ALLOC_CONF": ",".join(f"{k}:{v}" for k, v in self._asdict().items() if v is not None)}
 
     def set_env(self) -> None:
         logger.info(f"Setting cuda memory allocator config variable {self.env}")
