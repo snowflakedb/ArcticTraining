@@ -50,10 +50,7 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
                 "params": [
                     p
                     for n, p in model.named_parameters()
-                    if (
-                        not any(nd in n.lower() for nd in no_decay_name_list)
-                        and p.requires_grad
-                    )
+                    if (not any(nd in n.lower() for nd in no_decay_name_list) and p.requires_grad)
                 ],
                 "weight_decay": weight_decay,
             },
@@ -61,10 +58,7 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
                 "params": [
                     p
                     for n, p in model.named_parameters()
-                    if (
-                        any(nd in n.lower() for nd in no_decay_name_list)
-                        and p.requires_grad
-                    )
+                    if (any(nd in n.lower() for nd in no_decay_name_list) and p.requires_grad)
                 ],
                 "weight_decay": 0.0,
             },
@@ -77,9 +71,7 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
         return non_empty_groups
 
     def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
-        optimizer_grouped_params = self.get_optimizer_grouped_params(
-            model, optimizer_config.weight_decay
-        )
+        optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
         optimizer = FusedAdam(
             optimizer_grouped_params,
             lr=optimizer_config.learning_rate,
@@ -92,9 +84,7 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
     name = "cpu_adam"
 
     def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
-        optimizer_grouped_params = self.get_optimizer_grouped_params(
-            model, optimizer_config.weight_decay
-        )
+        optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
         optimizer = DeepSpeedCPUAdam(
             optimizer_grouped_params,
             lr=optimizer_config.learning_rate,

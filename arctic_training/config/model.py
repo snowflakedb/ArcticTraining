@@ -61,9 +61,7 @@ class ModelConfig(BaseConfig):
 
     @field_validator("peft_config", mode="before")
     @classmethod
-    def get_peft_config_type(
-        cls, value: Union[None, Dict[str, Any]]
-    ) -> Optional[PeftConfig]:
+    def get_peft_config_type(cls, value: Union[None, Dict[str, Any]]) -> Optional[PeftConfig]:
         if value is None:
             return value
 
@@ -71,16 +69,9 @@ class ModelConfig(BaseConfig):
             raise ValueError("No 'peft_type' specified in PEFT config.")
         peft_type = value.pop("peft_type")
 
-        valid_peft_types = [
-            key.removesuffix("Config")
-            for key in peft.__dict__.keys()
-            if key.endswith("Config")
-        ]
+        valid_peft_types = [key.removesuffix("Config") for key in peft.__dict__.keys() if key.endswith("Config")]
         if peft_type not in valid_peft_types:
-            raise ValueError(
-                f"PEFT type {peft_type} config not found. Valid PEFT types are:"
-                f" {valid_peft_types}"
-            )
+            raise ValueError(f"PEFT type {peft_type} config not found. Valid PEFT types are: {valid_peft_types}")
 
         config_cls = getattr(peft, f"{peft_type}Config")
         return config_cls(**value)

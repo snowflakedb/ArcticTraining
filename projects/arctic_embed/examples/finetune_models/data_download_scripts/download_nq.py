@@ -44,9 +44,7 @@ if __name__ == "__main__":
     print(f"Reducing documents from {len(dids):,} to {len(dids_unique):,} by deduping.")
 
     # Construct tables and write to disk.
-    table_query = pa.table(
-        {"QUERY_ID": qids_unique, "QUERY_TEXT": np.asarray(nq_train["query"])[qidx]}
-    )
+    table_query = pa.table({"QUERY_ID": qids_unique, "QUERY_TEXT": np.asarray(nq_train["query"])[qidx]})
     table_document = pa.table(
         {
             "DOCUMENT_ID": dids_unique,
@@ -54,9 +52,7 @@ if __name__ == "__main__":
         }
     )
     table_labels = pa.Table.from_pandas(
-        pd.DataFrame({"QUERY_ID": qids, "DOCUMENT_ID": dids}).drop_duplicates(
-            keep="first"
-        ),
+        pd.DataFrame({"QUERY_ID": qids, "DOCUMENT_ID": dids}).drop_duplicates(keep="first"),
         preserve_index=False,
     )
     print(f"Reducing labels from {len(qids):,} to {len(table_labels):,} by deduping.")

@@ -177,9 +177,7 @@ class TrainerConfig(BaseConfig):
             config_dict = v
         else:
             # Must exclude computed fields to avoid validation errors
-            config_dict = v.model_dump(
-                exclude={"local_rank", "global_rank", "world_size"}
-            )
+            config_dict = v.model_dump(exclude={"local_rank", "global_rank", "world_size"})
 
         # Determine which attribute class to use (e.g., for `model`:
         # HFModelFactory, LigerModelFactory, etc.)
@@ -191,10 +189,7 @@ class TrainerConfig(BaseConfig):
             attr_cls = attribute_type_hints[0]
 
         # Check that the requested/resolved type is compatible with the trainer
-        if (
-            not info.data.get("skip_validation")
-            and attr_cls not in attribute_type_hints
-        ):
+        if not info.data.get("skip_validation") and attr_cls not in attribute_type_hints:
             raise ValueError(
                 f"{attr_cls.__name__} is not supported for {attr_name} in"
                 f" {trainer_cls.__name__}. Supported types are"
@@ -236,9 +231,7 @@ class TrainerConfig(BaseConfig):
 
     @field_validator("data", mode="before")
     @classmethod
-    def init_data_config(
-        cls, v: Union[Dict, DataConfig], info: ValidationInfo
-    ) -> DataConfig:
+    def init_data_config(cls, v: Union[Dict, DataConfig], info: ValidationInfo) -> DataConfig:
         subconfig = cls._get_subconfig_object(
             v=v,
             info=info,
@@ -249,9 +242,7 @@ class TrainerConfig(BaseConfig):
 
     @field_validator("model", mode="before")
     @classmethod
-    def init_model_config(
-        cls, v: Union[Dict, ModelConfig], info: ValidationInfo
-    ) -> ModelConfig:
+    def init_model_config(cls, v: Union[Dict, ModelConfig], info: ValidationInfo) -> ModelConfig:
         subconfig = cls._get_subconfig_object(
             v=v,
             info=info,
@@ -262,9 +253,7 @@ class TrainerConfig(BaseConfig):
 
     @field_validator("optimizer", mode="before")
     @classmethod
-    def init_optimizer_config(
-        cls, v: Union[Dict, OptimizerConfig], info: ValidationInfo
-    ) -> OptimizerConfig:
+    def init_optimizer_config(cls, v: Union[Dict, OptimizerConfig], info: ValidationInfo) -> OptimizerConfig:
         subconfig = cls._get_subconfig_object(
             v=v,
             info=info,
@@ -275,9 +264,7 @@ class TrainerConfig(BaseConfig):
 
     @field_validator("scheduler", mode="before")
     @classmethod
-    def init_scheduler_config(
-        cls, v: Union[Dict, SchedulerConfig], info: ValidationInfo
-    ) -> SchedulerConfig:
+    def init_scheduler_config(cls, v: Union[Dict, SchedulerConfig], info: ValidationInfo) -> SchedulerConfig:
         subconfig = cls._get_subconfig_object(
             v=v,
             info=info,
@@ -288,9 +275,7 @@ class TrainerConfig(BaseConfig):
 
     @field_validator("tokenizer", mode="before")
     @classmethod
-    def init_tokenizer_config(
-        cls, v: Union[Dict, TokenizerConfig], info: ValidationInfo
-    ) -> TokenizerConfig:
+    def init_tokenizer_config(cls, v: Union[Dict, TokenizerConfig], info: ValidationInfo) -> TokenizerConfig:
         subconfig = cls._get_subconfig_object(
             v=v,
             info=info,
@@ -302,9 +287,7 @@ class TrainerConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_eval_frequency(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
-            assert (
-                self.eval_frequency > 0
-            ), "eval_frequency must be set if eval dataset is provided."
+            assert self.eval_frequency > 0, "eval_frequency must be set if eval dataset is provided."
         return self
 
     @model_validator(mode="after")
@@ -325,9 +308,7 @@ class TrainerConfig(BaseConfig):
     def build_deepspeed_config(self) -> Self:
         ds_config = self.deepspeed
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_batch_size
-        ds_config["train_batch_size"] = (
-            self.micro_batch_size * self.gradient_accumulation_steps * self.world_size
-        )
+        ds_config["train_batch_size"] = self.micro_batch_size * self.gradient_accumulation_steps * self.world_size
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
         ds_config["zero_optimization"] = ds_config.get(
             "zero_optimization",
@@ -353,9 +334,7 @@ class TrainerConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_single_checkpoint_resume(self) -> Self:
         resume_checkpoint_values = [c.auto_resume for c in self.checkpoint]
-        assert (
-            sum(resume_checkpoint_values) <= 1
-        ), "Only one checkpoint can auto resume."
+        assert sum(resume_checkpoint_values) <= 1, "Only one checkpoint can auto resume."
         return self
 
 

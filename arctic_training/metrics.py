@@ -28,9 +28,7 @@ if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
 
-def gather_object(
-    number: Union[float, int], world_size: int
-) -> List[Union[float, int]]:
+def gather_object(number: Union[float, int], world_size: int) -> List[Union[float, int]]:
     output = [None] * world_size
     torch.distributed.all_gather_object(output, number)
     return cast(List[Union[float, int]], output)
@@ -60,9 +58,7 @@ class Metrics:
 
         # Set max_iter based on when we expect to exit training
         if self.trainer.config.exit_iteration > 0:
-            self.max_iter = min(
-                self.trainer.config.exit_iteration, self.trainer.training_horizon
-            )
+            self.max_iter = min(self.trainer.config.exit_iteration, self.trainer.training_horizon)
         else:
             self.max_iter = self.trainer.training_horizon
         self.max_iter_pad = len(str(self.max_iter))
@@ -104,13 +100,7 @@ class Metrics:
         """Given a sequence length, estimates the number of floating point operations required to run the model."""
         return (
             seq_len * self.model_size * 2 * 4
-            + self.model_num_layers
-            * seq_len
-            * seq_len
-            * self.model_hidden_size
-            * 2
-            * 2
-            * 4
+            + self.model_num_layers * seq_len * seq_len * self.model_hidden_size * 2 * 2 * 4
         ) / 1e12
 
     def get_value(self, key: str) -> Union[int, float]:
@@ -137,30 +127,21 @@ class Metrics:
             )
 
         if "loss" in self.values:
-            loss = (
-                sum(gather_object(self.values["loss"], self.trainer.world_size))
-                / self.trainer.world_size
-            )
+            loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size
             self.summary_dict["loss"] = loss
 
         if "iter_time" in self.values:
-            iter_time_total = sum(
-                gather_object(self.values["iter_time"], self.trainer.world_size)
-            )
+            iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
             self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
             if tflos_total > 0:
                 self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
 
         if "seqlen" in self.values:
-            seq_len_total = sum(
-                gather_object(self.values["seqlen"], self.trainer.world_size)
-            )
+            seq_len_total = sum(gather_object(self.values["seqlen"], self.trainer.world_size))
             self.summary_dict["seqlen_total"] = seq_len_total
 
         if "step_time" in self.values:
-            step_time_total = sum(
-                gather_object(self.values["step_time"], self.trainer.world_size)
-            )
+            step_time_total = sum(gather_object(self.values["step_time"], self.trainer.world_size))
             self.summary_dict["step_time"] = step_time_total / self.trainer.world_size
             if tflos_total > 0:
                 self.summary_dict["step_tflops"] = tflos_total / step_time_total

@@ -132,11 +132,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             training_data, evaluation_data = self.split_data(training_data)
 
         training_dataloader = self.create_dataloader(training_data)
-        evaluation_dataloader = (
-            self.create_dataloader(evaluation_data)
-            if evaluation_data is not None
-            else None
-        )
+        evaluation_dataloader = self.create_dataloader(evaluation_data) if evaluation_data is not None else None
 
         return training_dataloader, evaluation_dataloader
 
@@ -170,9 +166,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         """The total number of processes in the world."""
         return self.config.world_size
 
-    def _get_data_sources(
-        self, data_source_configs: List[DataSourceConfig]
-    ) -> List["DataSource"]:
+    def _get_data_sources(self, data_source_configs: List[DataSourceConfig]) -> List["DataSource"]:
         data_sources = []
         for config in data_source_configs:
             data_source = config.data_source(data_factory=self, config=config)
@@ -204,14 +198,10 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     @callback_wrapper("process")
     def process(self, dataset: DatasetType) -> DatasetType:
         """Process the dataset (e.g., tokenization for text data)."""
-        raise NotImplementedError(
-            "tokenize must be implemented by DataFactory subclass."
-        )
+        raise NotImplementedError("tokenize must be implemented by DataFactory subclass.")
 
     @callback_wrapper("split")
-    def split_data(
-        self, training_data: DatasetType
-    ) -> Tuple[DatasetType, Optional[DatasetType]]:
+    def split_data(self, training_data: DatasetType) -> Tuple[DatasetType, Optional[DatasetType]]:
         """Split the training data into training and evaluation datasets."""
         datasets = training_data.train_test_split(
             test_size=self.config.train_eval_split[1],
@@ -229,9 +219,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(
-                dataset, num_replicas=self.world_size, rank=self.global_rank
-            ),
+            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

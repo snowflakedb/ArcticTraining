@@ -62,9 +62,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __call__(self) -> DatasetType:
         disable_caching()
         if self.cache_path.exists():
-            logger.info(
-                f"Loading data source from cache path {self.cache_path.as_posix()}"
-            )
+            logger.info(f"Loading data source from cache path {self.cache_path.as_posix()}")
             return load_from_disk(self.cache_path.as_posix())
 
         dataset = self.load(self.config, self.config.split)
