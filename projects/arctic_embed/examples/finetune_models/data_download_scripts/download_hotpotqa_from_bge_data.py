@@ -36,9 +36,7 @@ if __name__ == "__main__":
 
     # Load the data.
     print("Loading data from `sentence-transformers/hotpotqa`")
-    df_triplet = load_dataset(
-        "sentence-transformers/hotpotqa", "triplet-all", split="train"
-    ).to_pandas()
+    df_triplet = load_dataset("sentence-transformers/hotpotqa", "triplet-all", split="train").to_pandas()
 
     # Get the unique docs.
     print("Finding the unique docs")
@@ -70,24 +68,16 @@ if __name__ == "__main__":
     del unique_pairs
 
     # Put together the tables.
-    table_query = pa.table(
-        {"QUERY_ID": query_ids_array, "QUERY_TEXT": query_texts_array}
-    )
-    table_document = pa.table(
-        {"DOCUMENT_ID": doc_ids_array, "DOCUMENT_TEXT": doc_texts_array}
-    )
-    table_labels = pa.table(
-        {"QUERY_ID": relation_qids_array, "DOCUMENT_ID": relation_dids}
-    )
+    table_query = pa.table({"QUERY_ID": query_ids_array, "QUERY_TEXT": query_texts_array})
+    table_document = pa.table({"DOCUMENT_ID": doc_ids_array, "DOCUMENT_TEXT": doc_texts_array})
+    table_labels = pa.table({"QUERY_ID": relation_qids_array, "DOCUMENT_ID": relation_dids})
 
     # Ensure all relation ids are in the query and doc tables.
     missing_doc_ids = np.setdiff1d(
         table_labels["DOCUMENT_ID"].to_numpy(),
         table_document["DOCUMENT_ID"].to_numpy(),
     )
-    missing_query_ids = np.setdiff1d(
-        table_labels["QUERY_ID"].to_numpy(), table_query["QUERY_ID"].to_numpy()
-    )
+    missing_query_ids = np.setdiff1d(table_labels["QUERY_ID"].to_numpy(), table_query["QUERY_ID"].to_numpy())
     assert missing_doc_ids.shape[0] == 0
     assert missing_query_ids.shape[0] == 0
 

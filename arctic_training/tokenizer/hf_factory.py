@@ -27,8 +27,5 @@ class HFTokenizerFactory(TokenizerFactory):
         tokenizer = AutoTokenizer.from_pretrained(self.config.name_or_path)
         if not hasattr(tokenizer, "pad_token") or tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-            logger.warning(
-                f"Tokenizer {self.config.name_or_path} does not have pad"
-                " token, we set it to eos token!"
-            )
+            logger.warning(f"Tokenizer {self.config.name_or_path} does not have pad token, we set it to eos token!")
         return tokenizer

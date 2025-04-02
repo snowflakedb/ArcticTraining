@@ -52,9 +52,7 @@ class HFDataSource(DataSource):
             if isinstance(dataset, DatasetDict):
                 dataset = dataset[split]
         else:
-            dataset = load_dataset(
-                str(config.name_or_path), split=split, **config.kwargs
-            )
+            dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
 
         return dataset
 
@@ -181,9 +179,7 @@ class UltraFeedbackBinarized(HFDataSource):
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         dataset = dataset.select_columns(["chosen", "rejected"])
-        formatted_dataset = dataset.map(
-            self.split_prompt_content, desc="Loading ultrafeedback binarized"
-        )
+        formatted_dataset = dataset.map(self.split_prompt_content, desc="Loading ultrafeedback binarized")
         return formatted_dataset
 
     @staticmethod

@@ -59,9 +59,7 @@ def read_reuslts(data_result: List[Dict]):
         custom_id = int(result["custom_id"].split("_")[-1])
         if result["error"] is None:
             try:
-                choices = result["response"]["body"][
-                    "choices"
-                ]  # [0]['message']['content']
+                choices = result["response"]["body"]["choices"]  # [0]['message']['content']
                 for choice in choices:
                     text = choice["message"]["content"]
                     if custom_id not in result_dict:
@@ -85,9 +83,7 @@ def verify_one_line(check_row, bird_source, db_folder):
     assert bird_source[custom_id]["question"] == question
     db_path = get_db_path(db_folder, db_id)
 
-    task = SqlTask(
-        db_id=db_id, ground_truth=golden_answer, db_desc=schema, db_path=db_path
-    )
+    task = SqlTask(db_id=db_id, ground_truth=golden_answer, db_desc=schema, db_path=db_path)
     task.launch_env()
     for answer in check_row["all_generated_queries"]:
         extracted_sql = _extract_sql(answer)
@@ -132,8 +128,7 @@ def check_correctness(checking_list, db_desc_str, db_folder, bird_source, timeou
             check_sub_list = checking_list[cid : cid + chunk_size]
             with Pool(num_process) as p:
                 async_results = [
-                    p.apply_async(wrapper, ((check_row, bird_source, db_folder),))
-                    for check_row in check_sub_list
+                    p.apply_async(wrapper, ((check_row, bird_source, db_folder),)) for check_row in check_sub_list
                 ]
 
                 for async_result in async_results:
@@ -174,14 +169,10 @@ class Verifier:
         output_path: str,
     ):
         if self.data_config.task == "bird":
-            db_desc_str, questions, db_folder = load_bird_dataset(
-                self.data_config, "train", self.cache_dir
-            )
+            db_desc_str, questions, db_folder = load_bird_dataset(self.data_config, "train", self.cache_dir)
 
         elif self.data_config.task == "spider":
-            db_desc_str, questions, db_folder = load_spider_dataset(
-                self.data_config, "train", self.cache_dir
-            )
+            db_desc_str, questions, db_folder = load_spider_dataset(self.data_config, "train", self.cache_dir)
 
         if gpt_path is not None:
             gpt_json = read_jsonl(gpt_path)
@@ -192,9 +183,7 @@ class Verifier:
             for i, row in enumerate(generated_dataset):
                 assert row["custom_id"] == i
                 generated_results[i] = {}
-                generated_results[i]["all_generated_queries"] = row[
-                    "all_generated_queries"
-                ]
+                generated_results[i]["all_generated_queries"] = row["all_generated_queries"]
         else:
             # This branch should never be reached because of the assert above.
             assert False, "No valid path provided."
@@ -257,12 +246,8 @@ def main():
         "--config-path",
         type=str,
     )
-    parser.add_argument(
-        "--gpt-cot-path", help="Chain of thought file path.", type=str, default=None
-    )
-    parser.add_argument(
-        "--vllm-cot-path", help="Chain of thought file path.", type=str, default=None
-    )
+    parser.add_argument("--gpt-cot-path", help="Chain of thought file path.", type=str, default=None)
+    parser.add_argument("--vllm-cot-path", help="Chain of thought file path.", type=str, default=None)
     parser.add_argument(
         "--output-path",
         help="original dataset path",

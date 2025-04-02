@@ -29,6 +29,4 @@ def test_min_iterations(model_name: str, tmp_path: Path):
 
     trainer_dataloader, _ = data_factory()
 
-    assert (
-        len(trainer_dataloader) == 20
-    ), "Dataloader did not have the correct number of batches"
+    assert len(trainer_dataloader) == 20, "Dataloader did not have the correct number of batches"

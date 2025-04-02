@@ -25,9 +25,7 @@ from .utils import create_sft_data_factory
 def test_huggingface_local_data_source(model_name: str, tmp_path: Path):
     # Load small dataset and save locally with "train" split
     dataset_path = tmp_path / "local_ultrachat"
-    dataset = load_dataset(
-        "HuggingFaceH4/ultrachat_200k", streaming=True, split="train_sft"
-    )
+    dataset = load_dataset("HuggingFaceH4/ultrachat_200k", streaming=True, split="train_sft")
     dataset = Dataset.from_list(list(dataset.take(20)), features=dataset.features)
     DatasetDict(dict(train=dataset)).save_to_disk(dataset_path.as_posix())
 
@@ -45,9 +43,7 @@ def test_huggingface_local_data_source(model_name: str, tmp_path: Path):
 def test_huggingface_local_data_source_no_split(model_name: str, tmp_path: Path):
     # Load small dataset and save locally without splits
     dataset_path = tmp_path / "local_ultrachat"
-    dataset = load_dataset(
-        "HuggingFaceH4/ultrachat_200k", streaming=True, split="train_sft"
-    )
+    dataset = load_dataset("HuggingFaceH4/ultrachat_200k", streaming=True, split="train_sft")
     dataset = Dataset.from_list(list(dataset.take(20)), features=dataset.features)
     dataset.save_to_disk(dataset_path.as_posix())
 

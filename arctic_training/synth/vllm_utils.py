@@ -30,9 +30,7 @@ def check_vllm_servers_health(base_port, num_services):
     # Replace with your server's host and port
     while True:
         remaining_ids = all_ids - ready_ids
-        logger.info(
-            f"All Ids {all_ids}, Ready Ids {ready_ids}, Not Ready Ids {remaining_ids} "
-        )
+        logger.info(f"All Ids {all_ids}, Ready Ids {ready_ids}, Not Ready Ids {remaining_ids} ")
         if len(remaining_ids) == 0:
             break
 
@@ -47,15 +45,9 @@ def check_vllm_servers_health(base_port, num_services):
                     logger.info(f"VLLM server {url} is running.")
                     ready_ids.add(i)
                 else:
-                    logger.info(
-                        f"VLLM server {url} is not running. Status code:"
-                        f" {response.status_code}"
-                    )
+                    logger.info(f"VLLM server {url} is not running. Status code: {response.status_code}")
             except requests.ConnectionError:
-                logger.info(
-                    f"Failed to connect to the VLLM server {url}. It might not be"
-                    " running."
-                )
+                logger.info(f"Failed to connect to the VLLM server {url}. It might not be running.")
             except Exception as e:
                 logger.info(f"An error occurred: {e} at {url}")
 
@@ -69,9 +61,7 @@ It will return the process_ids of the services, along with vllm_url
 """
 
 
-def launch_vllm_servers(
-    model_name, tensor_parallelism, gpu_ids=[0, 1, 2, 3, 4, 5, 6, 7], skip_launch=False
-):
+def launch_vllm_servers(model_name, tensor_parallelism, gpu_ids=[0, 1, 2, 3, 4, 5, 6, 7], skip_launch=False):
     """
     Launches multiple VLLM services based on tensor parallelism and GPU IDs.
 
@@ -103,10 +93,7 @@ def launch_vllm_servers(
 
     # Just return the urls, the assumption is that launch as happened already
     if skip_launch:
-        urls = [
-            f"http://localhost:{base_port + i}/v1/chat/completions"
-            for i in range(num_services)
-        ]
+        urls = [f"http://localhost:{base_port + i}/v1/chat/completions" for i in range(num_services)]
         return processes, urls
 
     # Loading the model in CPU. This will download the model if it has not been already.

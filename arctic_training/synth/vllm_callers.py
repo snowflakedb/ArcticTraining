@@ -69,9 +69,7 @@ class VllmSynth(InMemoryBatchProcessor):
             self.save_batch_task(task_name)
 
         conversations = [request["messages"] for request in requests]
-        outputs = self.llm.chat(
-            messages=conversations, sampling_params=self.sampling_params, use_tqdm=True
-        )
+        outputs = self.llm.chat(messages=conversations, sampling_params=self.sampling_params, use_tqdm=True)
         responses = []
         for request, output in zip(requests, outputs):
             res = {
@@ -80,9 +78,7 @@ class VllmSynth(InMemoryBatchProcessor):
             }
             responses.append(res)
         if self.work_dir is not None:
-            with jsonlines.open(
-                os.path.join(self.work_dir, task_name, "results.jsonl"), "w"
-            ) as writer:
+            with jsonlines.open(os.path.join(self.work_dir, task_name, "results.jsonl"), "w") as writer:
                 writer.write_all(responses)
         return responses
 
@@ -93,10 +89,7 @@ class VllmSynth(InMemoryBatchProcessor):
             extracted.append(
                 {
                     "custom_id": response["custom_id"],
-                    "choices": [
-                        {"content": x["text"], "role": "assistant"}
-                        for x in response["response"]["outputs"]
-                    ],
+                    "choices": [{"content": x["text"], "role": "assistant"} for x in response["response"]["outputs"]],
                 }
             )
         return extracted
@@ -121,9 +114,7 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
 
         # launch vllm servers
         self.model = model_params["model"]
-        self.process_ids, self.vllm_urls = launch_vllm_servers(
-            self.model, tensor_parallel, gpu_ids=gpu_ids
-        )
+        self.process_ids, self.vllm_urls = launch_vllm_servers(self.model, tensor_parallel, gpu_ids=gpu_ids)
 
         if isinstance(sampling_params, dict):
             sampling_params = SamplingParams(**sampling_params)
@@ -167,9 +158,7 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
             timeout = aiohttp.ClientTimeout(total=1000)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 tasks = [
-                    self.generate_response(
-                        session, conversation, self.vllm_urls[i % num_urls]
-                    )
+                    self.generate_response(session, conversation, self.vllm_urls[i % num_urls])
                     for i, conversation in enumerate(conversations)
                 ]
                 return await asyncio.gather(*tasks)
@@ -198,9 +187,7 @@ class MultiReplicaVllmSynth(InMemoryBatchProcessor):
             res = {"custom_id": request["custom_id"], "response": output}
             responses.append(res)
         if self.work_dir is not None:
-            with jsonlines.open(
-                os.path.join(self.work_dir, task_name, "results.jsonl"), "w"
-            ) as writer:
+            with jsonlines.open(os.path.join(self.work_dir, task_name, "results.jsonl"), "w") as writer:
                 writer.write_all(responses)
         return responses
 

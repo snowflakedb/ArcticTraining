@@ -159,10 +159,9 @@ class DataConfig(BaseConfig):
                 self.train_eval_split[0] == 1.0
             ), "train_eval_split should be (1.0, 0.0) when eval_datasets is provided."
         if self.train_eval_split[1] > 0.0:
-            assert not self.eval_sources, (
-                "If you provide the evaluation split, you should not provide the"
-                " evaluation datasets."
-            )
+            assert (
+                not self.eval_sources
+            ), "If you provide the evaluation split, you should not provide the evaluation datasets."
         assert sum(self.train_eval_split) == 1.0, "train_eval_split should sum to 1.0."
         return self
 

@@ -100,9 +100,7 @@ def sample_pairs_v2_1(data):
         current_min_dist = 1000000
         current_min_pair = None
         for i, chosen in enumerate(row["correct_answers"]):
-            reject_idx, reject, min_dist = get_closest_match(
-                chosen, row["wrong_answers"]
-            )
+            reject_idx, reject, min_dist = get_closest_match(chosen, row["wrong_answers"])
             if min_dist < current_min_dist:
                 current_min_dist = min_dist
                 current_min_pair = (chosen, reject)
