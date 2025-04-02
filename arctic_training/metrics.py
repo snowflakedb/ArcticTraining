@@ -23,6 +23,8 @@ from typing import cast
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 
+from arctic_training.utils import human_format_base10_number
+
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
@@ -160,7 +162,7 @@ class Metrics:
             summary_str += f" | iter tflops: {self.summary_dict['iter_tflops']:.1f}"
         summary_str += f" | lr: {self.summary_dict['lr']:.3E}"
         if "seqlen_total" in self.summary_dict:
-            summary_str += f" | seqlen total: {self.summary_dict['seqlen_total']:.1f}"
+            summary_str += f" | seqlen total: {human_format_base10_number(self.summary_dict['seqlen_total'])}"
         if "step_time" in self.summary_dict:
             summary_str += f" | step time: {self.summary_dict['step_time']:.1f} s"
         if "step_tflops" in self.summary_dict:

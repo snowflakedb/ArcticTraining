@@ -315,11 +315,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     and self.wandb_experiment is not None
                 ):
                     self.wandb_experiment.log(
-                        {
-                            k: v
-                            for k, v in self.metrics.summary_dict.items()
-                            if k != "iter"
-                        },
+                        {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
                         step=self.model.global_steps,
                     )
 
