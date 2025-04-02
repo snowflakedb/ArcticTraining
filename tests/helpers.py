@@ -38,9 +38,7 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
     name = "cpu-adam"
 
     def create_optimizer(self, model, optimizer_config):
-        optimizer_grouped_params = self.get_optimizer_grouped_params(
-            model, optimizer_config.weight_decay
-        )
+        optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
         return DeepSpeedCPUAdam(
             optimizer_grouped_params,
             lr=optimizer_config.learning_rate,

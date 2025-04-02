@@ -81,13 +81,9 @@ class OSSEvalVLLM:
         db_desc = db_desc_str[db_id]
 
         if self.prompt_version == "divide-and-conquer":
-            messages = construct_dnc_prompt(
-                db_desc, question["question"], question.get("evidence", None)
-            )
+            messages = construct_dnc_prompt(db_desc, question["question"], question.get("evidence", None))
         else:
-            raise NotImplementedError(
-                f"{self.prompt_version} prompt is not implemented yet."
-            )
+            raise NotImplementedError(f"{self.prompt_version} prompt is not implemented yet.")
 
         if "difficulty" in question:
             difficulty_levels = question["difficulty"]
@@ -101,9 +97,7 @@ class OSSEvalVLLM:
         return {"messages": messages, "difficulty": difficulty_levels, "db_id": db_id}
 
     def batch_dataset(self, questions: Dataset, db_desc_str: Dict):
-        dataset = questions.map(
-            lambda example: self.process_input(example, db_desc_str)
-        )
+        dataset = questions.map(lambda example: self.process_input(example, db_desc_str))
         messages = dataset["messages"]
         output_data = []
 
@@ -116,13 +110,9 @@ class OSSEvalVLLM:
                     "difficulty": row["difficulty"],
                 }
             )
-            self.client.add_chat_to_batch_task(
-                task_name=self.task_name, messages=messages[idx]
-            )
+            self.client.add_chat_to_batch_task(task_name=self.task_name, messages=messages[idx])
 
-        output_data_raw = self.client.extract_messages_from_responses(
-            self.client.execute_batch_task(self.task_name)
-        )
+        output_data_raw = self.client.extract_messages_from_responses(self.client.execute_batch_task(self.task_name))
         for out_i in output_data_raw:
             custom_id = int(out_i["custom_id"].split("_")[-1])
             output_data[custom_id]["model_output"] = out_i["choices"][0]["content"]
@@ -141,9 +131,7 @@ def eval_bird(
     work_dir="./syth_data",
 ):
 
-    db_desc_str, questions, db_folder = load_bird_dataset(
-        eval_config, set_type, cache_dir
-    )
+    db_desc_str, questions, db_folder = load_bird_dataset(eval_config, set_type, cache_dir)
     cot_generator_vllm = OSSEvalVLLM(
         model_name=model_name,
         task_name=task_name,
@@ -164,9 +152,7 @@ def eval_bird(
         db_desc = db_desc_str[db_id]
         db_path = get_db_path(db_folder, db_id)
 
-        task = SqlTask(
-            db_id=db_id, ground_truth=ground_truth, db_desc=db_desc, db_path=db_path
-        )
+        task = SqlTask(db_id=db_id, ground_truth=ground_truth, db_desc=db_desc, db_path=db_path)
         extracted_sql = _extract_sql(model_inference)
         if extracted_sql:
             extracted_sql = extracted_sql.strip()
@@ -212,9 +198,7 @@ def eval_spider(
     max_len=16384,
 ):
 
-    db_desc_str, questions, db_folder = load_spider_dataset(
-        eval_config, set_type, cache_dir
-    )
+    db_desc_str, questions, db_folder = load_spider_dataset(eval_config, set_type, cache_dir)
     if not isinstance(questions, Dataset):
         questions = Dataset.from_list(questions)
     cot_generator_vllm = OSSEvalVLLM(
@@ -236,9 +220,7 @@ def eval_spider(
         db_id = spider_inference["db_id"]
         db_desc = db_desc_str[db_id]
         db_path = get_db_path(db_folder, db_id)
-        task = SqlTask(
-            db_id=db_id, ground_truth=ground_truth, db_desc=db_desc, db_path=db_path
-        )
+        task = SqlTask(db_id=db_id, ground_truth=ground_truth, db_desc=db_desc, db_path=db_path)
         if extracted_sql:
             extracted_sql = extracted_sql.strip()
         else:
@@ -287,15 +269,13 @@ def calculate_metric_bird(eval_results):
             moderate_eval_results.append(eval_res)
         elif eval_res["difficulty"] == "challenging":
             challenging_eval_results.append(eval_res)
-    simple_acc = sum(
-        [1 for eval_res in simple_eval_results if eval_res["correctness"]]
-    ) / len(simple_eval_results)
-    moderate_acc = sum(
-        [1 for eval_res in moderate_eval_results if eval_res["correctness"]]
-    ) / len(moderate_eval_results)
-    challenging_acc = sum(
-        [1 for eval_res in challenging_eval_results if eval_res["correctness"]]
-    ) / len(challenging_eval_results)
+    simple_acc = sum([1 for eval_res in simple_eval_results if eval_res["correctness"]]) / len(simple_eval_results)
+    moderate_acc = sum([1 for eval_res in moderate_eval_results if eval_res["correctness"]]) / len(
+        moderate_eval_results
+    )
+    challenging_acc = sum([1 for eval_res in challenging_eval_results if eval_res["correctness"]]) / len(
+        challenging_eval_results
+    )
 
     correct_num = 0
     for eval_rest in eval_results:
@@ -357,9 +337,7 @@ def calculate_metric_spider(eval_results):
         if eval_result["executed_sql"] is None:
             unexec_num += 1
             continue
-        if (len(eval_result["executed_sql"]) == 1) and isinstance(
-            eval_result["executed_sql"][0], str
-        ):
+        if (len(eval_result["executed_sql"]) == 1) and isinstance(eval_result["executed_sql"][0], str):
             unexec_num += 1
     exec_succ_rate = (len(eval_results) - unexec_num) / len(eval_results)
     return exec_acc, exec_succ_rate
@@ -401,8 +379,7 @@ def main():
         bird_result_dict = calculate_metric_bird(eval_results)
         # Log the results using the logger
         logger.info(
-            "simple acc: %s, moderate acc: %s, challenging acc: %s, avg exec acc: %s,"
-            " avg exec succ rate: %s",
+            "simple acc: %s, moderate acc: %s, challenging acc: %s, avg exec acc: %s, avg exec succ rate: %s",
             bird_result_dict["simple_acc"],
             bird_result_dict["moderate_acc"],
             bird_result_dict["challenging_acc"],
@@ -418,9 +395,7 @@ def main():
             set_type=args.mode,
         )
         exec_acc, exec_succ_rate = calculate_metric_spider(eval_results)
-        logger.info(
-            "avg exec acc: %s, avg exec succ rate: %s", exec_acc, exec_succ_rate
-        )
+        logger.info("avg exec acc: %s, avg exec succ rate: %s", exec_acc, exec_succ_rate)
 
 
 if __name__ == "__main__":

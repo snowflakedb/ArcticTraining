@@ -243,9 +243,7 @@ class PretokenizeAndBatchMinedDataConfig(BaseModel):
     """
 
 
-def _ith_random_subset_idx(
-    total_count: int, subset_size: int, total_splits: int, split_i: int
-) -> NDArray[np.int64]:
+def _ith_random_subset_idx(total_count: int, subset_size: int, total_splits: int, split_i: int) -> NDArray[np.int64]:
     assert split_i < total_splits, f"{split_i=} {total_splits=}"
     total_taken = subset_size * total_splits
     assert total_taken <= total_count, "Requested more items than available"
@@ -309,8 +307,7 @@ def pretokenize_and_batch_query_doc_pairs(
     out_fs.mkdir(config.output_dir, create_parents=True)
     if out_fs.exists(metadata_path):
         logger.warning(
-            f"Metadata file {metadata_path} already exists. This is normal in "
-            "a sharded job and thus will be ignored."
+            f"Metadata file {metadata_path} already exists. This is normal in a sharded job and thus will be ignored."
         )
     else:
         dataset_metadata = {
@@ -320,9 +317,7 @@ def pretokenize_and_batch_query_doc_pairs(
             "query_prefix": config.query_prefix,
             "document_prefix": config.document_prefix,
         }
-        out_fs.write_text(
-            path=metadata_path, value=json.dumps(dataset_metadata, indent=2)
-        )
+        out_fs.write_text(path=metadata_path, value=json.dumps(dataset_metadata, indent=2))
 
     # Go batch by batch, tokenizing and writing to parquet.
     for i, table in enumerate(input_iter):
@@ -333,16 +328,12 @@ def pretokenize_and_batch_query_doc_pairs(
         documents = table[config.pair_document_text_col].to_numpy()
         qid_missing = pd.isna(qid)
         if qid_missing.any():
-            logger.info(
-                f"Missing {qid_missing.sum()} query ids in batch {i}, filling in"
-            )
+            logger.info(f"Missing {qid_missing.sum()} query ids in batch {i}, filling in")
             text_hash_for_id_missing_queries = pd.util.hash_array(queries[qid_missing])
             qid[qid_missing] = "__MISSING_ID__" + text_hash_for_id_missing_queries
         did_missing = pd.isna(did)
         if did_missing.any():
-            logger.info(
-                f"Missing {did_missing.sum()} document ids in batch {i}, filling in"
-            )
+            logger.info(f"Missing {did_missing.sum()} document ids in batch {i}, filling in")
             text_hash_for_id_missing_docs = pd.util.hash_array(documents[did_missing])
             did[did_missing] = "__MISSING_ID__" + text_hash_for_id_missing_docs
 
@@ -463,9 +454,7 @@ def pretokenize_and_batch_mined_data(
 
     # Load all queries and documents into memory, pre-truncating to mitigate
     # memory impact.
-    truncate_text_max_characters = (
-        config.max_seq_length * config.pre_truncate_max_chars_per_token
-    )
+    truncate_text_max_characters = config.max_seq_length * config.pre_truncate_max_chars_per_token
     logger.info(f"Loading queries from {config.query_loc}")
     queries = load_id_to_text_map_from_parquet(
         path=config.query_loc,
@@ -551,21 +540,13 @@ def pretokenize_and_batch_mined_data(
                     )
                     selected_negative_idx = negative_idx[neg_subset_idx]
                     del neg_subset_idx
-                    selected_idx = np.concatenate(
-                        [selected_positive_idx, selected_negative_idx]
-                    )
-                    df_labels_for_query_selected = df_labels_for_query.iloc[
-                        selected_idx
-                    ]
+                    selected_idx = np.concatenate([selected_positive_idx, selected_negative_idx])
+                    df_labels_for_query_selected = df_labels_for_query.iloc[selected_idx]
                     qids.extend([qid] * len(selected_idx))
                     did_chunks.append(
-                        df_labels_for_query_selected[
-                            config.in_document_id_col
-                        ].to_numpy(dtype=np.uint64)
+                        df_labels_for_query_selected[config.in_document_id_col].to_numpy(dtype=np.uint64)
                     )
-                    relevances.extend(
-                        df_labels_for_query_selected[config.in_label_relation_col]
-                    )
+                    relevances.extend(df_labels_for_query_selected[config.in_label_relation_col])
                 dids = np.concatenate(did_chunks)
                 del did_chunks
 
@@ -585,12 +566,8 @@ def pretokenize_and_batch_mined_data(
                 unique_dids = np.unique(dids)
                 unique_query_texts = queries.loc[unique_qids].to_numpy()
                 unique_doc_texts = documents.loc[unique_dids].to_numpy()
-                unique_query_texts = [
-                    config.query_prefix + q for q in unique_query_texts
-                ]
-                unique_doc_texts = [
-                    config.document_prefix + d for d in unique_doc_texts
-                ]
+                unique_query_texts = [config.query_prefix + q for q in unique_query_texts]
+                unique_doc_texts = [config.document_prefix + d for d in unique_doc_texts]
                 pretruncate_chars_per_token = config.pre_truncate_max_chars_per_token
                 query_tokens = tokenize_to_arrow(
                     tokenizer=tokenizer,
@@ -659,9 +636,7 @@ def load_id_to_text_map_from_parquet(
         ids = table.column(id_col)
         texts = table.column(text_col)
         if truncate_text_max_chars is not None:
-            texts = pc.utf8_slice_codeunits(
-                texts, start=0, stop=truncate_text_max_chars
-            )
+            texts = pc.utf8_slice_codeunits(texts, start=0, stop=truncate_text_max_chars)
         all_ids.append(ids.to_numpy())
         all_texts.append(texts.to_numpy())
 
@@ -670,16 +645,11 @@ def load_id_to_text_map_from_parquet(
     return pd.Series(all_texts_array, index=all_ids_array)
 
 
-def identify_slice_for_shard(
-    num_rows: int, chunk_size: int, shard_id: int, num_shards: int
-) -> tuple[int, int]:
+def identify_slice_for_shard(num_rows: int, chunk_size: int, shard_id: int, num_shards: int) -> tuple[int, int]:
     # Figure out how to split the dataset into shards where the size of each shard
     # is divizible by chunks size (dropping the last sub-chunk-size set of rows).
     if chunk_size * num_shards > num_rows:
-        msg = (
-            f"Too many shards and too large chunk size {num_rows=} "
-            f"{chunk_size=} {num_shards=}"
-        )
+        msg = f"Too many shards and too large chunk size {num_rows=} {chunk_size=} {num_shards=}"
         raise ValueError(msg)
     base_shard_size = num_rows // num_shards
     base_shard_size -= base_shard_size % chunk_size
@@ -700,9 +670,7 @@ def identify_slice_for_shard(
             start += chunk_size
     assert starts[-1] + base_shard_size == num_rows - (num_rows % chunk_size)
     start = starts[shard_id]
-    end = (
-        start + base_shard_size if shard_id == num_shards - 1 else starts[shard_id + 1]
-    )
+    end = start + base_shard_size if shard_id == num_shards - 1 else starts[shard_id + 1]
     shard_size = end - start
     assert shard_size % chunk_size == 0
     logger.info(
@@ -750,9 +718,7 @@ def stream_sliced_dataset_in_chunks(
         unit_scale=True,
         desc="streaming dataset",
     ) as pbar:
-        for i, table in enumerate(
-            ds_slice.stream_tables(columns_subset=columns_subset)
-        ):
+        for i, table in enumerate(ds_slice.stream_tables(columns_subset=columns_subset)):
             if i == 0:
                 table = table.slice(offset=skip_first_k)
             if i == ds_slice.num_files - 1:
@@ -815,8 +781,6 @@ def tokenize_to_arrow(
     del all_ids
     item_lengths.insert(0, 0)
     offsets_arary = np.asarray(item_lengths).cumsum()
-    tokens_array = pa.LargeListArray.from_arrays(
-        offsets=offsets_arary, values=all_ids_array
-    )
+    tokens_array = pa.LargeListArray.from_arrays(offsets=offsets_arary, values=all_ids_array)
 
     return tokens_array

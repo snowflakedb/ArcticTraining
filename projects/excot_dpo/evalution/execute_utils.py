@@ -29,10 +29,7 @@ _TEXT2SQL_NON_COT_INSTRUCTION = (
     " answers the question (and nothing else)."
 )
 
-_SYSTEM_PROMPT = (
-    "You are an AI assistant helping a data analyst write SQL queries to answer"
-    " questions. "
-)
+_SYSTEM_PROMPT = "You are an AI assistant helping a data analyst write SQL queries to answer questions. "
 
 
 def _extract_sql(message):
@@ -121,10 +118,7 @@ def construct_long_cot(schema, question, evidence=None):
         },
         {
             "role": "user",
-            "content": (
-                f"Database Schema: {schema.strip()}\n\nQuestion:"
-                f" {question + ' ' + evidence}"
-            ),
+            "content": f"Database Schema: {schema.strip()}\n\nQuestion: {question + ' ' + evidence}",
         },
     ]
     return messages

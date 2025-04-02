@@ -180,9 +180,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
         )
 
-        self.checkpoint_engines = [
-            engine(self) for engine in self.config.checkpoint_engines
-        ]
+        self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
@@ -221,8 +219,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             range(self.epoch_idx, self.config.epochs),
             desc="Epochs",
             unit="epoch",
-            disable=(self.global_rank != 0)
-            or (self.config.train_log_iter_interval != 0),
+            disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -232,8 +229,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_dataloader,
             desc="Train Batches",
             unit="batch",
-            disable=(self.global_rank != 0)
-            or (self.config.train_log_iter_interval != 0),
+            disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -248,11 +244,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             raise ValueError("Train dataloader not initialized.")
         if self.config.train_iters:
             return self.config.train_iters
-        return (
-            self.config.epochs
-            * len(self.train_dataloader)
-            // self.config.gradient_accumulation_steps
-        )
+        return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
 
     @callback_wrapper("loss")
     @abstractmethod
@@ -290,10 +282,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.checkpoint()
 
-        if (
-            self.config.exit_iteration > 0
-            and self.config.exit_iteration == self.global_step
-        ):
+        if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 

@@ -48,9 +48,7 @@ def _setup() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         ]
     )
 
-    S = torch.matmul(
-        F.normalize(Q_EMB, dim=1), F.normalize(D_EMB, dim=1).transpose(0, 1)
-    )
+    S = torch.matmul(F.normalize(Q_EMB, dim=1), F.normalize(D_EMB, dim=1).transpose(0, 1))
 
     # We could just define S directly, but I think it's useful to set it up, since
     # this allows us to more easily change S by construction.
@@ -92,17 +90,10 @@ def test_info_nce_two_positive() -> None:
 
     # Verify loss implementation equivalent.
     with torch.no_grad():
-        want_initial = F.cross_entropy(
-            S[:-1], (relations[:-1] == 1).to(torch.float), reduction="none"
-        )
+        want_initial = F.cross_entropy(S[:-1], (relations[:-1] == 1).to(torch.float), reduction="none")
         want_double_positive = F.cross_entropy(
             torch.row_stack([S[-1, [0, 1, 2, 3]], S[-1, [0, 1, 2, 4]]]),
-            (
-                torch.row_stack(
-                    [relations[-1, [0, 1, 2, 3]], relations[-1, [0, 1, 2, 4]]]
-                )
-                == 1
-            ).to(torch.float),
+            (torch.row_stack([relations[-1, [0, 1, 2, 3]], relations[-1, [0, 1, 2, 4]]]) == 1).to(torch.float),
             reduction="none",
         )
         want = torch.cat([want_initial, want_double_positive]).mean()
@@ -171,25 +162,19 @@ def test_infonce_efficient() -> None:
     with torch.no_grad():
         want_loss = reference_info_nce_loss(S, RELATIONS_COMPLEX, temperature=0.1)
         got_loss = info_nce_loss(S, RELATIONS_COMPLEX, temperature=0.1)
-        assert not torch.isclose(
-            info_nce_loss(S, RELATIONS, temperature=0.1), want_loss
-        )
+        assert not torch.isclose(info_nce_loss(S, RELATIONS, temperature=0.1), want_loss)
         assert_close(actual=got_loss, expected=want_loss)
 
     # Check gradient using finite differencing.
     # NOTE: The finite differencing is only close enough when setting the temperature
     # and eps values to be fairly high, but this gives some confidence at least!
-    torch.autograd.gradcheck(  # type: ignore
-        lambda s: info_nce_loss(s, RELATIONS_COMPLEX, 10.0), (S,), eps=5e-3
-    )
+    torch.autograd.gradcheck(lambda s: info_nce_loss(s, RELATIONS_COMPLEX, 10.0), (S,), eps=5e-3)  # type: ignore
 
     # Ensure that the gradients are the same as another implementation.
     _loss, [want_grad] = torch.autograd.functional.vjp(
         lambda s: 2 * reference_info_nce_loss(s, RELATIONS_COMPLEX, 0.1), (S,)
     )
-    _loss, [got_grad] = torch.autograd.functional.vjp(
-        lambda s: 2 * info_nce_loss(s, RELATIONS_COMPLEX, 0.1), (S,)
-    )
+    _loss, [got_grad] = torch.autograd.functional.vjp(lambda s: 2 * info_nce_loss(s, RELATIONS_COMPLEX, 0.1), (S,))
     assert_close(actual=got_grad, expected=want_grad)
 
 
@@ -197,14 +182,9 @@ def test_infonce_efficient() -> None:
 def test_one_size_truncated_mrl_info_nce_loss() -> None:
     Q_EMB, D_EMB, S, RELATIONS = _setup()
     truncated_dim = 2
-    S_truncated = (
-        F.normalize(Q_EMB[:, :truncated_dim], dim=1)
-        @ F.normalize(D_EMB[:, :truncated_dim], dim=1).T
-    )
+    S_truncated = F.normalize(Q_EMB[:, :truncated_dim], dim=1) @ F.normalize(D_EMB[:, :truncated_dim], dim=1).T
     want_full = F.cross_entropy(S / 0.1, (RELATIONS == 1).to(torch.float))
-    want_truncated = F.cross_entropy(
-        S_truncated / 0.1, (RELATIONS == 1).to(torch.float)
-    )
+    want_truncated = F.cross_entropy(S_truncated / 0.1, (RELATIONS == 1).to(torch.float))
     want = 0.75 * want_full + 0.25 * want_truncated
     got, *_ = one_size_truncated_mrl_info_nce_loss(
         query_embeddings=Q_EMB,

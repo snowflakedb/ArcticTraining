@@ -78,20 +78,14 @@ def main(
             "SCORE": pa.float32(),
         }
     )
-    with pq.ParquetWriter(out_path, out_schema) as pq_writer, tqdm(
-        total=result_indices.size, unit="score"
-    ) as pbar:
+    with pq.ParquetWriter(out_path, out_schema) as pq_writer, tqdm(total=result_indices.size, unit="score") as pbar:
         chunk_size = 1024
         for slice_start in range(0, result_indices.shape[0], chunk_size):
             slice_end = slice_start + chunk_size
             slice_table = pa.table(
                 {
-                    "QUERY_ID": np.repeat(
-                        query_ids[slice_start:slice_end], retrieval_depth
-                    ),
-                    "DOCUMENT_ID": doc_ids[
-                        result_indices[slice_start:slice_end].ravel()
-                    ],
+                    "QUERY_ID": np.repeat(query_ids[slice_start:slice_end], retrieval_depth),
+                    "DOCUMENT_ID": doc_ids[result_indices[slice_start:slice_end].ravel()],
                     "SCORE": result_scores[slice_start:slice_end].ravel(),
                 }
             )
