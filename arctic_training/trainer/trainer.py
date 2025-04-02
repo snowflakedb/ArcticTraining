@@ -1932,19 +1932,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if self.train_batch_idx % self.config.train_log_iter_interval == 0:
-
-                # we log on rank 0, but compute involves gathering from all ranks
-                self.metrics.compute()
-
-                if is_global_main_process():
-                    self.metrics.print_summary()
-
-                    if self.wandb_experiment is not None:
-                        self.wandb_experiment.log(
-                            self.metrics.summary_dict, step=self.model.global_steps
-                        )
-            self.metrics.reset()
+            if (
+                self.config.train_log_iter_interval != 0
+                and self.train_batch_idx % self.config.train_log_iter_interval == 0
+            ):
+                self.metrics.print_summary()
+                if (
+                    self.global_rank == 0
+                    and self.train_batch_idx > 1  # first iter is a massive outlier
+                    and self.wandb_experiment is not None
+                ):
+                    self.wandb_experiment.log(
+                        {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
+                        step=self.model.global_steps,
+                    )
 
             if self.early_stop:
                 break

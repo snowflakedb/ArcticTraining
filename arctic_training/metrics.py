@@ -24,6 +24,8 @@ import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 from arctic_training.utils import is_global_main_process
 
+from arctic_training.utils import human_format_base10_number
+
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
@@ -146,31 +148,27 @@ class Metrics:
             if tflos_total > 0:
                 self.summary_dict["step_tflops"] = tflos_total / step_time_total
 
-        summary_str = f"epoch: {self.summary_dict['epoch']}"
-        summary_str += (
-            " | iter:"
+        self.values.clear()
+
+        summary_str = (
+            "iter:"
             f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
-            f" ({100*self.summary_dict['iter']//self.max_iter:>3}%)"
+            f" {100*self.summary_dict['iter']//self.max_iter:>3}%"
         )
         if "loss" in self.summary_dict:
             summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
         if "iter_time" in self.summary_dict:
-            summary_str += f" | iter time: {self.summary_dict['iter_time']:.3f} s"
+            summary_str += f" | iter time: {self.summary_dict['iter_time']:.1f} s"
         if "iter_tflops" in self.summary_dict:
             summary_str += f" | iter tflops: {self.summary_dict['iter_tflops']:.1f}"
         summary_str += f" | lr: {self.summary_dict['lr']:.3E}"
         if "seqlen_total" in self.summary_dict:
-            summary_str += f" | seqlen total: {self.summary_dict['seqlen_total']:.1f}"
+            summary_str += f" | seqlen total: {human_format_base10_number(self.summary_dict['seqlen_total'])}"
         if "step_time" in self.summary_dict:
-            summary_str += f" | step time: {self.summary_dict['step_time']:.3f} s"
+            summary_str += f" | step time: {self.summary_dict['step_time']:.1f} s"
         if "step_tflops" in self.summary_dict:
             summary_str += f" | step tflops: {self.summary_dict['step_tflops']:.1f}"
+        summary_str += f" | epoch: {self.summary_dict['epoch']}"
 
-        self.summary_str = summary_str
-
-    def print_summary(self):
-        print(self.summary_str)
-
-    def reset(self):
-        self.summary_dict.clear()
-        self.values.clear()
+        if self.trainer.global_rank == 0:
+            print(summary_str)
