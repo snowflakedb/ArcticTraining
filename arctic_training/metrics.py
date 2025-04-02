@@ -22,8 +22,6 @@ from typing import cast
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
-from arctic_training.utils import is_global_main_process
-
 from arctic_training.utils import human_format_base10_number
 
 if TYPE_CHECKING:
@@ -109,7 +107,7 @@ class Metrics:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
-    def compute(self) -> None:
+    def print_summary(self) -> None:
         """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
             return

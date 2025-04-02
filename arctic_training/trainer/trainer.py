@@ -50,7 +50,8 @@ from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage, pr, pr0
-from arctic_training.utils import get_local_rank, is_global_main_process, StepFlopCounter, gather_sum_number, format_human_base2_number, gather_object
+from arctic_training.utils import StepFlopCounter
+from arctic_training.config.utils import get_local_rank
 
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 
