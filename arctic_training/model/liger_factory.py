@@ -16,6 +16,7 @@
 import importlib.metadata
 
 from packaging import version
+from transformers import PreTrainedModel
 
 from arctic_training.model.hf_factory import HFModelFactory
 
@@ -23,7 +24,7 @@ from arctic_training.model.hf_factory import HFModelFactory
 class LigerModelFactory(HFModelFactory):
     name = "liger"
 
-    def create_model(self, model_config):
+    def create_model(self, model_config) -> PreTrainedModel:
         try:
             from liger_kernel.transformers import AutoLigerKernelForCausalLM
         except ImportError:
