@@ -16,6 +16,7 @@
 import random
 from abc import ABC
 from abc import abstractmethod
+from functools import cached_property
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -1782,10 +1783,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
-    @property
+    @cached_property
     def device(self) -> torch.device:
         """Current device."""
-        return torch.device(get_accelerator().device_name(self.global_rank))
+        return torch.device(get_accelerator().device_name(self.config.local_rank))
 
     @property
     def model_unwrapped(self):

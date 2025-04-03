@@ -138,7 +138,7 @@ class TrainerConfig(BaseConfig):
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
-        get_accelerator().set_device(self.global_rank)
+        get_accelerator().set_device(self.local_rank)
         deepspeed.init_distributed()
         return self
 
