@@ -28,6 +28,7 @@ import torch
 import wandb
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
+from functools import cached_property
 from tqdm import tqdm
 from transformers import set_seed
 from wandb.sdk.wandb_run import Run as WandbRun
@@ -232,7 +233,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
-    @property
+    @cached_property
     def device(self) -> torch.device:
         """Current device."""
         return torch.device(get_accelerator().device_name(self.config.local_rank))
