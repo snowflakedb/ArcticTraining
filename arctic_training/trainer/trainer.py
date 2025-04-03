@@ -16,6 +16,7 @@
 import random
 from abc import ABC
 from abc import abstractmethod
+from functools import cached_property
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -28,7 +29,6 @@ import torch
 import wandb
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
-from functools import cached_property
 from tqdm import tqdm
 from transformers import set_seed
 from wandb.sdk.wandb_run import Run as WandbRun
