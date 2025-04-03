@@ -28,6 +28,7 @@ from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
+from arctic_training.debug import see_memory_usage, print_rank0, print_rank
 
 
 class SFTTrainer(Trainer):
@@ -44,3 +45,16 @@ class SFTTrainer(Trainer):
         outputs = self.model(**batch, use_cache=False)
         loss = outputs.loss
         return loss
+
+    # XXX: return tensor like normal `loss`?
+    def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
+        batch = to_device(batch, self.device)
+
+        from arctic_training.trainer.trainer import UlyssesAttentionHFFwdLossBwdWithLogits
+        ulysses = UlyssesAttentionHFFwdLossBwdWithLogits(
+            model=self.model,
+            model_unwrapped=self.model_unwrapped,
+            device=self.device,
+            num_loss_logit_shards="auto",
+        )
+        return ulysses.sp_fwd_loss_bwd(batch)

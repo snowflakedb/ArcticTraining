@@ -22,7 +22,6 @@ from typing import cast
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
-
 from arctic_training.utils import human_format_base10_number
 
 if TYPE_CHECKING:
