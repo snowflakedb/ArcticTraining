@@ -38,6 +38,7 @@ from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
 from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
+from arctic_training.utils import send_dict, recv_dict
 
 
 class MLPSpeculatorTrainerConfig(TrainerConfig):
@@ -306,9 +307,12 @@ class MLPSpeculatorTrainer(SFTTrainer):
         """
         inputs = to_device(inputs, self.device)
 
-        with torch.no_grad():
-            outputs = self.model(**inputs, speculator_return=True)
-            hidden_states = outputs[0]  # b n h
+        send_dict(inputs, dst=8)
+        outputs = recv_dict(src=8)
+        hidden_states = outputs[0]
+        #with torch.no_grad():
+        #    outputs = self.model(**inputs, speculator_return=True)
+        #    hidden_states = outputs[0]  # b n h
 
         preds = self.model.speculator(
             hidden_states.detach()[:, : -self.model.speculator.n_predict - 1, :],

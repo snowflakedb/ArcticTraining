@@ -61,6 +61,30 @@ def main():
         check=True,
     )
 
+def wait_forever():
+    import time
+    import sys
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        pass
+
+
+def run_model():
+    from arctic_training.utils import send_dict, recv_dict
+    from transformers import AutoModelForCausalLM
+    import sys
+    model = AutoModelForCausalLM.from_pretrained("facebook/opt-125m")
+    try:
+        while True:
+            for i in range(8):
+                inputs = recv_dict(src=i)
+                outputs = model.generate(**inputs, max_length=50)
+                send_dict(outputs, dst=i)
+    except KeyboardInterrupt:
+        pass
+
 
 def run_script():
     import deepspeed.comm as dist
@@ -87,9 +111,15 @@ def run_script():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
     config = get_config(args.config)
-    trainer_cls = get_registered_trainer(name=config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
+
+    if config.global_rank > 8:
+        wait_forever()
+    elif config.global_rank == 8:
+        run_model()
+    else:
+        trainer_cls = get_registered_trainer(name=config.type)
+        trainer = trainer_cls(config)
+        trainer.train()
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()

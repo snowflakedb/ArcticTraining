@@ -14,6 +14,32 @@
 # limitations under the License.
 
 import math
+import torch
+import pickle
+import deepspeed.comm as dist
+
+def send_dict(tensor_dict, dst):
+    # Serialize with pickle
+    serialized = pickle.dumps(tensor_dict)
+    byte_tensor = torch.ByteTensor(list(serialized)).cuda()
+    size_tensor = torch.IntTensor([byte_tensor.numel()]).cuda()
+
+    # Send size and then data
+    dist.send(size_tensor, dst)
+    dist.send(byte_tensor, dst)
+
+def recv_dict(src):
+    # Receive size and then data
+    size_tensor = torch.IntTensor([0]).cuda()
+    dist.recv(size_tensor, src)
+    size = size_tensor.item()
+
+    byte_tensor = torch.ByteTensor(size).cuda()
+    dist.recv(byte_tensor, src)
+
+    # Deserialize
+    serialized = bytearray(byte_tensor.cpu().tolist())
+    return pickle.loads(serialized)
 
 
 def human_format_base2_number(num: float, suffix: str = "") -> str:
