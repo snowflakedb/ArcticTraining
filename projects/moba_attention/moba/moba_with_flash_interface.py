@@ -1,3 +1,18 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from .moba_efficient import moba_attn_varlen
 from functools import partial
 
@@ -23,7 +38,7 @@ def moba_flash_attn_varlen_func(
     return_attn_probs=False,
     block_table=None,
     moba=False,
-    moba_chunk_size = 2048, 
+    moba_chunk_size = 2048,
     moba_topk = 16,
 ):
     if moba:
@@ -38,13 +53,13 @@ def moba_flash_attn_varlen_func(
             deterministic is False and \
             return_attn_probs is False and \
             block_table is None, "Only these paramreters are supported by MoBA"
-                
+
         cu_seqlens = cu_seqlens_q
         max_seqlen = max_seqlen_q
         return moba_attn_varlen(q,k,v, cu_seqlens, max_seqlen, moba_chunk_size, moba_topk)
     else:
         global original_flash_attn_varlen_func
-        return original_flash_attn_varlen_func( 
+        return original_flash_attn_varlen_func(
                     q,
                     k,
                     v,
@@ -60,13 +75,12 @@ def moba_flash_attn_varlen_func(
                     alibi_slopes=alibi_slopes,
                     deterministic=deterministic,
                     return_attn_probs=return_attn_probs,
-                    block_table=block_table,)    
-        
+                    block_table=block_table,)
+
 def patch_flash_attn_varlen_func_for_moba(chunk_size, topk):
     import transformers.modeling_flash_attention_utils
-    transformers.modeling_flash_attention_utils.flash_attn_varlen_func = partial(moba_flash_attn_varlen_func, moba=True, 
+    transformers.modeling_flash_attention_utils.flash_attn_varlen_func = partial(moba_flash_attn_varlen_func, moba=True,
                                                 moba_chunk_size=chunk_size,
                                                 moba_topk=topk)
 
 
-       

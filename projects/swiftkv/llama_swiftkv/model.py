@@ -49,7 +49,7 @@ class LlamaSwiftKVAttention(LlamaAttention):
 
     def __init__(self, config: LlamaSwiftKVConfig, layer_idx: Optional[int] = None):
         super().__init__(config, layer_idx=layer_idx)
-        
+
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
@@ -474,7 +474,7 @@ class LlamaSwiftKVDecoderLayer(LlamaDecoderLayer):
     def __init__(self, config: LlamaSwiftKVConfig, layer_idx: int):
         super(LlamaDecoderLayer, self).__init__()
         self.hidden_size = config.hidden_size
-        
+
         self.self_attn = LLAMA_ATTENTION_CLASSES[config._attn_implementation](
             config=config, layer_idx=layer_idx
         )

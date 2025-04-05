@@ -23,28 +23,28 @@ class MoBAModelConfig(SwiftKVModelConfig):
     key_value_group_size: int = 1
     moba_chunk_size: int = 4096
     moba_topk: int = 8
-    attn_implementation: str = "flash_attention_2" 
-     
+    attn_implementation: str = "flash_attention_2"
+
 class MoBAModelFactory(SwiftKVModelFactory):
     name = "moba"
     config: MoBAModelConfig
-    
+
     def post_create_config_callback(self, hf_config):
-        
+
         hf_config = super().post_create_config_callback(hf_config)
         hf_config.moba_chunk_size = self.config.moba_chunk_size
         hf_config.moba_topk = self.config.moba_topk
-        
+
         #The code path is so convoluted I do not know which one to set
-        #So setting both of them. 
+        #So setting both of them.
         hf_config._attn_implementation = self.config.attn_implementation
         hf_config.attn_implementation = self.config.attn_implementation
-        
+
         '''patch the flash attention in the model to use moba
         there is an assumption that this method will be called
         before model creation'''
         patch_flash_attn_varlen_func_for_moba(self.config.moba_chunk_size, self.config.moba_topk)
-        
+
         return hf_config
 
 class MoBATrainerConfig(SwiftKVTrainerConfig):
