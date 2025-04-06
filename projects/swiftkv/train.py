@@ -16,7 +16,6 @@
 from typing import Any
 from typing import Union
 
-import llama_swiftkv
 import torch
 import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
@@ -28,6 +27,7 @@ from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
 from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
+from projects.swiftkv import llama_swiftkv
 
 
 class SwiftKVModelConfig(ModelConfig):
