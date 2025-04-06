@@ -13,10 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from moba import register_moba, MoBAConfig
+#This file was original taken from the following: 
+#https://github.com/MoonshotAI/MoBA/tree/61e456bc956c5a25fd9c84e5496b661329cb1b72
+#Modification may have been made by Snowflake
 
+import torch
+from moba import MoBAConfig
+from moba import register_moba
+from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer
 
 if __name__ == "__main__":
     import argparse

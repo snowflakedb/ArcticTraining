@@ -13,10 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#This file was original taken from the following: 
+#https://github.com/MoonshotAI/MoBA/tree/61e456bc956c5a25fd9c84e5496b661329cb1b72
+#Modification may have been made by Snowflake
+
 """A clean version of moba implementation for educational purposes"""
 
-import torch
 import math
+
+import torch
 
 
 def moba_attn_varlen_naive(

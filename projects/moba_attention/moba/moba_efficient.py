@@ -13,17 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#This file was original taken from the following: 
+#https://github.com/MoonshotAI/MoBA/tree/61e456bc956c5a25fd9c84e5496b661329cb1b72
+#Modification may have been made by Snowflake
+
 """A clean version of efficient moba implementation with flash-attn"""
 
-import torch
-
-from flash_attn import flash_attn_varlen_func
-from flash_attn.flash_attn_interface import (
-    _flash_attn_varlen_forward,
-    _flash_attn_varlen_backward,
-)
 from functools import lru_cache
+
+import torch
 from einops import rearrange
+from flash_attn import flash_attn_varlen_func
+from flash_attn.flash_attn_interface import _flash_attn_varlen_backward
+from flash_attn.flash_attn_interface import _flash_attn_varlen_forward
 
 
 @lru_cache(maxsize=16)
@@ -438,9 +440,10 @@ def moba_attn_varlen(
     )
 
     # Shape check
-    assert (
-        moba_cu_seqlen_kv.shape == moba_cu_seqlen_q.shape
-    ), f"moba_cu_seqlen_kv.shape != moba_cu_seqlen_q.shape {moba_cu_seqlen_kv.shape} != {moba_cu_seqlen_q.shape}"
+    assert moba_cu_seqlen_kv.shape == moba_cu_seqlen_q.shape, (
+        "moba_cu_seqlen_kv.shape != moba_cu_seqlen_q.shape"
+        f" {moba_cu_seqlen_kv.shape} != {moba_cu_seqlen_q.shape}"
+    )
 
     # Wrapping up the flash attn call and online softmax dlse inside MixedAttention class
     return MixedAttention.apply(
