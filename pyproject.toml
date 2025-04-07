@@ -39,7 +39,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.49.0", # XXX: needs to be "transformers>4.50.1" once it's released to include https://github.com/huggingface/transformers/pull/36889
+    "transformers>=4.51.0", # attention api
     "wandb",
 ]
 
