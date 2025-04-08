@@ -208,7 +208,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
             print_rank0('')
             print_rank0(f"combine {head_type}: before reshape:  {input.shape=}", skip=False)
-
+            #see_memory_usage(f"combine: 1", force=False)
             if head_type == "q":
                 local_head_count = self.local_q_head_count
             else: # kv
@@ -220,6 +220,7 @@ class UlyssesAttentionHF(torch.nn.Module):
                     # replicate heads to the kv_replication_factor on hc dimension [sl_l bs hc hs] - so dim=2
                     input = input.repeat_interleave(self.kv_replication_factor, dim=2)
                     print_rank0(f"combine {head_type}: after repeat interleave:  {input.shape=}", skip=False)
+            #see_memory_usage(f"combine: 2", force=False)
 
             # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
             input = input.reshape([self.local_seq_length, \
@@ -228,20 +229,23 @@ class UlyssesAttentionHF(torch.nn.Module):
                                 local_head_count, \
                                 self.attn_head_size])
 
-
+            #see_memory_usage(f"combine: 3", force=False)
 
             print_rank0(f"combine {head_type}: after reshape:   {input.shape=}", skip=False)
 
             input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
             # print_rank0(f"combine {head_type}: after rearrange: {input.shape=}", skip=False)
+            #see_memory_usage(f"combine: 4", force=False)
 
             output = _DimZeroAllToAll.apply(self.process_group, input)
             #output = input
             print_rank0(f"combine {head_type}: after all2all:   {output.shape=}", skip=False)
+            #see_memory_usage(f"combine: 5", force=False)
 
             # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
             print_rank0(f"combine {head_type}: after reshape:   {output.shape=}", skip=False)
+            #see_memory_usage(f"combine: 6", force=False)
 
             # [sl bs hc_l hs]
             return output
@@ -453,19 +457,19 @@ class UlyssesAttentionHF(torch.nn.Module):
         """
         if sequence_parallel_size == 1:
             return None
-
+        #see_memory_usage("ulysses: 1", force=True)
         import arctic_training.trainer.parallel_state as mpu
         #import torch
         from transformers import AutoConfig
         from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-
+        #see_memory_usage("ulysses: 1.1", force=True)
         # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
         # print_rank0(f"MBS  {micro_batch_size}")
         mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
-
+        #see_memory_usage("ulysses: 1.2", force=True)
         # we don't have the model yet at this stage
         hf_model_config = AutoConfig.from_pretrained(model_name_or_path)
-
+        #see_memory_usage("ulysses: 1.3", force=True)
         if core_attn_implementation not in ['flash_attention_2', 'sdpa']:
             # - eager: The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager attention with sequence parallelism
             # - flex_attention: haven't tried
@@ -475,7 +479,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         if core_attn_implementation not in ALL_ATTENTION_FUNCTIONS:
             raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.valid_keys()}")
         core_attn_function = ALL_ATTENTION_FUNCTIONS[core_attn_implementation]
-
+        #see_memory_usage("ulysses: 3", force=True)
         uattn = UlyssesAttentionHF(
             attn=core_attn_function,
             local_seq_length=max_length // mpu.get_sequence_parallel_world_size(),
@@ -516,7 +520,8 @@ class UlyssesAttentionHF(torch.nn.Module):
             return attn_output, attn_weights
 
         ALL_ATTENTION_FUNCTIONS.register("ulysses", uattn_wrapper)
-
+        #see_memory_usage("ulysses: 4", force=True)
+        #exit()
         return mpu
 
     @classmethod
@@ -556,6 +561,8 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
 
     def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
 
+        see_memory_usage(f"entered sp_fwd_loss_bwd", force=True)
+
         # ensure shapes are correct
         if not (batch["input_ids"].shape == batch["position_ids"].shape == batch["labels"].shape):
             raise ValueError(f'Borked batch {batch["input_ids"].shape=} != {batch["position_ids"].shape=} != {batch["labels"].shape=}) in DataLoader->iter->next, cannot continue with Ulysses Sequence parallelism')
@@ -575,7 +582,20 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
         #print_rank(f"{self.trainer.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
         #exit()
 
+        #dist.barrier(group=self.sp_group)
+        #see_memory_usage("after barrier", force=False)
+
         # XXX: if using all_gather_object we can gather the whole batch at once and not per-key! so can drop the loop for that approach
+
+        # we have batches of variable seqlen so in order to do all_gather on batches - we need to know the exact length of each tensor on each rank
+        seqlen = torch.tensor(batch["input_ids"].shape[1], dtype=torch.int64, device=self.device)
+        #print(seqlen)
+        seqlens = [torch.zeros(1, dtype=torch.int64, device=self.device) for _ in range(self.sp_world_size)]
+        dist.all_gather(seqlens, seqlen, group=self.sp_group)
+        seqlens = [x[0].item() for x in seqlens]
+        print(seqlens)
+        #exit()
+
         for k in batch.keys():
             batch[k] = batch[k].to(self.device)
             print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
@@ -583,8 +603,15 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
             with torch.no_grad():
                 # tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.sp_world_size)]
                 # dist.all_gather(tensor_list, batch[k], group=self.sp_group)
-                tensor_list = [None for _ in range(self.sp_world_size)]
-                torch.distributed.all_gather_object(tensor_list, batch[k], group=self.sp_group)
+
+                tensor_list = [torch.zeros((batch[k].shape[0],seqlens[i]), dtype=batch[k].dtype, device=batch[k].device) for i in range(self.sp_world_size)]
+                # # print(tensor_list)
+                # # print(batch[k])
+                dist.all_gather(tensor_list, batch[k], group=self.sp_group)
+
+                # tensor_list = [None for _ in range(self.sp_world_size)]
+                # torch.distributed.all_gather_object(tensor_list, batch[k], group=self.sp_group)
+
                 # gathering on the data dimension
                 # will be concatenating and later splitting again for the more general case
                 # batch[k] = torch.cat(tensor_list, dim=1)
@@ -596,6 +623,12 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
                     # if k == "input_ids":
                     #     print_rank0(f"{self.trainer.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
 
+                #see_memory_usage("mid-gathering", force=False)
+
+        del tensor_list
+        del batch
+
+
         #exit()
         # loss_aggregate = 0
         # we need to chunk twice - each time on SP size level
@@ -603,6 +636,8 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
         # - the second time is because of the Ulysses algorithm
 
         see_memory_usage("after gathering", force=False)
+
+
         self.model.set_gradient_accumulation_boundary(False)
 
         losses = []
@@ -670,7 +705,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
             #import torch.distributed as dist
             #import torch
 
-            see_memory_usage(f"{sub_step_id=} before forward", force=False)
+            see_memory_usage(f"{sub_step_id=} before forward", force=True)
 
             #print_rank(f"SLICE DECODE: {sub_step_id=} {self.trainer.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
             #print_rank(f"SLICE DECODE: {sub_step_id=} {batch['position_ids'][0]=}", skip=False)
@@ -716,7 +751,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
             # free up temp mem (e.g. outputs.logits are huge)
             del outputs
 
-            see_memory_usage(f"{sub_step_id=} before gathered loss", force=False)
+            see_memory_usage(f"{sub_step_id=} after loss", force=False)
             #exit()
 
             # if torch.isnan(loss):
@@ -852,7 +887,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
             if self.num_loss_logit_shards == "auto":
                 size_in_gb = self.logits.numel() * 4 / 2**30 # fp32
                 self.num_loss_logit_shards = self.next_power_of_2(size_in_gb)
-                print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
+                #print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
             #num_loss_logit_shards = 8
             if self.num_loss_logit_shards > 1:
                 loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
@@ -1670,17 +1705,27 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._set_seeds(self.config.seed)
 
         # enable memory history, which will add tracebacks and event history to snapshots
-        self.mem_profiler = False
-        # profiling from here is slower, best to start at top of `epoch`
-        if self.mem_profiler:
+        # "none" | "e2e" | "step"
+        #self.mem_profiler = "none"
+        self.mem_profiler = "step"
+        # profiling from here is slower, best to start at top of `epoch` ("step")
+        if self.mem_profiler == "e2e":
             torch.cuda.memory._record_memory_history(max_entries=100_000)
+        #see_memory_usage("before model creation", force=True)
 
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
 
+        #see_memory_usage("after tokenizer", force=True)
+
+        dist.barrier()
+        #see_memory_usage("before dataloader", force=True)
+
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
 
+        #see_memory_usage("after dataloader", force=True)
+        #exit()
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
@@ -1699,22 +1744,19 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesAttentionHF`
             self.config.model.attn_implementation = "ulysses"
 
-        #rint(self.config.model.attn_implementation)
-        #exit()
+        #see_memory_usage("after ulysses", force=True)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
+        #print(self.config.deepspeed)
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
+
+        see_memory_usage("after model", force=True)
 
         UlyssesAttentionHF.validate_model(
             model=self.model,
             sequence_parallel_size=self.config.sequence_parallel_size,
         )
-
-        # # sanity check - w/o a proper HF API it's too easy to lose the attn_implementation override
-        # if self.config.sequence_parallel_size > 1:
-        #     if self.model.config._attn_implementation != "ulysses":
-        #         raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check the injection")
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -1722,6 +1764,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
+        torch.distributed.barrier()
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -1730,6 +1773,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+
+        see_memory_usage("after ds", force=True)
 
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
@@ -1916,9 +1961,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         self.metrics.start_timer("iter")
 
-        # # enable memory history, which will add tracebacks and event history to snapshots
-        if self.mem_profiler:
-            torch.cuda.memory._record_memory_history(max_entries=100_000)
+        see_memory_usage(f"entered epoch", force=True)
+        #exit()
+
+        # enable memory history, which will add tracebacks and event history to snapshots
+        if self.mem_profiler == "step":
+           torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
@@ -1928,9 +1976,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
+            see_memory_usage(f"before step", force=True)
+
             self.metrics.start_timer("step")
             self.step(batch)
             self.metrics.stop_timer("step")
+
+            see_memory_usage(f"after step", force=True)
 
             self.metrics.restart_timer("iter")
 
@@ -1952,8 +2004,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if self.early_stop:
                 break
 
-        if self.mem_profiler:
-            torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
 
     @callback_wrapper("train")
     def train(self) -> None:
@@ -1978,6 +2028,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # logger.info(f"{self._trainer_state}")
             raise (e)
         finally:
+            if self.mem_profiler == "e2e" or self.mem_profiler == "step":
+                torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
+
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
 
