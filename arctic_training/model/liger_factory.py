@@ -13,20 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.metadata
+
+from packaging import version
+from transformers import PreTrainedModel
+
 from arctic_training.model.hf_factory import HFModelFactory
 
 
 class LigerModelFactory(HFModelFactory):
     name = "liger"
 
-    def create_model(self, model_config):
+    def create_model(self, model_config) -> PreTrainedModel:
         try:
             from liger_kernel.transformers import AutoLigerKernelForCausalLM
         except ImportError:
             raise ImportError(
-                "You need to install the liger-kernel package to use LigerKernel"
-                " models: `pip install liger-kernel`"
+                "You need to install the liger-kernel package to use LigerKernel models: `pip install liger-kernel`"
             )
+        liger_version_min = "0.5.5"  # earlier versions were silently dropping the attn_implementation kwargs
+        liger_version_have = importlib.metadata.version("liger_kernel")
+        if version.parse(liger_version_have) < version.parse(liger_version_min):
+            raise ValueError(
+                f"liger-kernel>={liger_version_min} is required, but you have liger-kernel=={liger_version_have}"
+            )
+
         return AutoLigerKernelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,

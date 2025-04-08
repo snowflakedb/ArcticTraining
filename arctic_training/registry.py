@@ -69,9 +69,7 @@ class RegistryMeta(ABCMeta):
     # {BaseClassName: {SubClassName: SubClassType}}
     _registry: Dict[str, Dict[str, Type]] = {}
 
-    def __new__(
-        mcs: Type["RegistryMeta"], name: str, bases: Tuple, class_dict: Dict
-    ) -> Type:
+    def __new__(mcs: Type["RegistryMeta"], name: str, bases: Tuple, class_dict: Dict) -> Type:
         """Creates a new class, validates it, and registers it."""
         cls: Type = super().__new__(mcs, name, bases, class_dict)
 
@@ -96,9 +94,7 @@ class RegistryMeta(ABCMeta):
         if base_type not in mcs._registry:
             mcs._registry[base_type] = {}
         if registry_name in mcs._registry[base_type]:
-            raise RegistryValidationError(
-                f"{registry_name} is already registered as a {base_type}."
-            )
+            raise RegistryValidationError(f"{registry_name} is already registered as a {base_type}.")
         mcs._registry[base_type][registry_name] = cls
 
         return cls
@@ -161,19 +157,13 @@ def get_registered_trainer(name: str) -> Type["Trainer"]:
     return get_registered_class(class_type="Trainer", name=name)
 
 
-def _validate_class_method(
-    cls: Type, method_name: str, expected_args: List[str] = []
-) -> None:
+def _validate_class_method(cls: Type, method_name: str, expected_args: List[str] = []) -> None:
     if not hasattr(cls, method_name):
-        raise RegistryValidationError(
-            f"{cls.__name__} must define a '{method_name}' method."
-        )
+        raise RegistryValidationError(f"{cls.__name__} must define a '{method_name}' method.")
 
     method = getattr(cls, method_name)
     if not callable(method):
-        raise RegistryValidationError(
-            f"{cls.__name__}.{method_name} must be a callable method."
-        )
+        raise RegistryValidationError(f"{cls.__name__}.{method_name} must be a callable method.")
 
     if inspect.ismethod(method):
         method = method.__func__  # Unwrap class method
@@ -189,17 +179,13 @@ def _validate_class_method(
 
 def _validate_class_attribute_set(cls: Type, attribute: str) -> None:
     if not hasattr(cls, attribute):
-        raise RegistryValidationError(
-            f"{cls.__name__} must define a '{attribute}' attribute."
-        )
+        raise RegistryValidationError(f"{cls.__name__} must define a '{attribute}' attribute.")
 
 
 def _validate_class_attribute_type(cls: Type, attribute: str, type_: Type) -> None:
     class_attr_type_hints = _get_class_attr_type_hints(cls, attribute)
     if len(class_attr_type_hints) == 0:
-        raise RegistryValidationError(
-            f"{cls.__name__}.{attribute} must have a type hint."
-        )
+        raise RegistryValidationError(f"{cls.__name__}.{attribute} must have a type hint.")
 
     bad_types = []
     for attr_type_hint in class_attr_type_hints:
@@ -215,9 +201,7 @@ def _validate_class_attribute_type(cls: Type, attribute: str, type_: Type) -> No
         )
 
 
-def _get_class_attr_type_hints(
-    cls: Type, attribute: str
-) -> Union[Tuple[()], Tuple[Type, ...]]:
+def _get_class_attr_type_hints(cls: Type, attribute: str) -> Union[Tuple[()], Tuple[Type, ...]]:
     cls_type_hints = get_type_hints(cls)
     if attribute not in cls_type_hints:
         return tuple()

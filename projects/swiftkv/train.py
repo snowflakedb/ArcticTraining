@@ -60,9 +60,7 @@ class SwiftKVModelFactory(HFModelFactory):
         for layer in model.model.layers[model.config.num_key_value_layers :]:
             # Initialize q_proj_swiftkv
             with GatheredParameters(layer.parameters(), modifier_rank=0):
-                layer.self_attn.q_proj_swiftkv.weight.data.copy_(
-                    layer.self_attn.q_proj.weight.data
-                )
+                layer.self_attn.q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
             layer.self_attn.q_proj_swiftkv.weight.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
@@ -70,18 +68,13 @@ class SwiftKVModelFactory(HFModelFactory):
             model.config.key_value_group_size,
         ):
             this_attn = model.model.layers[layer_idx].self_attn
-            next_attn = [
-                model.model.layers[layer_idx + i].self_attn
-                for i in range(model.config.key_value_group_size)
-            ]
+            next_attn = [model.model.layers[layer_idx + i].self_attn for i in range(model.config.key_value_group_size)]
             for param in ("k_proj", "v_proj"):
                 weights = [getattr(this_attn, f"{param}_swiftkv").weight] + [
                     getattr(attn, f"{param}").weight for attn in next_attn
                 ]
                 with GatheredParameters(weights, modifier_rank=0):
-                    weights[0].data.copy_(
-                        sum(weights[1:]) / model.config.key_value_group_size
-                    )
+                    weights[0].data.copy_(sum(weights[1:]) / model.config.key_value_group_size)
                 getattr(this_attn, f"{param}_swiftkv").weight.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
@@ -146,9 +139,7 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-    def distillation_loss(
-        self, student_output, teacher_output, temperature=1.0, dim=-1
-    ):
+    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)

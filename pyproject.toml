@@ -8,7 +8,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.2"
+version = "0.0.3"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -34,11 +34,12 @@ dependencies = [
     "loguru",
     "openai>=1.48.0",
     "peft",
+    "psutil",
     "pydantic>=2.0",
     "tabulate",
     "torch",
     "tqdm",
-    "transformers==4.47.0",
+    "transformers>=4.47.0",
     "wandb",
 ]
 

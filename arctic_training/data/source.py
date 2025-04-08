@@ -15,6 +15,7 @@
 
 from abc import ABC
 from abc import abstractmethod
+from functools import cached_property
 from pathlib import Path
 from typing import Dict
 from typing import Tuple
@@ -58,37 +59,29 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._data_factory = data_factory
         self.config = config
 
-    def __call__(self, split: str) -> DatasetType:
+    def __call__(self) -> DatasetType:
         disable_caching()
-        cache_path = self.cache_path(split)
-        if self.data_factory.config.use_data_cache and cache_path.exists():
-            logger.info(f"Loading from cache path {cache_path.as_posix()}")
-            return load_from_disk(cache_path.as_posix())
+        if self.cache_path.exists():
+            logger.info(f"Loading data source from cache path {self.cache_path.as_posix()}")
+            return load_from_disk(self.cache_path.as_posix())
 
-        dataset = self.load(self.config, split)
+        dataset = self.load(self.config, self.config.split)
         if len(dataset) < 1:
             raise ValueError(
                 f"Empty dataset from load() for data source type {self.name} with"
-                f" config {self.config} for split {split}"
+                f" config {self.config} for split {self.config.split}"
             )
-        if self.config.shard:
-            if len(dataset) < self.world_size:
-                raise ValueError(
-                    "Sharding is enabled but the dataset size is smaller than the"
-                    f" number of shards. Dataset size: {len(dataset)}, number of"
-                    f" shards: {self.world_size}"
-                )
-            dataset = dataset.shard(num_shards=self.world_size, index=self.global_rank)
         if self.config.process:
             dataset = self.data_factory.process(dataset)
             if len(dataset) < 1:
                 raise ValueError(
                     "Empty dataset after process() for data source type"
-                    f" {self.name} with config {self.config} for split {split}"
+                    f" {self.name} with config {self.config} for split"
+                    f" {self.config.split}"
                 )
 
-        if self.data_factory.config.use_data_cache:
-            dataset.save_to_disk(cache_path.as_posix())
+        logger.info(f"Saving data source to cache path {self.cache_path.as_posix()}")
+        dataset.save_to_disk(self.cache_path.as_posix())
 
         return dataset
 
@@ -118,28 +111,25 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         # - num_proc: does not affect output data
         # - train_eval_split: this is used after data is loaded/cached
         # - use_data_cache: does not affect the output data
-        exclude_fields = [
+        exclude_fields = {
             "sources",
             "eval_sources",
             "cache_dir",
             "num_proc",
             "train_eval_split",
             "use_data_cache",
-        ]
+        }
         cache_path_args = (
-            {
-                k: v
-                for k, v in self.data_factory.config.model_dump().items()
-                if k not in exclude_fields
-            },
+            self.data_factory.config.model_dump(exclude=exclude_fields),
             self.config.model_dump(),
             self.trainer.config.tokenizer.model_dump(),
         )
         return cache_path_args
 
-    def cache_path(self, split: str) -> Path:
+    @cached_property
+    def cache_path(self) -> Path:
         """Returns the cache path for the data source split."""
-        hash_str = calculate_hash_from_args(split, *self.cache_path_args)
+        hash_str = calculate_hash_from_args(*self.cache_path_args)
         return self.data_factory.config.cache_dir / hash_str
 
     @callback_wrapper("load")

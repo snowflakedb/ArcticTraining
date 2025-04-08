@@ -18,12 +18,12 @@ repos:
     rev: 6.0.1
     hooks:
       - id: isort
-        args: [--profile, black, -l, "88", --force-single-line, --filter-files]
+        args: [--profile, black, -l, "119", --force-single-line, --filter-files]
   - repo: https://github.com/psf/black-pre-commit-mirror
     rev: 25.1.0
     hooks:
       - id: black
-        args: [--preview, --enable-unstable-feature, string_processing]
+        args: [--preview, --enable-unstable-feature, string_processing, --line-length, "119"]
   - repo: https://github.com/PyCQA/flake8
     rev: 7.1.2
     hooks:
@@ -34,4 +34,4 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-PyYAML, types-tabulate, pydantic]
-        files: ^(arctic_training/)
+        files: ^(arctic_training/|projects/arctic_embed/)

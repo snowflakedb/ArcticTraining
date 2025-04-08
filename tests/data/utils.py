@@ -16,7 +16,6 @@
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List
-from typing import Optional
 
 from transformers import AutoTokenizer
 
@@ -28,14 +27,13 @@ from arctic_training.data.sft_factory import SFTDataFactory
 def create_sft_data_factory(
     model_name: str,
     sources: List[str],
+    cache_dir: Path,
     eval_sources: List[str] = [],
-    cache_dir: Optional[Path] = None,
 ) -> SFTDataFactory:
     data_config = SFTDataConfig(
         type="sft",
         sources=sources,
         eval_sources=eval_sources,
-        use_data_cache=cache_dir is not None,
         cache_dir=cache_dir,
     )
     tokenizer_config = TokenizerConfig(type="huggingface", name_or_path=model_name)
@@ -45,8 +43,13 @@ def create_sft_data_factory(
             micro_batch_size=1,
             data=data_config,
             tokenizer=tokenizer_config,
+            seed=42,
+            gradient_accumulation_steps=1,
+            min_iterations=0,
+            train_log_iter_interval=0,
         ),
         tokenizer=AutoTokenizer.from_pretrained(model_name),
+        _set_seeds=lambda seed: None,
     )
 
     data_factory = data_config.factory(trainer=dummy_trainer)

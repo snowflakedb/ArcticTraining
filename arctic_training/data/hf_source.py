@@ -14,50 +14,29 @@
 # limitations under the License.
 
 from functools import partial
+from pathlib import Path
 from typing import Any
 from typing import Dict
+from typing import List
 
+from datasets import DatasetDict
 from datasets import load_dataset
-from pydantic import model_validator
-from typing_extensions import Self
+from datasets import load_from_disk
 
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
-from arctic_training.logging import logger
-from arctic_training.registry import get_registered_data_source
 
 
 class HFDataSourceConfig(DataSourceConfig):
-    dataset_name: str = ""
-    """ Name of the dataset to load. """
+    name_or_path: Path
+    """
+    Name or path of the dataset to load. Also accepts values for the split field
+    after a colon (e.g. "name:split", "name:split[10:20]").
+    """
 
     kwargs: Dict[str, Any] = {}
     """ Keyword arguments to pass to the datasets.load_dataset function. """
-
-    @model_validator(mode="after")
-    def set_dataset_name(self) -> Self:
-        if self.dataset_name == "":
-            try:
-                data_source = get_registered_data_source(name=self.type)
-                logger.warning(
-                    f"No dataset name was provided for {data_source.name}. Auto-filling"
-                    " value based on selected dataset for backwargs compatibility."
-                    " However this feature will be removed in a future version of"
-                    " ArcticTraining."
-                )
-                if data_source.name == "huggingface":
-                    raise ValueError(
-                        "Must provide a dataset name for HuggingFace data sources."
-                    )
-                self.dataset_name = data_source.name
-            except ValueError as e:
-                logger.error(
-                    "No dataset name was provided and failed to infer one from data"
-                    f" source type {self.type}."
-                )
-                raise e
-        return self
 
 
 class HFDataSource(DataSource):
@@ -67,15 +46,25 @@ class HFDataSource(DataSource):
     config: HFDataSourceConfig
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
-        return load_dataset(config.dataset_name, split=split, **config.kwargs)
+        # Support loading local datasets
+        if config.name_or_path.exists():
+            dataset = load_from_disk(config.name_or_path.as_posix(), **config.kwargs)
+            if isinstance(dataset, DatasetDict):
+                dataset = dataset[split]
+        else:
+            dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
+
+        return dataset
 
 
 class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
     def pre_load_callback(self, split: str) -> str:
-        split_map = {"train": "train_sft", "test": "test_sft"}
-        return split_map.get(split, split)
+        split_map = dict(train="train_sft", eval="test_sft")
+        for original, modified in split_map.items():
+            split = split.replace(original, modified)
+        return split
 
 
 class SlimOrca(HFDataSource):
@@ -176,4 +165,36 @@ class LMSysChat1M(HFDataSource):
         return {
             "source": source_name,
             "messages": messages,
+        }
+
+
+class UltraFeedbackBinarized(HFDataSource):
+    name = "HuggingFaceH4/ultrafeedback_binarized"
+
+    def pre_load_callback(self, split: str) -> str:
+        split_map = dict(train="train_prefs", eval="test_prefs")
+        for original, modified in split_map.items():
+            split = split.replace(original, modified)
+        return split
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        dataset = dataset.select_columns(["chosen", "rejected"])
+        formatted_dataset = dataset.map(self.split_prompt_content, desc="Loading ultrafeedback binarized")
+        return formatted_dataset
+
+    @staticmethod
+    def split_prompt_content(example: Dict[str, List]) -> Dict[str, List]:
+        r"""
+        Extracts the shared prompt from a preference data example, where the prompt is implicit within both
+        the chosen and rejected completions.
+
+        For more details, see [`maybe_extract_prompt`].
+        """
+        for idx in range(min(len(example["chosen"]), len(example["rejected"]))):
+            if example["chosen"][idx]["content"] != example["rejected"][idx]["content"]:
+                break
+        return {
+            "prompt": example["chosen"][:idx],
+            "chosen": example["chosen"][idx:],
+            "rejected": example["rejected"][idx:],
         }

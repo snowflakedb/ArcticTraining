@@ -17,16 +17,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 from typing import Type
 from typing import Union
 
+from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.data.utils import is_local_fs
+from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_data_factory
@@ -41,13 +45,18 @@ class DataSourceConfig(BaseConfig):
     """Base DataSource configuration."""
 
     type: str = ""
-    """ Data source type. """
+    """ Data source type. Defaults to 'huggingface' if only a dataset name or path is provided."""
+
+    split: str = ""
+    """
+    Which split the data source is used for. This will be automatically set to either "train" or "eval" if no value is passed.
+
+    For HFDataSource, this can be any value supported by Dataset slice splits:
+    https://huggingface.co/docs/datasets/en/loading#slice-splits.
+    """
 
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
-
-    shard: bool = True
-    """ Whether to shard the data across Data Parallel process ranks. """
 
     @property
     def data_source(self) -> Type["DataSource"]:
@@ -73,7 +82,7 @@ class DataConfig(BaseConfig):
     seed: int = 42
     """ Seed for data loading. """
 
-    use_data_cache: bool = True
+    use_data_cache: Optional[bool] = None
     """ Whether to cache loaded data. """
 
     cache_processed_data: Optional[bool] = None
@@ -82,45 +91,65 @@ class DataConfig(BaseConfig):
     cache_dir: Path = Path("/tmp/")
     """ Directory to store cached data. """
 
+    cache_fs_type: Literal["auto", "local", "shared"] = "auto"
+
     @property
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)
 
-    @field_validator("cache_processed_data", mode="after")
+    @field_validator("use_data_cache", "cache_processed_data", mode="after")
     @classmethod
     def deprecate_cache_processed_data(cls, v: Optional[bool]) -> Optional[bool]:
         if v is not None:
             logger.warning(
-                "The 'cache_processed_data' field is deprecated. Please use"
-                " 'use_data_cache' instead."
+                "The 'use_data_cache' and 'cache_processed_data' fields are deprecated."
+                " Data cache is used by default now."
             )
         return v
 
     @field_validator("sources", "eval_sources", mode="before")
-    def create_source_config_from_name(
-        cls, v: List[Union[str, Dict, DataSourceConfig]]
+    def init_source_configs(
+        cls,
+        v: List[Union[str, Dict, DataSourceConfig]],
+        info: ValidationInfo,
     ) -> List[DataSourceConfig]:
-        data_sources = []
-        for source in v:
-            if isinstance(source, str):
-                data_source_cls = get_registered_data_source(source)
+        """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
+        data_configs = []
+        for config in v:
+            split = "train" if info.field_name == "sources" else "eval"
+
+            # Support passing just a dataset name or path
+            if isinstance(config, str):
+                # User has passed split suffix as part of the name
+                if ":" in config:
+                    config, split = config.split(":", 1)
+
+                try:
+                    _ = get_registered_data_source(config)
+                    config = dict(type=config, name_or_path=config)
+                except RegistryError:
+                    config = dict(type="huggingface", name_or_path=config)
+
+            # Convert passed dictionary to DataSourceConfig subclass
+            if isinstance(config, dict):
+                if "type" not in config:
+                    raise KeyError(
+                        "Unspecified data source type. Please specify the 'type' field"
+                        f" in your datasource config. Error raised for input: {config}."
+                    )
+                if "split" not in config:
+                    config["split"] = split
+                data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
-                data_sources.append(config_cls(type=source))
+                data_configs.append(config_cls(**config))
             else:
-                data_sources.append(source)
-        return data_sources
+                data_configs.append(config)
+        return data_configs
 
     @model_validator(mode="after")
     def validate_cache_dir(self) -> Self:
-        if self.use_data_cache:
-            assert (
-                self.cache_dir is not None
-            ), "You must provide a data_cache_dir if use_data_cache is True."
-            if not self.cache_dir.exists():
-                logger.warning(
-                    f"Caching directory {self.cache_dir} does not exist. Creating it."
-                )
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self.cache_dir.exists():
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
         return self
 
     @model_validator(mode="after")
@@ -130,9 +159,14 @@ class DataConfig(BaseConfig):
                 self.train_eval_split[0] == 1.0
             ), "train_eval_split should be (1.0, 0.0) when eval_datasets is provided."
         if self.train_eval_split[1] > 0.0:
-            assert not self.eval_sources, (
-                "If you provide the evaluation split, you should not provide the"
-                " evaluation datasets."
-            )
+            assert (
+                not self.eval_sources
+            ), "If you provide the evaluation split, you should not provide the evaluation datasets."
         assert sum(self.train_eval_split) == 1.0, "train_eval_split should sum to 1.0."
+        return self
+
+    @model_validator(mode="after")
+    def set_cache_fs_type(self) -> Self:
+        if self.cache_fs_type == "auto":
+            self.cache_fs_type = "local" if is_local_fs(self.cache_dir) else "shared"
         return self

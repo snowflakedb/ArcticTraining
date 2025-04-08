@@ -13,12 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+import math
 
 
-def get_local_rank() -> int:
-    return int(os.getenv("LOCAL_RANK", 0))
+def human_format_base2_number(num: float, suffix: str = "") -> str:
+    if num == 0:
+        return f"0{suffix}"
+
+    units = ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi", "Yi"]
+    exponent = min(int(math.log(abs(num), 1024)), len(units) - 1)
+    value = num / (1024**exponent)
+
+    return f"{value:_.1f}{units[exponent]}{suffix}"
 
 
-def get_world_size() -> int:
-    return int(os.getenv("WORLD_SIZE", 1))
+def human_format_base10_number(num: float, suffix: str = "") -> str:
+    if num == 0:
+        return f"0{suffix}"
+
+    units = ["", "K", "M", "B", "T", "Qa", "Qi"]  # Qa: Quadrillion, Qi: Quintillion
+    exponent = min(int(math.log(abs(num), 1000)), len(units) - 1)
+    value = num / (1000**exponent)
+
+    return f"{value:_.1f}{units[exponent]}{suffix}"

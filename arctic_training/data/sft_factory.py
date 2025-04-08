@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler
+from torch.utils.data import DistributedSampler
 from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
@@ -84,9 +84,7 @@ def pad(
     if max_seq is not None:
         output_shape[dim_to_pad] = max_seq
     elif divisible_by is not None:
-        output_shape[dim_to_pad] = (
-            int(np.ceil(output_shape[dim_to_pad] / divisible_by)) * divisible_by
-        )
+        output_shape[dim_to_pad] = int(np.ceil(output_shape[dim_to_pad] / divisible_by)) * divisible_by
 
     # Create an output tensor filled with the padding value
     # TODO: Likely for 2D position ids, this does not work. Need to revisit.
@@ -135,14 +133,9 @@ class DataCollatorForCausalLM:
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
         if "position_ids" in instances[0]:
-            position_ids = [
-                torch.tensor(example["position_ids"]) for example in instances
-            ]
+            position_ids = [torch.tensor(example["position_ids"]) for example in instances]
         else:
-            position_ids = [
-                torch.tensor(list(range(len(example["input_ids"]))))
-                for example in instances
-            ]
+            position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
 
         input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id)
         labels = pad(labels, padding_value=IGNORE_INDEX)
@@ -185,10 +178,9 @@ def packing_sft_dataset(
             data["labels"],
         )
 
-        if (
-            not always_max_length
-            and len(example["input_ids"]) + len(input_ids) > max_length
-        ) or len(example["input_ids"]) > max_length:
+        if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
+            example["input_ids"]
+        ) > max_length:
             for key in train_dataset.keys():
                 train_dataset[key].append(example[key])
 
@@ -245,9 +237,7 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
         always_max_length=self.config.always_max_length,
     )
     if len(dataset) < 1:
-        raise ValueError(
-            f"No data left after packing dataset samples in {self.__class__.__name__}"
-        )
+        raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
     return dataset
 
 
@@ -261,9 +251,7 @@ class SFTDataFactory(DataFactory):
 
     def process(self, dataset: DatasetType) -> DatasetType:
         if "messages" not in dataset.column_names:
-            raise ValueError(
-                "Dataset must have 'messages' column to tokenize for SFTDataFactory."
-            )
+            raise ValueError("Dataset must have 'messages' column to tokenize for SFTDataFactory.")
         dataset = dataset.select_columns(["messages"])
         # sft based tokenization,
         # we assume the messages are in the format of:
@@ -292,9 +280,7 @@ class SFTDataFactory(DataFactory):
         tokenizer: PreTrainedTokenizerBase,
         mask_inputs: bool = True,
     ) -> BatchEncoding:
-        conversation_text = tokenizer.apply_chat_template(
-            conversation=messages, tokenize=False
-        )
+        conversation_text = tokenizer.apply_chat_template(conversation=messages, tokenize=False)
         conversation_ids = tokenizer(
             conversation_text,
             return_offsets_mapping=mask_inputs,
@@ -302,9 +288,7 @@ class SFTDataFactory(DataFactory):
         )
 
         if mask_inputs:
-            assistant_ranges = cls.get_assistant_start_end_indices(
-                messages, conversation_text
-            )
+            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text)
             # _ = get_assistant_start_end_indices(messages, conversation_text)
             labels = cls.get_masked_labels(conversation_ids, assistant_ranges)
             conversation_ids["labels"] = labels
@@ -331,9 +315,7 @@ class SFTDataFactory(DataFactory):
         return return_indices
 
     @staticmethod
-    def get_masked_labels(
-        conversation_ids: BatchEncoding, assistant_ranges: List[Tuple[int, int]]
-    ) -> List[int]:
+    def get_masked_labels(conversation_ids: BatchEncoding, assistant_ranges: List[Tuple[int, int]]) -> List[int]:
         pre_output = IGNORE_INDEX
         output = []
 
@@ -367,7 +349,7 @@ class SFTDataFactory(DataFactory):
             dataset,
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),
             batch_size=self.micro_batch_size,
-            sampler=RandomSampler(dataset),
+            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.num_proc,
             drop_last=True,
         )
