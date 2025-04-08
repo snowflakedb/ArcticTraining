@@ -46,9 +46,7 @@ class MoBAModelFactory(SwiftKVModelFactory):
         """patch the flash attention in the model to use moba
         there is an assumption that this method will be called
         before model creation"""
-        patch_flash_attn_varlen_func_for_moba(
-            self.config.moba_chunk_size, self.config.moba_topk
-        )
+        patch_flash_attn_varlen_func_for_moba(self.config.moba_chunk_size, self.config.moba_topk)
 
         return hf_config
 

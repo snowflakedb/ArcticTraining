@@ -63,9 +63,7 @@ def moba_flash_attn_varlen_func(
 
         cu_seqlens = cu_seqlens_q
         max_seqlen = max_seqlen_q
-        return moba_attn_varlen(
-            q, k, v, cu_seqlens, max_seqlen, moba_chunk_size, moba_topk
-        )
+        return moba_attn_varlen(q, k, v, cu_seqlens, max_seqlen, moba_chunk_size, moba_topk)
     else:
         global original_flash_attn_varlen_func
         return original_flash_attn_varlen_func(

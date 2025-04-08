@@ -46,18 +46,14 @@ def calc_chunks(cu_seqlen, moba_chunk_size):
     # total chunk ( for all batch )
     num_chunk = cu_num_chunk[-1]
     # chunk_sizes[chunk_idx] = chunk_size of chunk idx
-    chunk_sizes = torch.full(
-        (num_chunk + 1,), moba_chunk_size, dtype=torch.int32, device=cu_seqlen.device
-    )
+    chunk_sizes = torch.full((num_chunk + 1,), moba_chunk_size, dtype=torch.int32, device=cu_seqlen.device)
     chunk_sizes[0] = 0  # for calc cu chunk
     batch_last_chunk_size = batch_sizes - (batch_num_chunk - 1) * moba_chunk_size
     chunk_sizes[cu_num_chunk[1:]] = batch_last_chunk_size
     # cu_chunk[chunk_idx] = the start chunk offset of chunk idx
     cu_chunk = chunk_sizes.cumsum(dim=-1, dtype=torch.int32)
     # chunk_to_batch[chunk_idx] = batch idx of the chunk idx
-    chunk_to_batch = torch.zeros(
-        (num_chunk,), dtype=torch.int32, device=cu_seqlen.device
-    )
+    chunk_to_batch = torch.zeros((num_chunk,), dtype=torch.int32, device=cu_seqlen.device)
     chunk_to_batch[cu_num_chunk[1:-1]] = 1
     chunk_to_batch = chunk_to_batch.cumsum(dim=0, dtype=torch.int32)
 
@@ -66,9 +62,7 @@ def calc_chunks(cu_seqlen, moba_chunk_size):
     # filter chunks ( remove last chunk of each batch )
     # filtered_chunk_indices: chunk index list that excludes the last chunk of each batch
     chunk_to_remove = cu_num_chunk[1:] - 1
-    chunk_to_remain = torch.ones(
-        (num_chunk,), dtype=torch.bool, device=cu_seqlen.device
-    )
+    chunk_to_remain = torch.ones((num_chunk,), dtype=torch.bool, device=cu_seqlen.device)
     chunk_to_remain[chunk_to_remove] = False
     filtered_chunk_indices = chunk_to_remain.nonzero(as_tuple=True)[0]
     num_filtered_chunk = len(filtered_chunk_indices)
@@ -103,19 +97,17 @@ class MixedAttention(torch.autograd.Function):
         ctx.softmax_scale = softmax_scale = q.shape[-1] ** (-0.5)
 
         # self attn
-        _, _, _, _, self_attn_out_sh, self_attn_lse_hs, _, _ = (
-            _flash_attn_varlen_forward(
-                q=q,
-                k=k,
-                v=v,
-                cu_seqlens_q=self_attn_cu_seqlen,
-                cu_seqlens_k=self_attn_cu_seqlen,
-                max_seqlen_q=max_seqlen,
-                max_seqlen_k=max_seqlen,
-                softmax_scale=softmax_scale,
-                causal=True,
-                dropout_p=0.0,
-            )
+        _, _, _, _, self_attn_out_sh, self_attn_lse_hs, _, _ = _flash_attn_varlen_forward(
+            q=q,
+            k=k,
+            v=v,
+            cu_seqlens_q=self_attn_cu_seqlen,
+            cu_seqlens_k=self_attn_cu_seqlen,
+            max_seqlen_q=max_seqlen,
+            max_seqlen_k=max_seqlen,
+            softmax_scale=softmax_scale,
+            causal=True,
+            dropout_p=0.0,
         )
 
         # moba attn
@@ -137,9 +129,7 @@ class MixedAttention(torch.autograd.Function):
         moba_attn_lse = moba_attn_lse_hs.t().contiguous()
 
         # output buffer [S, H, D], same shape as q
-        output = torch.zeros(
-            (q.shape[0], q.shape[1], q.shape[2]), device=q.device, dtype=torch.float32
-        )
+        output = torch.zeros((q.shape[0], q.shape[1], q.shape[2]), device=q.device, dtype=torch.float32)
 
         # flatten vS & H for index ops
         output_2d = output.view(-1, q.shape[2])
@@ -147,22 +137,16 @@ class MixedAttention(torch.autograd.Function):
         # calc mixed_lse
         # minus max lse to avoid exp explosion
         max_lse_1d = self_attn_lse_sh.view(-1)
-        max_lse_1d = max_lse_1d.index_reduce(
-            0, moba_q_sh_indices, moba_attn_lse.view(-1), "amax"
-        )
+        max_lse_1d = max_lse_1d.index_reduce(0, moba_q_sh_indices, moba_attn_lse.view(-1), "amax")
         self_attn_lse_sh = self_attn_lse_sh - max_lse_1d.view_as(self_attn_lse_sh)
         moba_attn_lse = (
-            moba_attn_lse.view(-1)
-            .sub(max_lse_1d.index_select(0, moba_q_sh_indices))
-            .reshape_as(moba_attn_lse)
+            moba_attn_lse.view(-1).sub(max_lse_1d.index_select(0, moba_q_sh_indices)).reshape_as(moba_attn_lse)
         )
 
         mixed_attn_se_sh = self_attn_lse_sh.exp()
         moba_attn_se = moba_attn_lse.exp()
 
-        mixed_attn_se_sh.view(-1).index_add_(
-            0, moba_q_sh_indices, moba_attn_se.view(-1)
-        )
+        mixed_attn_se_sh.view(-1).index_add_(0, moba_q_sh_indices, moba_attn_se.view(-1))
         mixed_attn_lse_sh = mixed_attn_se_sh.log()
 
         # add attn output
@@ -171,11 +155,7 @@ class MixedAttention(torch.autograd.Function):
         output_2d += self_attn_out_sh.reshape_as(output_2d)
 
         # add moba output
-        mixed_attn_lse = (
-            mixed_attn_lse_sh.view(-1)
-            .index_select(0, moba_q_sh_indices)
-            .view_as(moba_attn_lse)
-        )
+        mixed_attn_lse = mixed_attn_lse_sh.view(-1).index_select(0, moba_q_sh_indices).view_as(moba_attn_lse)
         factor = (moba_attn_lse - mixed_attn_lse).exp()  # [ vS, H ]
         moba_attn_out = moba_attn_out * factor.unsqueeze(-1)
         raw_attn_out = moba_attn_out.view(-1, moba_attn_out.shape[-1])
@@ -246,16 +226,10 @@ class MixedAttention(torch.autograd.Function):
         )
 
         headdim = q.shape[-1]
-        d_moba_output = (
-            d_output.view(-1, headdim).index_select(0, moba_q_sh_indices).unsqueeze(1)
-        )
-        moba_output = (
-            output.view(-1, headdim).index_select(0, moba_q_sh_indices).unsqueeze(1)
-        )
+        d_moba_output = d_output.view(-1, headdim).index_select(0, moba_q_sh_indices).unsqueeze(1)
+        moba_output = output.view(-1, headdim).index_select(0, moba_q_sh_indices).unsqueeze(1)
 
-        mixed_attn_vlse = (
-            mixed_attn_vlse_sh.view(-1).index_select(0, moba_q_sh_indices).view(1, -1)
-        )
+        mixed_attn_vlse = mixed_attn_vlse_sh.view(-1).index_select(0, moba_q_sh_indices).view(1, -1)
 
         dmq, dmk, dmv, _ = _flash_attn_varlen_backward(
             dout=d_moba_output,
@@ -333,16 +307,14 @@ def moba_attn_varlen(
 
     # corner case: if no moba attn needed, just return self attn
     if not need_moba_attn:
-        return flash_attn_varlen_func(
-            q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True
-        )
+        return flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
     self_attn_cu_seqlen = cu_chunk
 
     # filtered_kv is a dense matrix that only contains filtered chunk of kv
-    filtered_kv_indices = torch.arange(
-        0, moba_chunk_size, dtype=torch.int32, device=q.device
-    )[None, :].repeat(num_filtered_chunk, 1)
+    filtered_kv_indices = torch.arange(0, moba_chunk_size, dtype=torch.int32, device=q.device)[None, :].repeat(
+        num_filtered_chunk, 1
+    )
     filtered_kv_indices += cu_chunk[filtered_chunk_indices][:, None]
     filtered_kv = kv.index_select(0, filtered_kv_indices.view(-1))
 
@@ -350,25 +322,16 @@ def moba_attn_varlen(
 
     # key_gate_weight [ F_N_CHUNK, HEAD, HEAD_DIM ]
     key_gate_weight = (
-        filtered_kv[:, 0]
-        .view(num_filtered_chunk, moba_chunk_size, num_head, head_dim)
-        .mean(dim=1)
-        .float()
+        filtered_kv[:, 0].view(num_filtered_chunk, moba_chunk_size, num_head, head_dim).mean(dim=1).float()
     )
     q = q.type(torch.float32)  # float logit on the fly for better gate logit perception
-    key_gate_weight = key_gate_weight.type(
-        torch.float32
-    )  # float logit for better gate logit perception
-    gate = torch.einsum(
-        "nhd,shd->nhs", key_gate_weight, q
-    )  # gate [ F_N_CHUNK, HEAD, SEQ ]
+    key_gate_weight = key_gate_weight.type(torch.float32)  # float logit for better gate logit perception
+    gate = torch.einsum("nhd,shd->nhs", key_gate_weight, q)  # gate [ F_N_CHUNK, HEAD, SEQ ]
     key_gate_weight = key_gate_weight.type_as(k)
     q = q.type_as(k)
 
     # pose process gate, masking unchosen batch and apply causal mask to current chunk
-    gate_seq_idx = torch.arange(0, seqlen, device=q.device, dtype=torch.int32)[
-        None, :
-    ].repeat(num_filtered_chunk, 1)
+    gate_seq_idx = torch.arange(0, seqlen, device=q.device, dtype=torch.int32)[None, :].repeat(num_filtered_chunk, 1)
     chunk_end = cu_chunk[filtered_chunk_indices + 1]
     batch_end = cu_seqlens[chunk_to_batch[filtered_chunk_indices] + 1]
     gate_chunk_end_mask = gate_seq_idx < chunk_end[:, None]
@@ -389,15 +352,11 @@ def moba_attn_varlen(
 
     # varlen trick: combining all q index that needs moba attn
     # the result will be like [ C0H0 ][ C0H1 ][ C0H2 ][ ... ][ CnHm ]
-    moba_q_indices = gate_mask.reshape(gate_mask.shape[0], -1).nonzero(as_tuple=True)[
-        -1
-    ]  # [ HS indices ] * N
+    moba_q_indices = gate_mask.reshape(gate_mask.shape[0], -1).nonzero(as_tuple=True)[-1]  # [ HS indices ] * N
     # moba_seqlen_q indicates that how many q chunks are selected for each kv chunk - head
     moba_seqlen_q = gate_mask.sum(dim=-1).flatten()
     # select all q that needs moba attn based on the moba_q_indices
-    moba_q = rearrange(q, "s h d -> ( h s ) d").index_select(
-        0, moba_q_indices
-    )  # [ selected_S, D ]
+    moba_q = rearrange(q, "s h d -> ( h s ) d").index_select(0, moba_q_indices)  # [ selected_S, D ]
     moba_q = moba_q.unsqueeze(1)
     # moba_q_sh_indices represents the position in the origin q tensor of each q token inside moba_q
     moba_q_sh_indices = moba_q_indices % seqlen * num_head + moba_q_indices // seqlen
@@ -425,9 +384,7 @@ def moba_attn_varlen(
     moba_kv = torch.cat(moba_kv, dim=0)
     if zero_expert_count > 0:
         assert valid_expert_mask.sum() == moba_kv.shape[0] - zero_expert_count
-        moba_kv = moba_kv[
-            valid_expert_mask
-        ]  # cut off zero Q expert from kv , or the grad may be nan
+        moba_kv = moba_kv[valid_expert_mask]  # cut off zero Q expert from kv , or the grad may be nan
     moba_kv = moba_kv.flatten(start_dim=0, end_dim=1).unsqueeze(2)
     moba_cu_seqlen_kv = (
         torch.arange(
@@ -440,10 +397,9 @@ def moba_attn_varlen(
     )
 
     # Shape check
-    assert moba_cu_seqlen_kv.shape == moba_cu_seqlen_q.shape, (
-        "moba_cu_seqlen_kv.shape != moba_cu_seqlen_q.shape"
-        f" {moba_cu_seqlen_kv.shape} != {moba_cu_seqlen_q.shape}"
-    )
+    assert (
+        moba_cu_seqlen_kv.shape == moba_cu_seqlen_q.shape
+    ), f"moba_cu_seqlen_kv.shape != moba_cu_seqlen_q.shape {moba_cu_seqlen_kv.shape} != {moba_cu_seqlen_q.shape}"
 
     # Wrapping up the flash attn call and online softmax dlse inside MixedAttention class
     return MixedAttention.apply(

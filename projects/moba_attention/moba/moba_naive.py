@@ -86,19 +86,13 @@ def moba_attn_varlen_naive(
         gate_top_k_val, _ = gate_top_k_val.min(dim=-1)  # [ H, S ]
         need_attend = gate >= gate_top_k_val.unsqueeze(-1)
         # add gate_idx_mask in case of there is cornercases of same topk val been selected
-        gate_idx_mask = torch.zeros(
-            need_attend.shape, dtype=torch.bool, device=q.device
-        )
+        gate_idx_mask = torch.zeros(need_attend.shape, dtype=torch.bool, device=q.device)
         gate_idx_mask = gate_idx_mask.scatter_(dim=-1, index=gate_top_k_idx, value=True)
         need_attend = torch.logical_and(need_attend, gate_idx_mask)
         gate[need_attend] = 0
         gate[~need_attend] = -float("inf")
-        gate = gate.repeat_interleave(moba_chunk_size, dim=-1)[
-            :, :, :batch_size
-        ]  # [ H, S, S ]
-        gate.masked_fill_(
-            torch.ones_like(gate, dtype=torch.bool).tril().logical_not(), -float("inf")
-        )
+        gate = gate.repeat_interleave(moba_chunk_size, dim=-1)[:, :, :batch_size]  # [ H, S, S ]
+        gate.masked_fill_(torch.ones_like(gate, dtype=torch.bool).tril().logical_not(), -float("inf"))
 
         # calc qk = qk^t
         q_ = q_.type(torch.float32)
