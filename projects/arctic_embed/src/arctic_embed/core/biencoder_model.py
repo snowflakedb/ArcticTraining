@@ -26,7 +26,6 @@ from typing import Union
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from torch import nn
 from transformers import PreTrainedModel
 
 PoolingOption = Literal["first_token", "last_token", "mean"]
@@ -34,11 +33,11 @@ PoolingOption = Literal["first_token", "last_token", "mean"]
 logger = logging.getLogger(__name__)
 
 
-class Biencoder(nn.Module):
+class Biencoder(PreTrainedModel):
     """Model for one-tower text embedding via a transformer `PreTrainedModel`."""
 
     def __init__(self, encoder: PreTrainedModel, pooling: PoolingOption = "first_token") -> None:
-        super().__init__()
+        super().__init__(encoder.config)
         self.encoder = encoder
         self.pooling = pooling
 
