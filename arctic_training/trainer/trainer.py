@@ -593,7 +593,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
         seqlens = [torch.zeros(1, dtype=torch.int64, device=self.device) for _ in range(self.sp_world_size)]
         dist.all_gather(seqlens, seqlen, group=self.sp_group)
         seqlens = [x[0].item() for x in seqlens]
-        print(seqlens)
+        #print(seqlens)
         #exit()
 
         for k in batch.keys():
@@ -857,18 +857,15 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
 
         return loss
 
-
-    @classmethod
-    def next_power_of_2(cls, x):
-        """
-        take any number and find the next power of 2
-        7.5 => 8
-        8 => 8
-        9 => 16
-        """
-        return 1<<(math.ceil(x)-1).bit_length()
-
-
+    # @classmethod
+    # def next_power_of_2(cls, x):
+    #     """
+    #     take any number and find the next power of 2
+    #     7.5 => 8
+    #     8 => 8
+    #     9 => 16
+    #     """
+    #     return 1<<(math.ceil(x)-1).bit_length()
 
     def forward(self, batch):
         # critical: the labels shouldn't be in batch
@@ -883,12 +880,13 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
             # XXX: should this be float and not the original dtype?
             loss = (self.logits.sum() * 0.0).float()
         else:
-            # XXX: parameterize to about 1GB fp32 logits shards
             if self.num_loss_logit_shards == "auto":
+                # parameterize to about 1GB fp32 logits shards
+                slice_size_in_gb = 1 # XXX: make configurable?
                 size_in_gb = self.logits.numel() * 4 / 2**30 # fp32
-                self.num_loss_logit_shards = self.next_power_of_2(size_in_gb)
+                # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
+                self.num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
                 #print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
-            #num_loss_logit_shards = 8
             if self.num_loss_logit_shards > 1:
                 loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
             else:
@@ -902,102 +900,70 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
         self.model.backward(self.loss)
 
 
+
 class ChunkedMemEfficientLoss(torch.autograd.Function):
     @staticmethod
     def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
+        """
+            logits doesn't have to be divisible by shards, the last shard will be shorter than the rest.
+        """
         ctx.save_for_backward(logits, shift_labels)
         ctx.loss_fn = loss_fn
         ctx.vocab_size = vocab_size
         ctx.shards = shards
-        #ctx.logits = logits
-        #ctx.shift_labels = shift_labels
 
-        # if shards == 1:
-        #     with torch.no_grad():
-        #         loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
-        #     return loss
-
-        if logits.shape[1] % shards != 0:
-            raise ValueError(f"Curently expecting logits seqlen dim {logits.shape[1]} to be divisible by the num of shards {shards}, but should be able to adapt it to other use cases later.")
-
-        #logits.requires_grad=False
         with torch.no_grad():
-            sl = len(shift_labels[0])
-            shard_step = sl // shards # XXX: check divisibility
+            seqlen = shift_labels.shape[1]
+            shard_step = math.ceil(seqlen / shards)
             loss_shards = []
+            total_good_items = 0
 
+            # since -100s are ignored we have to perform a weighted average on each loss slice as each slice may contribute a different number of non- -100 labels
+            # if seqlen / shards != 0 - the last chunk is just shorter than the rest but no data is ignored
             for i in range(shards):
                 # XXX: here and everywhere don't make a copy, pass the slice or perhaps narrow/view?
                 shift_labels_shard = shift_labels[:,i*shard_step:(i+1)*shard_step]
                 if all((shift_labels_shard == -100).squeeze()):
                     continue # ignore this shard
                 loss_shard = loss_fn(
-                    logits=logits[:,i*shard_step:(i+1)*shard_step],
+                    logits=logits[:,i*shard_step:(i+1)*shard_step,:],
                     labels=None,
                     vocab_size=vocab_size,
                     shift_labels=shift_labels_shard)
-                loss_shards.append(loss_shard)
-                #import gc; gc.collect()
-                #print(l)
-            loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).mean()
+                good_items = sum((shift_labels_shard != -100).squeeze())
+                loss_shards.append(loss_shard*good_items)
+                total_good_items += good_items
+            total_loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).sum()
+            weighted_loss = total_loss / total_good_items
 
-        #loss = (logits.sum() * 0.0).float()
-        # XXX: is it needed since we did no_grad above?
-        #ctx.mark_non_differentiable(loss)
-
-        #loss.requires_grad=True
-
-        return loss
+        #weighted_loss.requires_grad = True
+        return weighted_loss
 
     @staticmethod
     def backward(ctx, *grads) -> torch.Tensor:
 
-        #print(f"BWD: {grads}")
         logits, shift_labels = ctx.saved_tensors
         loss_fn = ctx.loss_fn
         vocab_size = ctx.vocab_size
         shards = ctx.shards
-        #logits = ctx.logits
-        #shift_labels = ctx.shift_labels
 
-        grad = grads[0] #
-
-        # # XXX: we don't really need a special case for shards==1, the sharded one will do the same
-        # if shards == 1:
-        #     logits.grad = None
-        #     with torch.enable_grad():
-        #         loss = loss_fn(logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels)
-        #     torch.autograd.backward(loss, grad)
-        #     #print(f"returning {logits.grad.norm()=}")
-        #     #print(f"returning {logits.grad=}")
-        #     #grads = logits.grad.clone().detach()
-        #     return None, logits.grad, None, None, None
-        #     #return None, grads, None, None, None
-
-        sl = len(shift_labels[0])
-        shard_step = sl // shards # XXX: check divisibility
-        logits_shard_grads = []
-
-        # XXX: should the grad be in fp32?
+        grad = grads[0]
         logits_grad = torch.zeros_like(logits)
-        #print(f"{logits_grad=}")
-        #print(f"{logits.shape=}")
-        #logits_grad1  = torch.zeros([1, 16384, 131072], device=logits.device, dtype=logits.dtype, requires_grad=logits.requires_grad)
-        #print(f"{logits_grad1.cpu()=}")
-        #del logits_grad1
+        #logits_grad = torch.zeros(logits.shape, device=logits.device, dtype=grad.dtype, requires_grad=logits.requires_grad)
 
         logits_shards       = list(torch.chunk(logits, chunks=shards, dim=1))
         shift_labels_shards = list(torch.chunk(shift_labels, chunks=shards, dim=1))
         del logits
-        #del ctx.logits
+        del shift_labels
+        ctx.logits = None
+        ctx.shift_labels = None
+        ctx.loss_fn = None
+        ctx.vocab_size = None
+        ctx.shards = None
 
-        #logits.grad = None
         for i in range(shards):
             logits_shard       = logits_shards.pop(0)
             shift_labels_shard = shift_labels_shards.pop(0)
-            #loss_shards = []
-
-            #print(f"{logits_grad=}")
 
             shard_offset = i * logits_shard.numel()
             # this will enable gradual population of the pre-allocated `logits_shard.grad` during `torch.autograd.backward` calls
@@ -1006,6 +972,7 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
             with torch.enable_grad():
                 if all((shift_labels_shard == -100).squeeze()):
                     # fake loss calculation, since CE will return nan, but grads will be set
+                    # a normal loss_fn upcasts logits to float so match it
                     loss_shard = (logits_shard.sum() * 0.0).float()
                 else:
                     loss_shard = loss_fn(
@@ -1014,39 +981,15 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
                         vocab_size=vocab_size,
                         shift_labels=shift_labels_shard,
                     )
-                #loss_shards.append(loss_shard)
 
-            # XXX: what if there is a downstream grad that isn't 1?
             torch.autograd.backward(loss_shard, grad)
-            #print(f"{logits_shard.grad=}")
-            #print(f"{logits_grad=}")
-            # logits_shard_grads.append(logits_shard.grad)
-
-            #with torch.enable_grad():
-            # XXX: Is this really needed, so that we get the grad right?
-            #loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).mean()
-
-            #import gc; gc.collect()
-            #print(l)
-
-        # with torch.no_grad():
-        #     logits_grad = torch.cat(logits_shard_grads, dim=1)
 
         logits_grad /= shards
 
-        ctx.loss_fn = None
-        ctx.logits = None
-        ctx.vocab_size = None
-        ctx.shift_labels = None
-        ctx.shards = None
         #print(f"returning {logits_grad.norm()=}")
         #print(f"returning {logits_grad=}")
         # only logits (2nd arg) needs grads
         return None, logits_grad, None, None, None
-
-
-
-
 
 
 class UlyssesAttentionHFNoFrag(torch.nn.Module):
