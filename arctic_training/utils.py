@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 import deepspeed.comm as dist
 import math
-
+import datetime
 
 from contextlib import contextmanager
 
@@ -106,6 +106,11 @@ def gather_sum_number(number, device, group=None):
     dist.all_reduce(tensor, op=dist.ReduceOp.SUM, group=group)
     return tensor.item()
 
+def gather_number(number, device, group=None):
+    tensor = torch.tensor(number).to(device)
+    dist.all_reduce(tensor, op=dist.ReduceOp.MEAN, group=group)
+    return tensor.item()
+
 def gather_mean_number(number, device, group=None):
     tensor = torch.tensor(number).to(device)
     dist.all_reduce(tensor, op=dist.ReduceOp.MEAN, group=group)
@@ -148,4 +153,15 @@ def human_format_base10_number(num: float, suffix: str = "") -> str:
     exponent = min(int(math.log(abs(num), 1000)), len(units) - 1)
     value = num / (1000**exponent)
 
-    return f"{value:_.1f}{units[exponent]}{suffix}"
+    return f"{value:_.2f}{units[exponent]}{suffix}"
+
+def human_format_secs(secs):
+    """
+    - less than a minute format into seconds with decimals: "%s.%msec"
+    - one minute and over use "%H:%M:%S" format
+    - if over one day use: "X days, %H:%M:%S" format
+    """
+    if secs < 60:
+        return f"{secs:.3f}s"
+    else:
+        return str(datetime.timedelta(seconds=secs)).split('.')[0]
