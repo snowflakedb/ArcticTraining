@@ -24,7 +24,7 @@ def human_format_base2_number(num: float, suffix: str = "") -> str:
     exponent = min(int(math.log(abs(num), 1024)), len(units) - 1)
     value = num / (1024**exponent)
 
-    return f"{value:_.1f}{units[exponent]}{suffix}"
+    return f"{value:_.2f}{units[exponent]}{suffix}"
 
 
 def human_format_base10_number(num: float, suffix: str = "") -> str:
@@ -35,4 +35,4 @@ def human_format_base10_number(num: float, suffix: str = "") -> str:
     exponent = min(int(math.log(abs(num), 1000)), len(units) - 1)
     value = num / (1000**exponent)
 
-    return f"{value:_.1f}{units[exponent]}{suffix}"
+    return f"{value:_.2f}{units[exponent]}{suffix}"
