@@ -19,10 +19,10 @@ from abc import abstractmethod
 from contextlib import suppress
 from functools import cached_property
 from typing import Callable
-from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import TypeVar
 
 import deepspeed
 import numpy as np
@@ -56,6 +56,8 @@ try:
     from transformers.integrations.deepspeed import HfDeepSpeedConfig
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
+
+BatchType = TypeVar("BatchType")
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -250,7 +252,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     @callback_wrapper("loss")
     @abstractmethod
-    def loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def loss(self, batch: BatchType) -> torch.Tensor:
         """
         Loss function for the trainer. This method should be implemented by the
         inheriting trainer class.
@@ -266,7 +268,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.model.backward(loss)
 
     @callback_wrapper("step")
-    def step(self, batch: Dict[str, torch.Tensor]) -> None:
+    def step(self, batch: BatchType) -> None:
         """
         Step function for the trainer. Each batch of training data is passed to
         this method.
