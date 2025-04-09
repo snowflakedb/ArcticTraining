@@ -123,8 +123,13 @@ class UlyssesAttentionHF(torch.nn.Module):
         attn_head_size (int): size of each attention head
         attn_head_count (int): total number of attention heads
         kv_head_count (int): total number of kv heads
+        num_hidden_layers (int): total number of layers
         process_group (dist.ProcessGroup): Ulysses process group
         seq_length_is_variable (bool): whether global seqlen may change between batches
+
+
+    Extras:
+        - set self.skip_all_but_last_attention_debug_mode to True to enable fast debug which will skip calling all core attn layers but the last one, it will produce garbage of course quality-wise.
     """
 
     def __init__(
@@ -136,6 +141,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         attn_head_count: int,
         attn_head_size: int,
         kv_head_count: int,
+        num_hidden_layers: int,
         process_group: dist.ProcessGroup,
         seq_length_is_variable: bool = False,
     ) -> None:
@@ -153,6 +159,10 @@ class UlyssesAttentionHF(torch.nn.Module):
         self.attn_head_size = attn_head_size
         self.attn_head_count = attn_head_count
         self.global_kv_head_count = kv_head_count
+
+        self.num_hidden_layers = num_hidden_layers
+        self.skip_all_but_last_attention_debug_mode = False
+        self.rotating_layer_counter = 0 # used for dev work
 
         self.local_q_head_count = attn_head_count // self.world_size
 
@@ -399,9 +409,30 @@ class UlyssesAttentionHF(torch.nn.Module):
             module.num_key_value_groups = query_layer.size(-3)//key_layer.size(-3)
             print_rank0(f"after: {module.num_key_value_groups=}", skip=False)
 
-        # expects: [bs hc_l sl hs]
-        context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
-        # returns [bs sl hc_l hs]
+        if not self.skip_all_but_last_attention_debug_mode:
+            # expects: [bs hc_l sl hs]
+            context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
+            # returns [bs sl hc_l hs]
+        else:
+            # we need this hack during development in order to be able to check memory fitting w/o waiting for 3h to compute 1.5M seqlen attention, because it's quadratic in dense attention, so we skip all but the last core attention call - we want the last one to still get the memory usage approximately close to the real memory usage.
+            # of course the loss will be wrong when we do that.
+            self.rotating_layer_counter = (self.rotating_layer_counter + 1) % self.num_hidden_layers
+            # we detect the last layer by module counting since we know how many layers there are
+            if self.rotating_layer_counter % self.num_hidden_layers == 0:
+                #print(f"{self.rotating_layer_counter} Real")
+                # do the real pass
+                context_layer, attn_weights = self.attn(module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs)
+            else:
+                #print(f"{self.rotating_layer_counter} Fake")
+                # this feeds bogus data of the right shape - good enough for quick debug
+                context_layer = rearrange(query_layer, 'bs hc_l sl ... -> bs sl hc_l ...')
+                attn_weights = None
+
+        # print(f"{context_layer.shape=}")
+        # if attn_weights is not None:
+        #     print(f"{attn_weights.shape=}")
+        # else:
+        #     print(f"attn_weights=None")
 
         see_memory_usage(f"after core attn", force=False)
 
@@ -457,6 +488,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         """
         if sequence_parallel_size == 1:
             return None
+
         #see_memory_usage("ulysses: 1", force=True)
         import arctic_training.trainer.parallel_state as mpu
         #import torch
@@ -473,6 +505,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         if core_attn_implementation not in ['flash_attention_2', 'sdpa']:
             # - eager: The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager attention with sequence parallelism
             # - flex_attention: haven't tried
+            # - flash_attention_2: with some models leads to loss=nan when using packed samples - works fine w/o packed samples
 
             raise ValueError(f"{core_attn_implementation} attn_implementation isn't currently supported by Ulysses sequence parallelism. Set attn_implementation to either 'flash_attention_2' and 'sdpa'.")
 
@@ -488,6 +521,7 @@ class UlyssesAttentionHF(torch.nn.Module):
             attn_head_count=hf_model_config.num_attention_heads,
             attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
             kv_head_count=hf_model_config.num_key_value_heads,
+            num_hidden_layers=hf_model_config.num_hidden_layers,
             #device=self.device,
             process_group=mpu.get_sequence_parallel_group(),
             seq_length_is_variable=seq_length_is_variable,
