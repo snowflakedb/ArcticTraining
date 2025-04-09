@@ -16,6 +16,7 @@
 import random
 from abc import ABC
 from abc import abstractmethod
+from contextlib import suppress
 from functools import cached_property
 from typing import Callable
 from typing import Dict
@@ -297,7 +298,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.metrics.start_timer("iter")
         for batch in self.train_batches:
             self.train_batch_idx += 1
-            self.metrics.record("seqlen", len(batch["input_ids"][0]))
+            with suppress(Exception):  # Batch may not be dict with `input_ids` key.
+                self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
             self.metrics.start_timer("step")
             self.step(batch)
