@@ -50,9 +50,7 @@ def loguru_caplog():
             logging.getLogger(record.name).handle(record)
 
     logger.remove()  # Remove existing handlers to prevent duplicate logs
-    logger.add(
-        PropagateHandler(), format="{message}"
-    )  # Add handler for pytest to capture
+    logger.add(PropagateHandler(), format="{message}")  # Add handler for pytest to capture
 
     yield
 
@@ -89,17 +87,13 @@ def test_validate_class_method_no_args():
 
 
 def test_validate_class_method_with_args():
-    _validate_class_method(
-        ValidationTestClass, "method_with_args", ["self", "arg1", "arg2"]
-    )
+    _validate_class_method(ValidationTestClass, "method_with_args", ["self", "arg1", "arg2"])
 
 
 def test_validate_class_method_fail():
     with pytest.raises(RegistryValidationError):
         # Incorrect arguments for method_with_args
-        _validate_class_method(
-            ValidationTestClass, "method_with_args", ["self", "arg1"]
-        )
+        _validate_class_method(ValidationTestClass, "method_with_args", ["self", "arg1"])
 
 
 def test_validate_class_attribute_set():
@@ -150,12 +144,8 @@ def test_registration_decorator_deprecation(loguru_caplog, caplog):
         class RegisteredClass(BaseClass):
             name = "test_class"
 
-    assert (
-        "The @register decorator is deprecated" in caplog.text
-    ), f"Wrong warning message: {caplog.text}"
-    assert (
-        RegisteredClass.name in RegistryMeta._registry[BaseClass.__name__]
-    ), "Class not registered correctly"
+    assert "The @register decorator is deprecated" in caplog.text, f"Wrong warning message: {caplog.text}"
+    assert RegisteredClass.name in RegistryMeta._registry[BaseClass.__name__], "Class not registered correctly"
 
 
 def test_registration():
@@ -176,13 +166,8 @@ def test_registration():
         def method(self):
             pass
 
-    assert (
-        RegisteredClass.name in RegistryMeta._registry[BaseClass.__name__]
-    ), "Class not registered correctly"
-    assert (
-        RegisteredClass
-        is RegistryMeta._registry[BaseClass.__name__][RegisteredClass.name]
-    ), "Class does not match"
+    assert RegisteredClass.name in RegistryMeta._registry[BaseClass.__name__], "Class not registered correctly"
+    assert RegisteredClass is RegistryMeta._registry[BaseClass.__name__][RegisteredClass.name], "Class does not match"
 
 
 def test_registration_multi_inheritance():
@@ -216,12 +201,8 @@ def test_registration_multi_inheritance():
         def method2(self, arg1):
             pass
 
-    assert (
-        RegisteredSubClass.name in RegistryMeta._registry[BaseClass.__name__]
-    ), "Class not registered correctly"
-    assert (
-        RegisteredSubSubClass.name in RegistryMeta._registry[BaseClass.__name__]
-    ), "Class not registered correctly"
+    assert RegisteredSubClass.name in RegistryMeta._registry[BaseClass.__name__], "Class not registered correctly"
+    assert RegisteredSubSubClass.name in RegistryMeta._registry[BaseClass.__name__], "Class not registered correctly"
 
 
 def test_registration_fail():

@@ -61,9 +61,7 @@ def get_query_and_qrel_tables() -> tuple[pa.Table, pa.Table]:
     qrel_dids: list[int] = []
     for qid, rel_docs in zip(
         q_with_rel_train["query_id"],
-        tqdm(
-            q_with_rel_train["positive_passages"], desc="processing qrels", unit="query"
-        ),
+        tqdm(q_with_rel_train["positive_passages"], desc="processing qrels", unit="query"),
     ):
         qrel_qids.extend([qid] * len(rel_docs))
         qrel_dids.extend([item["docid"] for item in rel_docs])
@@ -97,13 +95,8 @@ if __name__ == "__main__":
     )
     dids = table_document["DOCUMENT_ID"].to_numpy()
     dids_unique = dids[idx]
-    print(
-        f"Reducing documents from {len(table_document):,} to"
-        f" {len(doc_texts_unique):,} by deduping."
-    )
-    table_document = pa.table(
-        {"DOCUMENT_ID": dids_unique, "DOCUMENT_TEXT": doc_texts_unique}
-    )
+    print(f"Reducing documents from {len(table_document):,} to {len(doc_texts_unique):,} by deduping.")
+    table_document = pa.table({"DOCUMENT_ID": dids_unique, "DOCUMENT_TEXT": doc_texts_unique})
 
     # Ensure queries are deduped.
     assert len(pd.unique(table_query["QUERY_ID"].to_numpy())) == len(table_query)
@@ -112,9 +105,7 @@ if __name__ == "__main__":
     # Map label doc ids to the canonical deduped doc id.
     print("Mapping label doc ids to canonical deduped doc ids")
     dedup_did_map = dict(zip(dids, dids_unique[idx_inverse]))
-    label_doc_ids = np.vectorize(dedup_did_map.get)(
-        table_labels["DOCUMENT_ID"].to_numpy()
-    )
+    label_doc_ids = np.vectorize(dedup_did_map.get)(table_labels["DOCUMENT_ID"].to_numpy())
 
     # Dedupe query-doc pair labels.
     table_labels = pa.Table.from_pandas(
@@ -126,10 +117,7 @@ if __name__ == "__main__":
         ).drop_duplicates(keep="first"),
         preserve_index=False,
     )
-    print(
-        f"Reduced label pairs from {len(label_doc_ids):,} to {len(table_labels):,} "
-        "by deduping."
-    )
+    print(f"Reduced label pairs from {len(label_doc_ids):,} to {len(table_labels):,} by deduping.")
 
     # Write to disk.
     print(f"Writing data to `{out_dir}`")

@@ -30,9 +30,7 @@ def load_optional_dependencies() -> Dict[str, List[str]]:
     return pyproject.get("project", {}).get("optional-dependencies", {})
 
 
-def resolve_dependencies(
-    groups: List[str], optional_deps: Dict[str, List[str]]
-) -> List[str]:
+def resolve_dependencies(groups: List[str], optional_deps: Dict[str, List[str]]) -> List[str]:
     """Resolve dependencies, including references to other groups."""
     resolved = set()
     stack = list(groups)  # Stack to process groups
@@ -41,8 +39,7 @@ def resolve_dependencies(
         group = stack.pop()
         if group not in optional_deps:
             raise ValueError(
-                f"Group '{group}' does not exist in optional dependencies. Optional"
-                f" groups: {', '.join(optional_deps)}"
+                f"Group '{group}' does not exist in optional dependencies. Optional groups: {', '.join(optional_deps)}"
             )
 
         for dep in optional_deps[group]:
@@ -68,15 +65,11 @@ def install_dependencies(groups: List[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Install optional dependencies from pyproject.toml."
-    )
+    parser = argparse.ArgumentParser(description="Install optional dependencies from pyproject.toml.")
     parser.add_argument(
         "groups",
         nargs="+",
-        help=(
-            "The names of the optional dependency groups to install (e.g., docs, dev)."
-        ),
+        help="The names of the optional dependency groups to install (e.g., docs, dev).",
     )
     args = parser.parse_args()
     install_dependencies(args.groups)

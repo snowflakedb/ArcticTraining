@@ -45,18 +45,12 @@ class ManyParquetDataset:
     def __repr__(self) -> str:
         # Shorten the number of paths included in the string representation.
         if self.num_files > 3:
-            num_rows_excerpt = (
-                "[" + ", ".join(map(str, self.num_rows_per_file[:3])) + "...]"
-            )
+            num_rows_excerpt = "[" + ", ".join(map(str, self.num_rows_per_file[:3])) + "...]"
             paths_excerpt = "[" + ", ".join(self.pq_filepaths[:3]) + "...]"
         else:
             num_rows_excerpt = str(self.num_rows_per_file)
             paths_excerpt = str(self.pq_filepaths)
-        return (
-            "ManyParquetDataset("
-            f"num_rows_per_file={num_rows_excerpt}, "
-            f"pq_filepaths={paths_excerpt})"
-        )
+        return f"ManyParquetDataset(num_rows_per_file={num_rows_excerpt}, pq_filepaths={paths_excerpt})"
 
     @property
     def num_rows(self) -> int:
@@ -70,14 +64,10 @@ class ManyParquetDataset:
         return self.num_rows // batch_size
 
     @classmethod
-    def from_root_dir(
-        cls, root_dir: str, num_thread: int = 30, progress_bar: bool = True
-    ) -> ManyParquetDataset:
+    def from_root_dir(cls, root_dir: str, num_thread: int = 30, progress_bar: bool = True) -> ManyParquetDataset:
         filesystem = get_fs_for_path(root_dir)
         pq_paths = sorted(filesystem.glob(join(root_dir, "*.parquet")))
-        result = cls.from_filepaths(
-            pq_filepaths=pq_paths, num_thread=num_thread, progress_bar=progress_bar
-        )
+        result = cls.from_filepaths(pq_filepaths=pq_paths, num_thread=num_thread, progress_bar=progress_bar)
         if len(result.pq_filepaths) == 0:
             raise ValueError(f"Found zero parquet files for root directory {root_dir}")
         return result
@@ -102,9 +92,7 @@ class ManyParquetDataset:
             row_counts = tuple(row_count_iter)
         return cls(num_rows_per_file=row_counts, pq_filepaths=pq_filepaths)
 
-    def stream_tables(
-        self, columns_subset: Optional[Sequence[str]] = None
-    ) -> Iterator[pa.Table]:
+    def stream_tables(self, columns_subset: Optional[Sequence[str]] = None) -> Iterator[pa.Table]:
         """Stream dataset from the filesystem as arrow tables.
 
         NOTE: One table per file.
@@ -120,11 +108,7 @@ class ManyParquetDataset:
             for p, p_rows in zip(self.pq_filepaths, self.num_rows_per_file):
                 # Enforce the read ahead limit, always allowing at least two reads
                 # to ensure some amount of parallelism.
-                while (
-                    len(futures) > 1
-                    and reading_ahead_rows + p_rows
-                    > self.num_row_readahead_for_streaming_reads
-                ):
+                while len(futures) > 1 and reading_ahead_rows + p_rows > self.num_row_readahead_for_streaming_reads:
                     table = futures.pop(0).get()
                     reading_ahead_rows -= len(table)
                     expect_num_rows = counts_to_verify.pop(0)
@@ -138,9 +122,7 @@ class ManyParquetDataset:
                 futures.append(
                     pool.apply_async(
                         pq.read_table,
-                        kwds=dict(
-                            source=p, columns=columns_subset, filesystem=filesystem
-                        ),
+                        kwds=dict(source=p, columns=columns_subset, filesystem=filesystem),
                     )
                 )
                 reading_ahead_rows += p_rows
@@ -161,11 +143,7 @@ class ManyParquetDataset:
         progress_bar_tag: str = "",
     ) -> pa.Table:
         chunks = []
-        pbar_desc = (
-            "reading from parquet files"
-            if progress_bar_tag == ""
-            else f"reading {progress_bar_tag}"
-        )
+        pbar_desc = "reading from parquet files" if progress_bar_tag == "" else f"reading {progress_bar_tag}"
         with tqdm(
             total=self.num_rows,
             desc=pbar_desc,
@@ -196,9 +174,7 @@ def get_fs_for_path(path: str) -> fsspec.AbstractFileSystem:
     elif protocol == "s3":
         if path not in _fs_cache:
             larger_blocksize = 64 * (1024**2)  # 64 MiB vs. default of 5MiB
-            _fs_cache["s3"] = fsspec.filesystem(
-                "s3", use_listings_cache=False, default_block_size=larger_blocksize
-            )
+            _fs_cache["s3"] = fsspec.filesystem("s3", use_listings_cache=False, default_block_size=larger_blocksize)
         return _fs_cache["s3"]
     else:
         raise ValueError(f"Unrecognized protocol for path `{path}`")

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 from typing import Type
@@ -28,6 +29,7 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.data.utils import is_local_fs
 from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
@@ -88,6 +90,8 @@ class DataConfig(BaseConfig):
 
     cache_dir: Path = Path("/tmp/")
     """ Directory to store cached data. """
+
+    cache_fs_type: Literal["auto", "local", "shared"] = "auto"
 
     @property
     def factory(self) -> Type["DataFactory"]:
@@ -155,9 +159,14 @@ class DataConfig(BaseConfig):
                 self.train_eval_split[0] == 1.0
             ), "train_eval_split should be (1.0, 0.0) when eval_datasets is provided."
         if self.train_eval_split[1] > 0.0:
-            assert not self.eval_sources, (
-                "If you provide the evaluation split, you should not provide the"
-                " evaluation datasets."
-            )
+            assert (
+                not self.eval_sources
+            ), "If you provide the evaluation split, you should not provide the evaluation datasets."
         assert sum(self.train_eval_split) == 1.0, "train_eval_split should sum to 1.0."
+        return self
+
+    @model_validator(mode="after")
+    def set_cache_fs_type(self) -> Self:
+        if self.cache_fs_type == "auto":
+            self.cache_fs_type = "local" if is_local_fs(self.cache_dir) else "shared"
         return self

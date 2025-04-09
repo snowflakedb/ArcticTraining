@@ -30,6 +30,4 @@ for i in range(10):
         ],
     )
 
-print(
-    client.extract_messages_from_responses(client.execute_batch_task("test_task_qwen"))
-)
+print(client.extract_messages_from_responses(client.execute_batch_task("test_task_qwen")))

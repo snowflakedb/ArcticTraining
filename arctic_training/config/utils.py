@@ -37,9 +37,6 @@ class UniqueKeyLoader(yaml.SafeLoader):
         for key_node, _ in node.value:
             key = self.construct_object(key_node, deep=deep)
             if key in mapping:
-                raise ValueError(
-                    f"Duplicate '{key}' key found in YAML on line"
-                    f" {key_node.start_mark.line + 1}."
-                )
+                raise ValueError(f"Duplicate '{key}' key found in YAML on line {key_node.start_mark.line + 1}.")
             mapping.add(key)
         return super().construct_mapping(node, deep)

@@ -18,20 +18,12 @@ import shutil
 from pathlib import Path
 
 NUM_EVAL_BATCHES = 5
-DATA_ROOT = Path(
-    "/scratch/ArcticTraining/projects/arctic_embed/examples/finetune_models/data/"
-)
+DATA_ROOT = Path("/scratch/ArcticTraining/projects/arctic_embed/examples/finetune_models/data/")
 PRETOKENIZED_DATASAET = "example_dot95"
 
 if __name__ == "__main__":
-    sub_dirs = sorted(
-        x
-        for x in DATA_ROOT.iterdir()
-        if x.is_dir() and x.name not in ("combined", "eval")
-    )
-    data_dirs = [
-        sd / "pretokenized" / PRETOKENIZED_DATASAET / "data" for sd in sub_dirs
-    ]
+    sub_dirs = sorted(x for x in DATA_ROOT.iterdir() if x.is_dir() and x.name not in ("combined", "eval"))
+    data_dirs = [sd / "pretokenized" / PRETOKENIZED_DATASAET / "data" for sd in sub_dirs]
     out_dirs = [DATA_ROOT / "eval" / sd.name for sd in sub_dirs]
 
     # Validate that all datasets have the same tokenization metadata.
@@ -44,10 +36,7 @@ if __name__ == "__main__":
             consensus_metadata = metadata
         else:
             if consensus_metadata != metadata:
-                msg = (
-                    f"{metadata_path} does not match consensus "
-                    f"{consensus_metadata=} {metadata=}"
-                )
+                msg = f"{metadata_path} does not match consensus {consensus_metadata=} {metadata=}"
                 raise ValueError(msg)
 
     # Copy the metadata.

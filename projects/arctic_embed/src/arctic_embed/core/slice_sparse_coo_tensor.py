@@ -37,12 +37,8 @@ def slice_sparse_coo_tensor(
             mask = mask & (indices[i] >= start)
         if end is not None:
             mask = mask & (indices[i] < end)
-        dim_size = (end if end is not None else sparse_tensor.size(i)) - (
-            start if start is not None else 0
-        )
+        dim_size = (end if end is not None else sparse_tensor.size(i)) - (start if start is not None else 0)
         size.append(dim_size)
     sliced_indices = indices[:, mask] - start_by_dim
     sliced_values = values[mask]
-    return torch.sparse_coo_tensor(
-        indices=sliced_indices, values=sliced_values, size=size
-    )
+    return torch.sparse_coo_tensor(indices=sliced_indices, values=sliced_values, size=size)

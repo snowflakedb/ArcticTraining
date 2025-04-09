@@ -140,9 +140,7 @@ class LlamaSwiftKVDecoderLayer(nn.Module):
         self.self_attn = LlamaSwiftKVAttention(config=config, layer_idx=layer_idx)
         self.mlp = LlamaMLP(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -207,14 +205,9 @@ class LlamaSwiftKVModel(LlamaModel):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = nn.Embedding(
-            config.vocab_size, config.hidden_size, self.padding_idx
-        )
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
-            [
-                LlamaSwiftKVDecoderLayer(config, layer_idx)
-                for layer_idx in range(config.num_hidden_layers)
-            ]
+            [LlamaSwiftKVDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.norm_swiftkv = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -284,9 +277,7 @@ class LlamaSwiftKVModel(LlamaModel):
 
         swiftkv_key_states = {}
         swiftkv_value_states = {}
-        num_key_value_layers = (
-            self.config.num_key_value_layers or self.config.num_hidden_layers
-        )
+        num_key_value_layers = self.config.num_key_value_layers or self.config.num_hidden_layers
         for layer_idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)

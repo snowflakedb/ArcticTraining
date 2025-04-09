@@ -34,7 +34,6 @@ from arctic_training.config.data import DataConfig
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.utils import DatasetType
 from arctic_training.data.utils import calculate_hash_from_args
-from arctic_training.data.utils import is_local_fs
 from arctic_training.logging import logger
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
@@ -90,7 +89,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # If the cache path does not exist, load the data using local/global
             # rank 0 (depending on if file system is shared across nodes).
-            if self.is_main_process_by_path(cache_path) and not cache_path.exists():
+            if self.is_main_process_by_path and not cache_path.exists():
                 dataset = self.load(data_sources)
 
                 # Repeat the dataset until we have enough samples to run for min_iterations
@@ -133,11 +132,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             training_data, evaluation_data = self.split_data(training_data)
 
         training_dataloader = self.create_dataloader(training_data)
-        evaluation_dataloader = (
-            self.create_dataloader(evaluation_data)
-            if evaluation_data is not None
-            else None
-        )
+        evaluation_dataloader = self.create_dataloader(evaluation_data) if evaluation_data is not None else None
 
         return training_dataloader, evaluation_dataloader
 
@@ -171,17 +166,16 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         """The total number of processes in the world."""
         return self.config.world_size
 
-    def _get_data_sources(
-        self, data_source_configs: List[DataSourceConfig]
-    ) -> List["DataSource"]:
+    def _get_data_sources(self, data_source_configs: List[DataSourceConfig]) -> List["DataSource"]:
         data_sources = []
         for config in data_source_configs:
             data_source = config.data_source(data_factory=self, config=config)
             data_sources.append(data_source)
         return data_sources
 
-    def is_main_process_by_path(self, path: Path) -> bool:
-        if is_local_fs(path):
+    @property
+    def is_main_process_by_path(self) -> bool:
+        if self.config.cache_fs_type == "local":
             return self.local_rank == 0
         return self.global_rank == 0
 
@@ -208,14 +202,10 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     @callback_wrapper("process")
     def process(self, dataset: DatasetType) -> DatasetType:
         """Process the dataset (e.g., tokenization for text data)."""
-        raise NotImplementedError(
-            "tokenize must be implemented by DataFactory subclass."
-        )
+        raise NotImplementedError("tokenize must be implemented by DataFactory subclass.")
 
     @callback_wrapper("split")
-    def split_data(
-        self, training_data: DatasetType
-    ) -> Tuple[DatasetType, Optional[DatasetType]]:
+    def split_data(self, training_data: DatasetType) -> Tuple[DatasetType, Optional[DatasetType]]:
         """Split the training data into training and evaluation datasets."""
         datasets = training_data.train_test_split(
             test_size=self.config.train_eval_split[1],
@@ -233,9 +223,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(
-                dataset, num_replicas=self.world_size, rank=self.global_rank
-            ),
+            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

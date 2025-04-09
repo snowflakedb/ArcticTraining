@@ -32,9 +32,7 @@ from pathlib import Path
 
 from arctic_embed.biencoder_model_factory import BiencoderModelConfig
 from arctic_embed.contrastive_dataloader import ContrastivePretokenizedDataConfig
-from arctic_embed.core.cuda_allocator_config import (
-    CUDA_ALLOCATOR_CONFIG_FOR_DYNAMICALLY_SIZED_DATA,
-)
+from arctic_embed.core.cuda_allocator_config import CUDA_ALLOCATOR_CONFIG_FOR_DYNAMICALLY_SIZED_DATA
 from arctic_embed.trainer import BiencoderTrainer
 from arctic_embed.trainer import BiencoderTrainerConfig
 
@@ -47,14 +45,8 @@ from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
 LEARNING_RATE = 3e-5
 GRADIENT_CLIPPING = 10.0
 DATASET_NAME = "example_dot95"
-DATA_PATH = str(
-    Path(__file__).parent / "data" / "combined" / "pretokenized" / DATASET_NAME / "data"
-)
-EVAL_DATA_PATHS = [
-    str(path)
-    for path in (Path(__file__).parent / "data" / "eval").iterdir()
-    if path.is_dir()
-]
+DATA_PATH = str(Path(__file__).parent / "data" / "combined" / "pretokenized" / DATASET_NAME / "data")
+EVAL_DATA_PATHS = [str(path) for path in (Path(__file__).parent / "data" / "eval").iterdir() if path.is_dir()]
 
 
 def now_timestamp_str() -> str:
@@ -63,12 +55,8 @@ def now_timestamp_str() -> str:
 
 
 ts = now_timestamp_str()
-checkpoint_dir = (
-    Path(__file__).parent / "checkpoints" / "finetune_e5_base_unsupervised" / ts
-)
-mconf = BiencoderModelConfig(
-    name_or_path="intfloat/e5-base-unsupervised", pooling="first_token"
-)
+checkpoint_dir = Path(__file__).parent / "checkpoints" / "finetune_e5_base_unsupervised" / ts
+mconf = BiencoderModelConfig(name_or_path="intfloat/e5-base-unsupervised", pooling="first_token")
 dconf = ContrastivePretokenizedDataConfig(
     # filesystem="s3",
     # root_directory="my-bucket/path/to/combined/pretokenized/example_dot95/data",
@@ -84,9 +72,7 @@ dconf = ContrastivePretokenizedDataConfig(
     eval_max_seq_length_doc=512,
     eval_max_seq_length_query=512,
 )
-sconf = WSDSchedulerConfig(
-    num_warmup_steps=500, num_decay_steps=1_000, learning_rate=LEARNING_RATE
-)
+sconf = WSDSchedulerConfig(num_warmup_steps=500, num_decay_steps=1_000, learning_rate=LEARNING_RATE)
 oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
 lconf = LoggerConfig(level="INFO")
 wconf = WandBConfig(

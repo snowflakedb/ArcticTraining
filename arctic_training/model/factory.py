@@ -56,9 +56,7 @@ class ModelFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_method(cls, "create_config", ["self"])
         _validate_class_method(cls, "create_model", ["self", "model_config"])
 
-    def __init__(
-        self, trainer: "Trainer", model_config: Optional[ModelConfig] = None
-    ) -> None:
+    def __init__(self, trainer: "Trainer", model_config: Optional[ModelConfig] = None) -> None:
         if model_config is None:
             model_config = trainer.config.model
 

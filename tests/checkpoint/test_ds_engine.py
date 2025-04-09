@@ -24,6 +24,7 @@ def test_ds_engine(tmp_path, model_name):
         "type": "sft",
         "exit_iteration": 2,
         "skip_validation": True,
+        "train_log_iter_interval": 0,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": model_name,

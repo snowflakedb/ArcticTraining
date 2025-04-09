@@ -86,8 +86,7 @@ class ContrastivePretokenizedDataFactory(DataFactory):
                 eval_dl = DataLoader(eval_ds, batch_size=None)
                 if eval_name in eval_dl_map:
                     raise ValueError(
-                        f"Duplicate eval dataset name: {eval_name}. "
-                        "Each eval dataset must have a unique name."
+                        f"Duplicate eval dataset name: {eval_name}. Each eval dataset must have a unique name."
                     )
                 eval_dl_map[eval_name] = eval_dl
                 logger.info(f"Added eval dataset {eval_name}. {len(eval_ds)=}")
@@ -99,10 +98,7 @@ class ContrastivePretokenizedDataFactory(DataFactory):
 
     def get_eval_loaders(self) -> Dict[str, DataLoader]:
         assert hasattr(self, "eval_datasets"), "Must call the factory first"
-        return {
-            name: DataLoader(ds, batch_size=None)
-            for name, ds in self.eval_datasets.items()
-        }
+        return {name: DataLoader(ds, batch_size=None) for name, ds in self.eval_datasets.items()}
 
     def tokenize(self, tokenizer, dataset):
         # No-op, assuming dataset already tokenized.
@@ -114,8 +110,6 @@ class ContrastivePretokenizedDataFactory(DataFactory):
             return fsspec.filesystem("file")
         elif filesystem_name == "s3":
             larger_blocksize = 64 * (1024**2)  # 64 MiB vs. default of 5MiB
-            return fsspec.filesystem(
-                "s3", use_listings_cache=False, default_block_size=larger_blocksize
-            )
+            return fsspec.filesystem("s3", use_listings_cache=False, default_block_size=larger_blocksize)
         else:
             raise ValueError(f"Unknown filesystem option: {filesystem_name}")

@@ -16,6 +16,7 @@
 import random
 from abc import ABC
 from abc import abstractmethod
+from functools import cached_property
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -25,8 +26,8 @@ import copy
 import deepspeed
 import numpy as np
 import torch
+import wandb
 from deepspeed.accelerator import get_accelerator
-from deepspeed.utils.timer import SynchronizedWallClockTimer
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -36,13 +37,11 @@ import torch.distributed.nn
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
-from arctic_training.callback.wandb import init_wandb_project_cb
-from arctic_training.callback.wandb import log_wandb_loss_cb
-from arctic_training.callback.wandb import teardown_wandb_cb
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.logging import logger
+from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
@@ -52,7 +51,8 @@ from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage, pr, pr0
-from arctic_training.utils import get_local_rank, is_global_main_process, StepFlopCounter, gather_sum_number, format_human_base2_number, gather_object
+from arctic_training.utils import StepFlopCounter
+from arctic_training.config.utils import get_local_rank
 
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 
@@ -90,7 +90,7 @@ class _DimZeroAllToAll(torch.autograd.Function):
 """
 Some additional Ulysses docs that perhaps should go elsewhere:
 
-If you want to try to push the seqlen higher w/o using more gpus, try to add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (but measure the performance - it could be slower)
+If you want to try to push the seqlen higher w/o using more gpus, try to add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (but measure the performance - it could be slower). This should help with minimizing fragmentation.
 
 """
 class UlyssesAttentionHF(torch.nn.Module):
@@ -101,6 +101,8 @@ class UlyssesAttentionHF(torch.nn.Module):
     bugs in scenarios where batch size > 1 and when using different versions of
     flash attention each of which takes different input shape. Those should be handled by
     the actual attn implementation, and not by this module.
+
+    This class then has been further adapted to work with HF Transformers' supported attention mechanism.
 
     Dimension annotation:
         bs   = bs
@@ -206,7 +208,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
             print_rank0('')
             print_rank0(f"combine {head_type}: before reshape:  {input.shape=}", skip=False)
-
+            #see_memory_usage(f"combine: 1", force=False)
             if head_type == "q":
                 local_head_count = self.local_q_head_count
             else: # kv
@@ -218,6 +220,7 @@ class UlyssesAttentionHF(torch.nn.Module):
                     # replicate heads to the kv_replication_factor on hc dimension [sl_l bs hc hs] - so dim=2
                     input = input.repeat_interleave(self.kv_replication_factor, dim=2)
                     print_rank0(f"combine {head_type}: after repeat interleave:  {input.shape=}", skip=False)
+            #see_memory_usage(f"combine: 2", force=False)
 
             # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
             input = input.reshape([self.local_seq_length, \
@@ -226,20 +229,23 @@ class UlyssesAttentionHF(torch.nn.Module):
                                 local_head_count, \
                                 self.attn_head_size])
 
-
+            #see_memory_usage(f"combine: 3", force=False)
 
             print_rank0(f"combine {head_type}: after reshape:   {input.shape=}", skip=False)
 
             input = rearrange(input, 'sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs').contiguous()
             # print_rank0(f"combine {head_type}: after rearrange: {input.shape=}", skip=False)
+            #see_memory_usage(f"combine: 4", force=False)
 
             output = _DimZeroAllToAll.apply(self.process_group, input)
             #output = input
             print_rank0(f"combine {head_type}: after all2all:   {output.shape=}", skip=False)
+            #see_memory_usage(f"combine: 5", force=False)
 
             # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
             output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
             print_rank0(f"combine {head_type}: after reshape:   {output.shape=}", skip=False)
+            #see_memory_usage(f"combine: 6", force=False)
 
             # [sl bs hc_l hs]
             return output
@@ -451,19 +457,19 @@ class UlyssesAttentionHF(torch.nn.Module):
         """
         if sequence_parallel_size == 1:
             return None
-
+        #see_memory_usage("ulysses: 1", force=True)
         import arctic_training.trainer.parallel_state as mpu
-        import torch
+        #import torch
         from transformers import AutoConfig
         from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-
+        #see_memory_usage("ulysses: 1.1", force=True)
         # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
         # print_rank0(f"MBS  {micro_batch_size}")
         mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
-
+        #see_memory_usage("ulysses: 1.2", force=True)
         # we don't have the model yet at this stage
         hf_model_config = AutoConfig.from_pretrained(model_name_or_path)
-
+        #see_memory_usage("ulysses: 1.3", force=True)
         if core_attn_implementation not in ['flash_attention_2', 'sdpa']:
             # - eager: The problem is that `eager` wants an attention_mask and it creates the wrong attention mask it seems if we don't provide one - it's possible that we could somehow solve this, but it's also unlikely someone will want to use the slow eager attention with sequence parallelism
             # - flex_attention: haven't tried
@@ -473,7 +479,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         if core_attn_implementation not in ALL_ATTENTION_FUNCTIONS:
             raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.valid_keys()}")
         core_attn_function = ALL_ATTENTION_FUNCTIONS[core_attn_implementation]
-
+        #see_memory_usage("ulysses: 3", force=True)
         uattn = UlyssesAttentionHF(
             attn=core_attn_function,
             local_seq_length=max_length // mpu.get_sequence_parallel_world_size(),
@@ -514,7 +520,8 @@ class UlyssesAttentionHF(torch.nn.Module):
             return attn_output, attn_weights
 
         ALL_ATTENTION_FUNCTIONS.register("ulysses", uattn_wrapper)
-
+        #see_memory_usage("ulysses: 4", force=True)
+        #exit()
         return mpu
 
     @classmethod
@@ -522,6 +529,467 @@ class UlyssesAttentionHF(torch.nn.Module):
         if sequence_parallel_size > 1:
             if model.config._attn_implementation != "ulysses":
                 raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check whether the `register_with_transformers` method was called before the `model` has been created")
+
+
+# XXX: this class shouldn't depend on anything in AT (trainer, etc) - we can have a subclass if needed to support that
+# but can also accept kwargs that a customizer can use in methods
+
+#import torch
+import math
+import deepspeed.comm as dist
+from collections import defaultdict
+class UlyssesAttentionHFFwdLossBwdWithLogits():
+    def __init__(self,
+                 model,
+                 model_unwrapped,
+                 device,
+                 num_loss_logit_shards="auto",
+                 **kwargs
+        ):
+
+        self.model = model
+        self.model_unwrapped = model_unwrapped
+        self.device = device
+        self.num_loss_logit_shards = num_loss_logit_shards
+        self.kwargs = kwargs
+
+        from deepspeed.utils import groups
+        self.sp_group = groups._get_sequence_parallel_group()
+        self.sp_world_size = groups._get_sequence_parallel_world_size()
+        self.sp_rank = groups._get_sequence_parallel_rank()
+
+
+    def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
+
+        see_memory_usage(f"entered sp_fwd_loss_bwd", force=True)
+
+        # ensure shapes are correct
+        if not (batch["input_ids"].shape == batch["position_ids"].shape == batch["labels"].shape):
+            raise ValueError(f'Borked batch {batch["input_ids"].shape=} != {batch["position_ids"].shape=} != {batch["labels"].shape=}) in DataLoader->iter->next, cannot continue with Ulysses Sequence parallelism')
+
+        # gather DL batches into super-batches
+        # Important: DL doesn't always yield max_length batches. Different ranks may have different seqlen and each could be <= max_length (but always divisible by 256)
+
+        micro_batches = defaultdict(dict)
+        # Efficient gathering of batch inputs across ranks:
+        # The problem is that our DL doesn't guarantee the same seqlen on all ranks and may give, 3x 1024 and 1x 768 on 4 gpus for max_length 1024. so 3 options we have to be able to gather batches are:
+        # 1. use all_gather_object - which allows different shapes - but potentially introducing an undesired overhead - 2x pickle calls
+        # 2. use all_gather and change DL pad to make sure that all ranks always get the same input shape - this creates its own overhead since if we say have ranks with seqlen 512, 768, 1024, 1024 - now we will need to process 4x 1024 seqlens
+        # 3. use all_gather and post gathering truncate tensors to their intended length - another overhead of allocating and truncating tensors
+        # using approach (1) for now but might want to benchmark later the other 2 approaches
+
+        see_memory_usage("before gathering", force=False)
+        #print_rank(f"{self.trainer.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
+        #exit()
+
+        #dist.barrier(group=self.sp_group)
+        #see_memory_usage("after barrier", force=False)
+
+        # XXX: if using all_gather_object we can gather the whole batch at once and not per-key! so can drop the loop for that approach
+
+        # we have batches of variable seqlen so in order to do all_gather on batches - we need to know the exact length of each tensor on each rank
+        seqlen = torch.tensor(batch["input_ids"].shape[1], dtype=torch.int64, device=self.device)
+        #print(seqlen)
+        seqlens = [torch.zeros(1, dtype=torch.int64, device=self.device) for _ in range(self.sp_world_size)]
+        dist.all_gather(seqlens, seqlen, group=self.sp_group)
+        seqlens = [x[0].item() for x in seqlens]
+        #print(seqlens)
+        #exit()
+
+        for k in batch.keys():
+            batch[k] = batch[k].to(self.device)
+            print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
+            #print_rank0(f"before gather: {k}: {batch[k]=}")
+            with torch.no_grad():
+                # tensor_list = [torch.zeros_like(batch[k]) for _ in range(self.sp_world_size)]
+                # dist.all_gather(tensor_list, batch[k], group=self.sp_group)
+
+                tensor_list = [torch.zeros((batch[k].shape[0],seqlens[i]), dtype=batch[k].dtype, device=batch[k].device) for i in range(self.sp_world_size)]
+                # # print(tensor_list)
+                # # print(batch[k])
+                dist.all_gather(tensor_list, batch[k], group=self.sp_group)
+
+                # tensor_list = [None for _ in range(self.sp_world_size)]
+                # torch.distributed.all_gather_object(tensor_list, batch[k], group=self.sp_group)
+
+                # gathering on the data dimension
+                # will be concatenating and later splitting again for the more general case
+                # batch[k] = torch.cat(tensor_list, dim=1)
+                for rank, tensor in enumerate(tensor_list):
+                    micro_batches[rank][k] = tensor
+                    print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
+                    #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].device=}", skip=False)
+                    #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
+                    # if k == "input_ids":
+                    #     print_rank0(f"{self.trainer.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
+
+                #see_memory_usage("mid-gathering", force=False)
+
+        del tensor_list
+        del batch
+
+
+        #exit()
+        # loss_aggregate = 0
+        # we need to chunk twice - each time on SP size level
+        # - the first time is because we artifically made the seqlen SP-times longer
+        # - the second time is because of the Ulysses algorithm
+
+        see_memory_usage("after gathering", force=False)
+
+
+        self.model.set_gradient_accumulation_boundary(False)
+
+        losses = []
+        for sub_step_id in range(self.sp_world_size):
+            #print(f"{sub_step_id=}")
+            # if sub_step_id == 1:
+            #     continue
+            # if sub_step_id == 3:
+            #     break
+
+
+            batch = micro_batches[sub_step_id]
+
+            see_memory_usage(f"{sub_step_id=} start", force=False)
+            #print_rank0(batch)
+
+            import math
+            print_rank0(f"{sub_step_id}: {len(batch['input_ids'][0])=}")
+            seq_length = len(batch['input_ids'][0])
+            #seq_length = self.config.data.max_length
+
+            if seq_length % self.sp_world_size != 0:
+                raise ValueError(f"{sub_step_id=}: batch's seqlen={seq_length} isn't divisible by sp-size={self.sp_world_size}")
+            ##chunk_len = math.ceil(seq_length / self.sp_world_size)
+            chunk_len = int(seq_length / self.sp_world_size)
+            print_rank0(f"{sub_step_id=}: {seq_length=}")
+            print_rank0(f"{sub_step_id=}: {chunk_len=}")
+
+            # to enable the correct mean calculation across shards before sharding the micro batch:
+            # 1. count the number of non- `-100`` elements per shard
+            # 2. and subtract one more element because of label shifting
+            non_skipped_items = {}
+            for rank in range(self.sp_world_size):
+                non_skipped = (batch["labels"][:, chunk_len*rank:chunk_len*(rank+1)] != -100).sum().item()
+                if non_skipped > 1:
+                    non_skipped -= 1
+                non_skipped_items[rank] = non_skipped
+            print_rank(f"{non_skipped_items=}", skip=False)
+
+
+            # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+            # therefore remove labels to avoid an attempt to calculate loss by transformers
+            labels = batch.pop("labels")
+            labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+            batch["shift_labels"] = labels[..., 1:].contiguous()
+            # free up temp memory
+            del labels
+
+            # batch sharding
+            for k in batch.keys():
+                print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
+                batch[k] = batch[k][:, chunk_len*self.sp_rank:chunk_len*(self.sp_rank+1)].to(self.device)
+                # else:
+                #     print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
+                #     batch[k] = batch[k].to(self.device)
+
+                print_rank0(f"after sp: {k}: {batch[k].shape=}")
+                #print_rank0(f"after sp: {k}: {batch[k]=}")
+            #outputs = self.model(**batch, use_cache=False)
+            #loss = outputs.loss
+            see_memory_usage(f"{sub_step_id=} after chunking", force=False)
+
+            # XXX: this would be the same not just for SFT so probably should abstract it away
+            #from deepspeed.utils import groups
+            #import torch.distributed as dist
+            #import torch
+
+            see_memory_usage(f"{sub_step_id=} before forward", force=True)
+
+            #print_rank(f"SLICE DECODE: {sub_step_id=} {self.trainer.tokenizer.decode(batch['input_ids'][0])=}", skip=False)
+            #print_rank(f"SLICE DECODE: {sub_step_id=} {batch['position_ids'][0]=}", skip=False)
+
+            shift_labels = batch.pop("shift_labels")
+            #print_rank(f"{shift_labels=}", skip=False)
+            see_memory_usage(f"{sub_step_id=} after shift labels", force=False)
+
+            outputs = self.forward(batch)
+            #outputs = self.model(**batch, use_cache=False)
+            logits = outputs.logits
+
+            see_memory_usage(f"{sub_step_id=} after forward", force=False)
+
+            #print_rank(f"{labels=}", skip=False)
+            #print_rank(f"{logits=}", skip=False)
+            # print_rank(f"logit nans: {torch.isnan(logits).sum()}", skip=False)
+            # print_rank(f"logit infs: {torch.isinf(logits).sum()}", skip=False)
+            #see_memory_usage(f"{sub_step_id=} before loss", force=True)
+            loss = self.compute_loss(labels=None, shift_labels=shift_labels)
+
+            # if all((shift_labels == -100).squeeze()):
+            #     # this is the case where all labels in the micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
+            #     # XXX: should this be float and not the original dtype?
+            #     loss = (logits.sum() * 0.0).float()
+            #     #loss = FakeLoss.apply(logits)
+            # else:
+            #     #import gc; gc.collect()
+            #     #torch.cuda.empty_cache()
+            #     #see_memory_usage(f"{sub_step_id=} before loss", force=True)
+            #     #loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+
+
+            #     shards = 8
+            #     loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
+
+
+                #see_memory_usage(f"{sub_step_id=} after loss", force=True)
+
+            #loss = outputs.loss
+            print_rank(f"LOSS local {loss=}", skip=False)
+
+            # free up temp mem (e.g. outputs.logits are huge)
+            del outputs
+
+            see_memory_usage(f"{sub_step_id=} after loss", force=False)
+            #exit()
+
+            # if torch.isnan(loss):
+            #     break
+            #     #continue
+            #     #loss = torch.tensor(0.0).to(self.device).requires_grad_() + 0.0
+            # differentiable loss aggregation across ranks
+            #import torch.distributed.nn.functional
+            #loss = torch.distributed.nn.functional.all_reduce(loss, op=torch.distributed.ReduceOp.SUM, group=self.sp_group)
+            losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
+            #print(f"LOSS {losses_per_rank=}")
+            print_rank(f"LOSS {losses_per_rank=}", skip=False)
+
+            # since each shard may have a variable number of skipped elemented - need to calculate a weighted mean depending on each rank's contribution - this will also take care of loss=0 when all elements are -100 in a shard
+            # XXX: not expecting a total of 0-non-skipped items for div
+            loss = sum(losses_per_rank[rank] * non_skipped_items[rank] for rank in range(self.sp_world_size)) / sum(non_skipped_items.values())
+            # this is a much simpler version w/o weighting
+            # skip 0.0 entries when calculating total loss per batch
+            # loss = torch.stack(list(l for l in losses_per_rank if l != 0)).mean()
+
+            #loss = torch.cat([l.unsqueeze() for l in losses_per_rank], dim=0).mean()
+            #loss = sum(loss_per_rank) # / self.sp_world_size
+            #loss = sum(tensor_list)
+            #print_rank(f"LOSS averaged {loss=}", skip=False)
+            #print("LOSS", loss)
+            see_memory_usage(f"{sub_step_id=} after gathered loss", force=False)
+
+            #exit()
+
+            #logits = outputs.logits
+            #print_rank(f"{sub_step_id=}: {torch.norm(logits)=}", skip=False)
+            #print_rank(f"{sub_step_id=}: {logits.shape=}")
+            #print_rank(f"{logits.dtype=}")
+            #print_rank(f"{sub_step_id=}: {labels.shape=}")
+
+            # # XXX: stick into the trainer object
+            # #self.sp_group = groups._get_sequence_parallel_group()
+            # #self.sp_world_size = groups._get_sequence_parallel_world_size()
+            # # we need the differentiable all_gather, which is the functional version of it
+            # import torch.distributed.nn.functional
+            # tensor_list = torch.distributed.nn.functional.all_gather(logits, self.sp_group)
+            # # concatenate on the seqlen dimension
+            # logits = torch.cat(tensor_list, dim=1)
+            # del tensor_list
+            # print_rank(f"after cat: {logits.shape=}")
+            # see_memory_usage(f"{sub_step_id=} after cat", force=False)
+
+            #print_rank(f"LOSS {logits.shape=}: {labels.shape=}", skip=False)
+
+            # loss = self.model_unwrapped.loss_function(logits=logits, labels=labels, vocab_size=self.model_unwrapped.config.vocab_size)
+            # #print_rank0(f"intermediary {loss.item()*self.sp_world_size=}")
+
+            # # optimize memory
+            # del logits
+            # del labels
+
+            # #loss = self.loss(batch)
+            # loss_aggregate += loss.item()*self.sp_world_size
+
+            #print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss.requires_grad=}")
+            #print_rank(f"{self.train_batch_idx}-{sub_step_id}: {loss=}")
+
+            see_memory_usage(f"{sub_step_id=} before backward", force=False)
+            #import gc; gc.collect()
+            #self.model.backward(loss)
+            self.backward()
+
+            # print_rank(f"{labels[0][70:80]=}", skip=False)
+            # print_rank(f"{logits[0][70:80]=}", skip=False)
+            # print_rank(f'{batch["input_ids"][0][70:80]=}', skip=False)
+            # print_rank(f'{batch["input_ids"].grad[0][70:80]=}', skip=False)
+            # print_rank(f"{logits.grad[0][70:80]=}", skip=False)
+            # exit()
+
+            print_rank0(f"zero loss: {loss}", skip=False)
+            # print_rank0(f"zero loss: {avg_loss}", skip=False)
+            see_memory_usage(f"{sub_step_id=} after backward", force=False)
+
+            losses.append(loss.detach().item())
+
+
+            # from deepspeed.utils import safe_get_full_grad
+            # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+            # print_rank(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+
+            # #w = self.model.module.model.layers[0].self_attn.q_proj.weight
+            # w = self.model.module.lm_head.weight
+            #from deepspeed.utils import safe_get_full_grad
+            #print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))=}")
+            #print_rank0(f"{torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))=}")
+
+        self.model.set_gradient_accumulation_boundary(True)
+
+        # for per-iteration reporting
+        if len(losses) == 0:
+            loss = float('nan')
+        else:
+            loss = sum(losses) / len(losses)
+
+        #exit()
+        # XXX: temp to measure the real memory usage
+        # gc_empty_cuda_cache()
+
+        return loss
+
+    # @classmethod
+    # def next_power_of_2(cls, x):
+    #     """
+    #     take any number and find the next power of 2
+    #     7.5 => 8
+    #     8 => 8
+    #     9 => 16
+    #     """
+    #     return 1<<(math.ceil(x)-1).bit_length()
+
+    def forward(self, batch):
+        # critical: the labels shouldn't be in batch
+        outputs = self.model(**batch, use_cache=False)
+        self.logits = outputs.logits
+        #self.outputs = outputs
+        return outputs
+
+    def compute_loss(self, labels, shift_labels):
+        if all((shift_labels == -100).squeeze()):
+            # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
+            # XXX: should this be float and not the original dtype?
+            loss = (self.logits.sum() * 0.0).float()
+        else:
+            if self.num_loss_logit_shards == "auto":
+                # parameterize to about 1GB fp32 logits shards
+                slice_size_in_gb = 1 # XXX: make configurable?
+                size_in_gb = self.logits.numel() * 4 / 2**30 # fp32
+                # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
+                self.num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
+                #print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
+            if self.num_loss_logit_shards > 1:
+                loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
+            else:
+                # XXX: for some reason this fails with zero1
+                loss = self.model_unwrapped.loss_function(logits=self.logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+
+        self.loss = loss
+        return loss
+
+    def backward(self):
+        self.model.backward(self.loss)
+
+
+
+class ChunkedMemEfficientLoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
+        """
+            logits doesn't have to be divisible by shards, the last shard will be shorter than the rest.
+        """
+        ctx.save_for_backward(logits, shift_labels)
+        ctx.loss_fn = loss_fn
+        ctx.vocab_size = vocab_size
+        ctx.shards = shards
+
+        with torch.no_grad():
+            seqlen = shift_labels.shape[1]
+            shard_step = math.ceil(seqlen / shards)
+            loss_shards = []
+            total_good_items = 0
+
+            # since -100s are ignored we have to perform a weighted average on each loss slice as each slice may contribute a different number of non- -100 labels
+            # if seqlen / shards != 0 - the last chunk is just shorter than the rest but no data is ignored
+            for i in range(shards):
+                # XXX: here and everywhere don't make a copy, pass the slice or perhaps narrow/view?
+                shift_labels_shard = shift_labels[:,i*shard_step:(i+1)*shard_step]
+                if all((shift_labels_shard == -100).squeeze()):
+                    continue # ignore this shard
+                loss_shard = loss_fn(
+                    logits=logits[:,i*shard_step:(i+1)*shard_step,:],
+                    labels=None,
+                    vocab_size=vocab_size,
+                    shift_labels=shift_labels_shard)
+                good_items = sum((shift_labels_shard != -100).squeeze())
+                loss_shards.append(loss_shard*good_items)
+                total_good_items += good_items
+            total_loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).sum()
+            weighted_loss = total_loss / total_good_items
+
+        #weighted_loss.requires_grad = True
+        return weighted_loss
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+
+        logits, shift_labels = ctx.saved_tensors
+        loss_fn = ctx.loss_fn
+        vocab_size = ctx.vocab_size
+        shards = ctx.shards
+
+        grad = grads[0]
+        logits_grad = torch.zeros_like(logits)
+        #logits_grad = torch.zeros(logits.shape, device=logits.device, dtype=grad.dtype, requires_grad=logits.requires_grad)
+
+        logits_shards       = list(torch.chunk(logits, chunks=shards, dim=1))
+        shift_labels_shards = list(torch.chunk(shift_labels, chunks=shards, dim=1))
+        del logits
+        del shift_labels
+        ctx.logits = None
+        ctx.shift_labels = None
+        ctx.loss_fn = None
+        ctx.vocab_size = None
+        ctx.shards = None
+
+        for i in range(shards):
+            logits_shard       = logits_shards.pop(0)
+            shift_labels_shard = shift_labels_shards.pop(0)
+
+            shard_offset = i * logits_shard.numel()
+            # this will enable gradual population of the pre-allocated `logits_shard.grad` during `torch.autograd.backward` calls
+            logits_shard.grad = logits_grad.view(-1).narrow(0, shard_offset, logits_shard.numel()).view_as(logits_shard)
+
+            with torch.enable_grad():
+                if all((shift_labels_shard == -100).squeeze()):
+                    # fake loss calculation, since CE will return nan, but grads will be set
+                    # a normal loss_fn upcasts logits to float so match it
+                    loss_shard = (logits_shard.sum() * 0.0).float()
+                else:
+                    loss_shard = loss_fn(
+                        logits=logits_shard.requires_grad_(),
+                        labels=None,
+                        vocab_size=vocab_size,
+                        shift_labels=shift_labels_shard,
+                    )
+
+            torch.autograd.backward(loss_shard, grad)
+
+        logits_grad /= shards
+
+        #print(f"returning {logits_grad.norm()=}")
+        #print(f"returning {logits_grad=}")
+        # only logits (2nd arg) needs grads
+        return None, logits_grad, None, None, None
 
 
 class UlyssesAttentionHFNoFrag(torch.nn.Module):
@@ -1139,9 +1607,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     callbacks: List[Tuple[str, Callable]] = [
         post_loss_log_cb,
-        init_wandb_project_cb,
-        log_wandb_loss_cb,
-        teardown_wandb_cb,
     ]
     """
     A list of callbacks for the trainer. Callbacks are specified as tuples of a
@@ -1182,20 +1647,28 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self._set_seeds(self.config.seed)
 
+        # enable memory history, which will add tracebacks and event history to snapshots
+        # "none" | "e2e" | "step"
+        #self.mem_profiler = "none"
+        self.mem_profiler = "step"
+        # profiling from here is slower, best to start at top of `epoch` ("step")
+        if self.mem_profiler == "e2e":
+            torch.cuda.memory._record_memory_history(max_entries=100_000)
+        #see_memory_usage("before model creation", force=True)
+
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
+
+        #see_memory_usage("after tokenizer", force=True)
+
+        dist.barrier()
+        #see_memory_usage("before dataloader", force=True)
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
 
-        # from arctic_training.utils import get_local_rank
-        # self.local_rank = get_local_rank()
-        # if self.local_rank == 0:
-        #     data_factory = self.config.data.factory(self)
-        # dist.barrier()
-        # if self.local_rank != 0:
-        #     data_factory = self.config.data.factory(self)
-
+        #see_memory_usage("after dataloader", force=True)
+        #exit()
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
@@ -1214,22 +1687,19 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesAttentionHF`
             self.config.model.attn_implementation = "ulysses"
 
-        #rint(self.config.model.attn_implementation)
-        #exit()
+        #see_memory_usage("after ulysses", force=True)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
+        #print(self.config.deepspeed)
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
+
+        see_memory_usage("after model", force=True)
 
         UlyssesAttentionHF.validate_model(
             model=self.model,
             sequence_parallel_size=self.config.sequence_parallel_size,
         )
-
-        # # sanity check - w/o a proper HF API it's too easy to lose the attn_implementation override
-        # if self.config.sequence_parallel_size > 1:
-        #     if self.model.config._attn_implementation != "ulysses":
-        #         raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check the injection")
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -1237,9 +1707,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        self.step_timer = SynchronizedWallClockTimer.Timer("step")
-        self.iter_timer = SynchronizedWallClockTimer.Timer("iteration")
-
+        torch.distributed.barrier()
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -1249,28 +1717,24 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             mpu=mpu,
         )
 
-        # import deepspeed
-        # import torch
-        # from transformers import AutoModel
-        # with deepspeed.utils.init_on_device.OnDevice(dtype=torch.bfloat16, device='meta'):
-        #     meta_model = AutoModel.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-        #     self.meta_model, *_ = deepspeed.initialize(
-        #     model=meta_model,
-        #     optimizer=self.optimizer,
-        #     args=self.config,
-        #     lr_scheduler=self.scheduler,
-        #     config=self.config.deepspeed,
-        #     mpu=mpu,
-        # )
+        see_memory_usage("after ds", force=True)
 
-
-        self.checkpoint_engines = [
-            engine(self) for engine in self.config.checkpoint_engines
-        ]
+        self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
                 engine.load(self.model)
+
+        self.metrics = Metrics(self)
+
+        if self.global_rank == 0 and self.config.wandb.enable:
+            # Note: wandb.init() is not type annotated so we need to use type: ignore
+            self.wandb_experiment = wandb.init(  # type: ignore
+                entity=self.config.wandb.entity,
+                project=self.config.wandb.project,
+                name=self.config.wandb.name,
+                config=self.config.model_dump(),
+            )
 
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
@@ -1280,13 +1744,21 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         set_seed(seed)
 
     @property
+    def model_unwrapped(self):
+        """Return the original model before it was wrapped by deepspeed"""
+        if hasattr(self.model, "module"):
+            return self.model.module
+        else:
+            return self.model
+
+    @property
     def epochs(self) -> tqdm:
         """Epochs iterator."""
         return tqdm(
             range(self.epoch_idx, self.config.epochs),
             desc="Epochs",
             unit="epoch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
     @property
@@ -1296,13 +1768,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_dataloader,
             desc="Train Batches",
             unit="batch",
-            disable=self.global_rank != 0,
+            disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
-    @property
+    @cached_property
     def device(self) -> torch.device:
         """Current device."""
-        return torch.device(get_accelerator().device_name(self.global_rank))
+        return torch.device(get_accelerator().device_name(self.config.local_rank))
 
     @property
     def model_unwrapped(self):
@@ -1321,11 +1793,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             raise ValueError("Train dataloader not initialized.")
         if self.config.train_iters:
             return self.config.train_iters
-        return (
-            self.config.epochs
-            * len(self.train_dataloader)
-            // self.config.gradient_accumulation_steps
-        )
+        return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
 
     @property
     def warmup_steps(self) -> int:
@@ -1347,7 +1815,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
-        self.step_timer.start()
+
 
         #import deepspeed.comm as dist
         # import q
@@ -1392,10 +1860,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         else:
             # sp will do backward inside sp_fwd_bwd_loss
-            # the returned loss is already averaged across ranks
-            loss = self.sp_fwd_bwd_loss(batch)
+            # the returned loss is already averaged across ranks and it's a float
+            loss = self.sp_fwd_loss_bwd(batch)
 
         see_memory_usage("after backward", force=False)
+
+        def maybe_item(v):
+            return v.item() if torch.is_tensor(v) else v
+        self.metrics.record("loss", maybe_item(loss))
 
         self.model.step()
 
@@ -1408,63 +1880,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # #exit()
 
 
-        # if 1:
-        #     # XXX: probably need to do padding so that all sequence chunks are the same?!
-        #     import math
-        #     print_rank0(f"{len(batch['input_ids'][0])=}")
-        #     #print_rank0(f"{len(batch['input_ids'][1])=}")
-        #     #seq_length = len(batch["input_ids"][0])
-        #     seq_length = self.config.data.max_length
-
-        #     sp_world_size = groups._get_sequence_parallel_world_size()
-        #     sp_rank = groups._get_sequence_parallel_rank()
-        #     chunk_len = math.ceil(seq_length / sp_world_size)
-        #     print_rank0(f"{seq_length=}")
-        #     print_rank0(f"{chunk_len=}")
-
-        #     # this is the original chunking logic
-        #     for k in batch.keys():
-        #         if sp_world_size > 1 and k in ["input_ids", "position_ids"]: # , "labels"]:
-        #         #if sp_world_size > 1 and k in ["input_ids"]:
-        #             batch[k] = batch[k][:, chunk_len*sp_rank:chunk_len*(sp_rank+1)].to(self.device)
-        #         else:
-        #             batch[k] = batch[k].to(self.device)
-        #         print_rank0(f"{k} {batch[k].shape=}")
-
-
-        # else:
-        #     # non-sp original version
-        #     self.model.train()
-        #     # XXX: fixme
-        #     #self.global_step = self.model.global_steps
-        #     loss = self.loss(batch)
-        #     print_rank(f"{self.train_batch_idx}: {loss.requires_grad=}")
-        #     print_rank(f"{self.train_batch_idx}: {loss=}")
-
-        #     #self.model.backward(loss)
-        #     avg_loss = self.model.backward(loss)
-        #     print_rank0(f"zero loss: {avg_loss}")
 
         from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
-        # print_rank0(f"!!! {torch.norm(safe_get_full_fp32_param(self.model.lm_head.weight))} lm_head.weight", skip=False)
-        # print_rank0(f"!!! {torch.norm(safe_get_full_fp32_param(self.model.model.layers[0].self_attn.q_proj.weight))} q.weight", skip=False)
-
-        # # print_rank(f"end loss = {loss}")
-        # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.lm_head.weight))} lm_head.grad", skip=False)
-        # print_rank0(f"!!! {torch.norm(safe_get_full_grad(self.model.module.model.layers[0].self_attn.q_proj.weight))} q.grad", skip=False)
-        #exit()
-
-        # for n, p in self.model.named_parameters():
-        #     print_rank(f"!!! {torch.norm(safe_get_full_fp32_param(p)):6.2f} {n}", skip=False)
-        # for n, p in self.model.named_parameters():
-        #     print_rank(f"!!! {torch.norm(safe_get_full_grad(p)):6.2f} {n}", skip=False)
-        # for n, p in self.model.named_parameters():
-        #     nans = torch.isnan(p).sum()
-        #     infs = torch.isinf(p).sum()
-        #     if nans > 0: print_rank(f"!!! Got NANs {nans} {n}", skip=False)
-        #     if infs > 0: print_rank(f"!!! Got INFs {infs} {n}", skip=False)
-
-        #print(f"ITERATION {loss=}")
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
@@ -1473,19 +1890,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.checkpoint()
 
-        if (
-            self.config.exit_iteration > 0
-            and self.config.exit_iteration == self.global_step
-        ):
+        if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
-        self.step_timer.stop()
-        step_time_secs = self.step_timer.elapsed() / 1000
-        if self.config.step_timer:
-            logger.info(f"step time: {step_time_secs} secs")
-
-        return loss, step_time_secs
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
@@ -1494,15 +1902,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
+        self.metrics.start_timer("iter")
 
-        self.iter_timer.start()
+        see_memory_usage(f"entered epoch", force=True)
+        #exit()
 
-        # enable memory history, which will
-        # add tracebacks and event history to snapshots
-        mem_profiler = False
-        if mem_profiler:
-            MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000
-            torch.cuda.memory._record_memory_history()#max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT)
+        # enable memory history, which will add tracebacks and event history to snapshots
+        if self.mem_profiler == "step":
+           torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
@@ -1510,204 +1917,36 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            #continue
+            self.metrics.record("seqlen", len(batch["input_ids"][0]))
 
-            # if (batch["position_ids"] == 0).sum() > 1:
-            #     print("{self.train_batch_idx} run into a packed sample, skipping")
-            #     continue
+            see_memory_usage(f"before step", force=True)
 
-            # if self.train_batch_idx < 8:
-            #     continue
-            # if self.train_batch_idx == 4:
-            #     exit()
-            # if self.train_batch_idx == 8:
-            #     continue
+            self.metrics.start_timer("step")
+            self.step(batch)
+            self.metrics.stop_timer("step")
 
-            #print_rank(f"{self.tokenizer.decode(batch['input_ids'][0])=}", skip=False, force=True)
-            #exit()
+            see_memory_usage(f"after step", force=True)
 
-            # print_rank(f"before gather: : {batch['labels'].shape=}", skip=False)
-            # print_rank(f"before gather: : {batch['position_ids'].shape=}", skip=False)
-                #print_rank0(f"before gather: {k}: {batch[k]=}")
-            #exit()
+            self.metrics.restart_timer("iter")
 
-            # since different ranks may have different batches of different seqlen for the correct flop counting we need the total seqlen across all ranks
-            #
-            # since we could have sp>1+dp>1 gather across all ranks
-            seqlen_local = len(batch["input_ids"][0])
-            gathered_seqlen_total = gather_sum_number(seqlen_local, device=self.device, group=None)
-            gathered_seqlens = gather_object(seqlen_local, device=self.device, group=None)
-
-            #see_memory_usage("before step", force=True)
-
-            # # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
-            # orig_model = self.model
-            # self.model = self.meta_model
-            # with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
-            #     loss, step_time_secs = self.step(batch)
-            # self.model = orig_model
-
-            # # XXX: need to gather seqlen from all ranks as it's not guaranteed to be the same
-            # with self.step_flos_counter(self.train_batch_idx, cache_key=seqlen_local):
-            #     loss, step_time_secs = self.step(batch)
-            loss, step_time_secs = self.step(batch)
-
-            #see_memory_usage("after step", force=True)
-
-            #from deepspeed.utils import groups
-            #sp_group = groups._get_sequence_parallel_group()
-            #sp_world_size = groups._get_sequence_parallel_world_size()
-
-            # per gpu
-            # tflos = self.step_flos_counter.get_total_tflos()
-            # #tflos *= sp_world_size # bug in FlopCounterMode
-
-            # print(f"measured {tflos=}")
-            # #print(f"{step_time_secs=}")
-
-            #gathered_step_tflos = gather_sum_number(tflos, device=self.device)
-            #gathered_step_tflos = gather_sum_number(0, device=self.device)
-
-            # XXX: this is sort of pointless, since all gpus are synced - so a local measurement is already the same elsewhere usually
-            gathered_step_time_total = gather_sum_number(step_time_secs, device=self.device)
-            gathered_step_times = gather_object(step_time_secs, device=self.device)
-            #print(gathered_step_times)
-
-            # gathered_step_tflops = gathered_step_tflos / gathered_step_time_total * sp_world_size
-            gathered_step_time_mean = gathered_step_time_total / self.world_size
-
-            import functools
-
-            from functools import wraps
-            # https://stackoverflow.com/a/78988160/9201239
-            def memoize_2nd_arg(func):
-                """Memoize like functools.cache, but only cache based on the 2nd argument.
-                this version only works with *args calling interface - will not work with **kwargs
-                """
-                cache = func.cache = {}
-
-                @wraps(func)
-                def memoizer(arg1, arg2, *args):
-                    if arg2 not in cache:
-                        cache[arg2] = func(arg1, arg2, *args)
-                    return cache[arg2]
-                return memoizer
-
-            #@memoize_2nd_arg
-            def estimate_tflos(model, seq_len):
-                """
-                this is an estimator for a collective computation across SP ranks (divide the result by SP size to get for one rank) with the result adapted to a single gpu
-
-                it assumes dtype bf16 (2 bytes) and recalculation of activations (could make it a parameter - will be a multiplier of 3 instead of 4 then. 4 is 2 fwd + 2 bwd, 3 is 1 fwd + 2 bwd)
-
-                Formulae: (seq * model_size * 2 * 4 + num_layers * seq * seq * hidden_size * 2 * 2 * 4) / 1e12
-
-                model: unwrapped model
-                seq_len: 1 batch sample seqlen
-
-                it expects a deepspeed zero sharded model
-                returns estimated tflos computed by one gpu
-                """
-                def numel_fn(p):
-                    return p.ds_numel if hasattr(p, "ds_tensor") else p.numel()
-                model_size = sum(numel_fn(p) for p in model.parameters())
-                num_layers = model.config.num_hidden_layers
-                hidden_size = model.config.hidden_size
-                # print(f"{model_size=}")
-                # print(f"{num_layers=}")
-                # print(f"{hidden_size=}")
-                # print(f"{seq_len=}")
-                tflos_estimated = (seq_len * model_size * 2 * 4 + num_layers * seq_len * seq_len * hidden_size * 2 * 2 * 4 ) / 1e12
-
-                return tflos_estimated
-
-            # because of the seq**2 in the formula calculate flos for each seqlen separately and sum up
-            tflos_estimated_total = sum(estimate_tflos(self.model_unwrapped, gathered_seqlens[rank]) for rank in range(self.world_size))
-            # XXX: what happens when it's dp=2 sp=4? which world size are we caclulating over?
-            tflos = tflos_estimated_total / self.world_size
-            # print(f"estimated {tflos=}")
-            # print(f"{tflos_estimated_total=}")
-            # print(f"{gathered_step_time_total=}")
-
-            #dist.barrier()
-
-            # try to get the iteration timer stop as close as possible to the point of end of logging
-            # alternatively could put it at the end of the logger and let the next iteration absorb the previous iteration's logging overhead
-            self.iter_timer.stop()
-            iter_time_secs = self.iter_timer.elapsed() / 1000
-             # any of the remaining logging overhead will get counted in the next iteration along with the DL.iter().next()
-            self.iter_timer.start()
-
-            iter_time_total = iter_time_secs * self.world_size
-            step_tflops = tflos_estimated_total / gathered_step_time_total
-            iter_tflops = tflos_estimated_total / iter_time_total
-
-            # XXX: this should become the point where we actually log train data in one go
-            # but the problem is that we are still iterating over epochs so there could be all kinds of reset side-effects - watch this
-            train_log_data = dict(
-                iter=self.model.global_steps,
-                iter_tflops=iter_tflops,
-                iter_time=iter_time_secs,
-                step_tflops=step_tflops,
-                step_time=gathered_step_time_mean,
-                loss=loss,
-                lr=self.model.lr_scheduler.get_last_lr()[0],
-                seqlen_total=gathered_seqlen_total,
-            )
-
-            # the reason for a special list is 2-fold:
-            # 1. to allow logging only some metrics and not all in the dense one line log
-            # 2. to put the key metrics first
-            # but the full log can be dumped to include all logging data
-            train_log_key_order = [
-                "iter",
-                "loss",
-                "iter_time",
-                "step_time",
-                "iter_tflops",
-                "step_tflops",
-                "lr",
-                "seqlen_total",
-            ]
-            # can skip entries that require no special formatting
-            # XXX: perhaps the values can be a list like [fmt, str]? that way we can automatically add the measurement identifier, [".1f", "secs"] and [".2f", "TFLOPS"]? resulting in "0.50 secs" and "450 TFLOPS"? on the other hand the name of the field often implies what it is - not sure
-            train_log_key_fmt = dict(
-                iter_tflops=".1f",
-                step_tflops=".1f",
-                iter="",
-                loss=".4f",
-                lr=".4E",
-                step_time=".4f",
-                iter_time=".4f",
-            )
-
-            # we log to wandb unconditionally every step
-            if self.wandb_experiment is not None:
-                self.wandb_experiment.log(train_log_data, step=self.model.global_steps)
-
-            # XXX: add `train_log_interval` to config and integrate it here, hardcoding for now
-            # once added this code will need to change to accumulate, average, etc - e.g. say if we interval=10
-            train_log_interval = 1
-            if (is_global_main_process() and self.train_batch_idx % train_log_interval == 0
-                and self.train_batch_idx != 1 # don't log step 0 as it is a massive outlier and messes up plots like time
+            if (
+                self.config.train_log_iter_interval != 0
+                and self.train_batch_idx % self.config.train_log_iter_interval == 0
             ):
-
-
-                # This is Megatron-LM style dense human redable essentials logging - one iteration per iterval
-                # how can we automate this? a special format time where it's a fn instead of a string format
-                train_log_data["seqlen_total"] = format_human_base2_number(train_log_data["seqlen_total"], suffix="")
-                log_line = ""
-                # XXX: currently missing progress indication 5/1000 (1%)
-                for k in train_log_key_order:
-                    fmt = train_log_key_fmt.get(k, "")
-                    log_line += f"{k}: {train_log_data[k]:{fmt}} | "
-                print(log_line)
+                self.metrics.print_summary()
+                if (
+                    self.global_rank == 0
+                    and self.train_batch_idx > 1  # first iter is a massive outlier
+                    and self.wandb_experiment is not None
+                ):
+                    self.wandb_experiment.log(
+                        {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
+                        step=self.model.global_steps,
+                    )
 
             if self.early_stop:
                 break
 
-        if mem_profiler:
-            torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
 
     @callback_wrapper("train")
     def train(self) -> None:
@@ -1731,6 +1970,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             logger.error(f"Training failed with error: {e}")
             # logger.info(f"{self._trainer_state}")
             raise (e)
+        finally:
+            if self.mem_profiler == "e2e" or self.mem_profiler == "step":
+                torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
+
+            if self.wandb_experiment is not None:
+                self.wandb_experiment.finish()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:

@@ -35,10 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def count_rows_in_parquet_files(filepaths: Sequence[str]) -> int:
-    return sum(
-        pq.ParquetFile(fp).metadata.num_rows
-        for fp in tqdm(filepaths, unit="file", desc="counting rows")
-    )
+    return sum(pq.ParquetFile(fp).metadata.num_rows for fp in tqdm(filepaths, unit="file", desc="counting rows"))
 
 
 def stream_id_text_pairs_from_parquet_files(
@@ -66,10 +63,7 @@ def embed_texts_to_parquet_files(
 ) -> None:
     assert batch_size < max_row_per_file
 
-    logger.info(
-        f"Embedding data to {out_dir} using {embedder.__class__.__name__}. "
-        f"{batch_size=}, {max_row_per_file=}"
-    )
+    logger.info(f"Embedding data to {out_dir} using {embedder.__class__.__name__}. {batch_size=}, {max_row_per_file=}")
 
     # Get an embedder for every available GPU.
     num_gpu = torch.cuda.device_count()
@@ -117,9 +111,7 @@ def embed_texts_to_parquet_files(
         ) as pbar:
             # Round robin devices to balance load as we iterate batches and embed
             # the batches in parallel via multi-threading.
-            id_vector_batch_iter = embed_pool.imap(
-                _embed_on_device, enumerate(_iter_batches())
-            )
+            id_vector_batch_iter = embed_pool.imap(_embed_on_device, enumerate(_iter_batches()))
 
             for batch_ids, batch_vectors in id_vector_batch_iter:
                 # Ensure ids are uint64.
@@ -162,9 +154,7 @@ def _construct_embedding_table(
 ) -> pa.Table:
     assert vectors.ndim == 2
     assert vectors.shape[0] == len(ids)
-    vectors_array = pa.FixedSizeListArray.from_arrays(
-        vectors.ravel(), list_size=vectors.shape[1]
-    )
+    vectors_array = pa.FixedSizeListArray.from_arrays(vectors.ravel(), list_size=vectors.shape[1])
     return pa.table({id_column_name: ids, vector_column_name: vectors_array})
 
 

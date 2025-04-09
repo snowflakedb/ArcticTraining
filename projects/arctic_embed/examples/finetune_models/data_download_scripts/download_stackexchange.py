@@ -33,8 +33,7 @@ if __name__ == "__main__":
 
     # Download data and load from disk to memory.
     print(
-        "Reading stackexchange title-body pairs from "
-        "`sentence-transformers/embedding-training-data` from HuggingFace"
+        "Reading stackexchange title-body pairs from `sentence-transformers/embedding-training-data` from HuggingFace"
     )
     df = pd.read_json(
         RAW_DATA_URL,
@@ -74,9 +73,7 @@ if __name__ == "__main__":
     doc_texts = []
     qrel_qids = []
     qrel_dids = []
-    for i, (tb1, tb2) in enumerate(
-        tqdm(df.itertuples(index=False), total=len(df), desc="Splitting title-body")
-    ):
+    for i, (tb1, tb2) in enumerate(tqdm(df.itertuples(index=False), total=len(df), desc="Splitting title-body")):
         res1 = split_title_body(tb1)
         res2 = split_title_body(tb2)
         if res1 is None or res2 is None:
@@ -98,12 +95,8 @@ if __name__ == "__main__":
         qrel_qids.extend([id1, id2])
         qrel_dids.extend([id2, id1])
     print(f"Number of rows lost due to failed body lookup: {num_missing:,}")
-    table_query = pa.table(
-        {"QUERY_ID": np.asarray(ids, dtype=np.uint64), "QUERY_TEXT": query_texts}
-    )
-    table_document = pa.table(
-        {"DOCUMENT_ID": np.asarray(ids, dtype=np.uint64), "DOCUMENT_TEXT": doc_texts}
-    )
+    table_query = pa.table({"QUERY_ID": np.asarray(ids, dtype=np.uint64), "QUERY_TEXT": query_texts})
+    table_document = pa.table({"DOCUMENT_ID": np.asarray(ids, dtype=np.uint64), "DOCUMENT_TEXT": doc_texts})
     table_labels = pa.table(
         {
             "QUERY_ID": np.asarray(qrel_qids, dtype=np.uint64),

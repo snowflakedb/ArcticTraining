@@ -76,9 +76,7 @@ class CortexSynth(InMemoryBatchProcessor):
         if hasattr(self, "conn"):
             self.conn.close()
 
-    def add_chat_to_batch_task(
-        self, task_name, model, messages, options={"temperature": 1, "top_p": 1}
-    ):
+    def add_chat_to_batch_task(self, task_name, model, messages, options={"temperature": 1, "top_p": 1}):
         request_id = f"{task_name}_{len(self.requests[task_name])}"
         self.requests[task_name].append(
             {
@@ -116,9 +114,7 @@ class CortexSynth(InMemoryBatchProcessor):
             responses.append({"custom_id": request["custom_id"], "response": output})
 
         if self.work_dir is not None:
-            with jsonlines.open(
-                os.path.join(self.work_dir, task_name, "results.jsonl"), "w"
-            ) as writer:
+            with jsonlines.open(os.path.join(self.work_dir, task_name, "results.jsonl"), "w") as writer:
                 writer.write_all(responses)
         return responses
 
@@ -130,8 +126,7 @@ class CortexSynth(InMemoryBatchProcessor):
                 {
                     "custom_id": response["custom_id"],
                     "choices": [
-                        {"content": x["messages"], "role": "assistant"}
-                        for x in response["response"]["choices"]
+                        {"content": x["messages"], "role": "assistant"} for x in response["response"]["choices"]
                     ],
                 }
             )

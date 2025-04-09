@@ -105,9 +105,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         ]
         # save batches to jsonlines
         for i, batch in enumerate(batches):
-            batch_file = os.path.join(
-                self.work_dir, task_name, "requests", f"{task_name}_{i}.jsonl"
-            )
+            batch_file = os.path.join(self.work_dir, task_name, "requests", f"{task_name}_{i}.jsonl")
             if not os.path.exists(os.path.dirname(batch_file)):
                 os.makedirs(os.path.dirname(batch_file))
             if os.path.exists(batch_file):
@@ -130,9 +128,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         # upload each batch file
         openai_file_ids = []
         for batch_file in batch_files:
-            openai_file = self.files.create(
-                file=open(batch_file, "rb"), purpose="batch"
-            )
+            openai_file = self.files.create(file=open(batch_file, "rb"), purpose="batch")
             openai_file_ids.append(openai_file.id)
 
         # save file ids to task
@@ -148,12 +144,9 @@ class OpenAIBatchProcessor(BatchProcessor):
         Retrieve uploaded files from (Azure) OpenAI Files API.
         """
         if file_ids is None:
-            if not os.path.exists(
-                os.path.join(self.work_dir, task_name, "file_ids.txt")
-            ):
+            if not os.path.exists(os.path.join(self.work_dir, task_name, "file_ids.txt")):
                 raise FileNotFoundError(
-                    f"No file ids are found on disk for task: {task_name}. Please"
-                    " upload the batch task first."
+                    f"No file ids are found on disk for task: {task_name}. Please upload the batch task first."
                 )
             with open(os.path.join(self.work_dir, task_name, "file_ids.txt"), "r") as f:
                 file_ids = f.read().splitlines()
@@ -180,9 +173,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         Submit batch task to (Azure) OpenAI Batch API.
         """
         if file_ids is None:
-            if not os.path.exists(
-                os.path.join(self.work_dir, task_name, "file_ids.txt")
-            ):
+            if not os.path.exists(os.path.join(self.work_dir, task_name, "file_ids.txt")):
                 raise FileNotFoundError(
                     f"No file ids are passed or found on disk for task: {task_name}."
                     " Please upload the batch task first."
@@ -213,16 +204,12 @@ class OpenAIBatchProcessor(BatchProcessor):
         if batch_ids is None:
             if task_name is None:
                 raise ValueError("Either task_name or batch_ids must be provided.")
-            if not os.path.exists(
-                os.path.join(self.work_dir, task_name, "batch_ids.txt")
-            ):
+            if not os.path.exists(os.path.join(self.work_dir, task_name, "batch_ids.txt")):
                 raise FileNotFoundError(
                     f"No batch ids are passed or found on disk for task: {task_name}."
                     " Please submit the batch task first."
                 )
-            with open(
-                os.path.join(self.work_dir, task_name, "batch_ids.txt"), "r"
-            ) as f:
+            with open(os.path.join(self.work_dir, task_name, "batch_ids.txt"), "r") as f:
                 batch_ids = f.read().splitlines()
 
         batch_status = []
@@ -250,8 +237,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         """
         if not os.path.exists(os.path.join(self.work_dir, task_name, "batch_ids.txt")):
             raise FileNotFoundError(
-                f"No batch ids are found on disk for task: {task_name}. Please submit"
-                " the batch task first."
+                f"No batch ids are found on disk for task: {task_name}. Please submit the batch task first."
             )
         with open(os.path.join(self.work_dir, task_name, "batch_ids.txt"), "r") as f:
             batch_ids = f.read().splitlines()
@@ -274,9 +260,7 @@ class OpenAIBatchProcessor(BatchProcessor):
             if output_file_id:
                 file_response = self.files.content(output_file_id)
                 raw_responses = file_response.text.strip()
-                if not os.path.exists(
-                    os.path.join(self.work_dir, task_name, "downloads")
-                ):
+                if not os.path.exists(os.path.join(self.work_dir, task_name, "downloads")):
                     os.makedirs(os.path.join(self.work_dir, task_name, "downloads"))
                 with open(
                     os.path.join(
@@ -296,12 +280,8 @@ class OpenAIBatchProcessor(BatchProcessor):
         if all_batch_ready:
             logging.info(f"Batch task downloaded: {task_name}")
             # sort by custom_id
-            all_responses = sorted(
-                all_responses.split("\n"), key=lambda x: json.loads(x)["custom_id"]
-            )
-            with open(
-                os.path.join(self.work_dir, task_name, "results.jsonl"), "w"
-            ) as f:
+            all_responses = sorted(all_responses.split("\n"), key=lambda x: json.loads(x)["custom_id"])
+            with open(os.path.join(self.work_dir, task_name, "results.jsonl"), "w") as f:
                 f.write("\n".join(all_responses))
         else:
             logging.warning(f"Not all batches are ready for download: {task_name}")
@@ -317,19 +297,14 @@ class OpenAIBatchProcessor(BatchProcessor):
 
         # Polling mechanism for completion
         while True:
-            file_responses = self.retrieve_uploaded_files(
-                file_ids=file_ids, print_status=print_status
-            )
+            file_responses = self.retrieve_uploaded_files(file_ids=file_ids, print_status=print_status)
             statuses = [response.status for response in file_responses]
             if all(status == "processed" for status in statuses):
                 break
             else:
                 for response in file_responses:
                     if response.status == "error":
-                        raise ValueError(
-                            f"File processing failed for {response.id}:"
-                            f" {response.status_details}"
-                        )
+                        raise ValueError(f"File processing failed for {response.id}: {response.status_details}")
             logging.info("Waiting for all files to upload...")
             time.sleep(self.polling_interval)
 
@@ -337,19 +312,14 @@ class OpenAIBatchProcessor(BatchProcessor):
 
         # Polling mechanism for completion
         while True:
-            batch_responses = self.retrieve_batch_task(
-                batch_ids=batch_ids, print_status=print_status
-            )
+            batch_responses = self.retrieve_batch_task(batch_ids=batch_ids, print_status=print_status)
             statuses = [response.status for response in batch_responses]
             if all(status == "completed" for status in statuses):
                 break
             else:
                 for response in batch_responses:
                     if response.status == "failed":
-                        raise ValueError(
-                            f"Batch processing failed for {response.id}:"
-                            f" {response.errors.data}"
-                        )
+                        raise ValueError(f"Batch processing failed for {response.id}: {response.errors.data}")
             logging.info("Waiting for all batches to complete...")
             time.sleep(self.polling_interval)
 
@@ -367,9 +337,7 @@ class OpenAIBatchProcessor(BatchProcessor):
             extracted.append(
                 {
                     "custom_id": response["custom_id"],
-                    "choices": [
-                        x["message"] for x in response["response"]["body"]["choices"]
-                    ],
+                    "choices": [x["message"] for x in response["response"]["body"]["choices"]],
                 }
             )
         return extracted

@@ -43,12 +43,8 @@ def parse_arguments():
         default=1,
         help="Number of tensor parallelism splits",
     )
-    parser.add_argument(
-        "--output_path", type=str, default=None, help="Output path for Results"
-    )
-    parser.add_argument(
-        "--max_tokens", type=int, default=512, help="Max tokens to generate"
-    )
+    parser.add_argument("--output_path", type=str, default=None, help="Output path for Results")
+    parser.add_argument("--max_tokens", type=int, default=512, help="Max tokens to generate")
 
     # Parse the arguments
     args = parser.parse_args()

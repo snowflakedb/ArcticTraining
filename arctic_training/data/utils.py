@@ -78,10 +78,7 @@ def calculate_hash_from_args(*args: Any) -> str:
         try:
             hash_str += str(arg)
         except Exception as e:
-            raise ValueError(
-                f"Failed to convert {arg} to string when calculating cache path."
-                f" Error: {e}"
-            )
+            raise ValueError(f"Failed to convert {arg} to string when calculating cache path. Error: {e}")
     return hashlib.md5(hash_str.encode()).hexdigest()
 
 

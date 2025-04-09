@@ -66,19 +66,13 @@ def dense_retrieval(
                 # scores across all of the item slices.
                 result_start = j * retrieval_depth
                 result_end = result_start + retrieval_depth
-                top_indices[:, result_start:result_end] = (
-                    item_start + topk.indices.cpu().numpy()
-                )
+                top_indices[:, result_start:result_end] = item_start + topk.indices.cpu().numpy()
                 top_scores[:, result_start:result_end] = topk.values.cpu().numpy()
 
             # Reduce to the global top-k indices and scores across all item slices.
             idx_sort = np.argsort(-top_scores, axis=1)
-            top_indices = np.take_along_axis(top_indices, idx_sort, axis=1)[
-                :, :retrieval_depth
-            ]
-            top_scores = np.take_along_axis(top_scores, idx_sort, axis=1)[
-                :, :retrieval_depth
-            ]
+            top_indices = np.take_along_axis(top_indices, idx_sort, axis=1)[:, :retrieval_depth]
+            top_scores = np.take_along_axis(top_scores, idx_sort, axis=1)[:, :retrieval_depth]
 
             # Store the results.
             result_start = i * query_slice_size

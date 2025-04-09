@@ -39,10 +39,8 @@ post_init_log_cb = (
 
 
 def _log_loss_value(self, loss: Any) -> Any:
-    if self.global_step % self.config.loss_log_interval == 0:
-        logger.info(
-            f"Global Step: {self.global_step}/{self.training_horizon}, Loss: {loss}"
-        )
+    if self.config.loss_log_interval != 0 and self.global_step % self.config.loss_log_interval == 0:
+        logger.info(f"Global Step: {self.global_step}/{self.training_horizon}, Loss: {loss}")
     return loss
 
 
@@ -52,22 +50,16 @@ post_loss_log_cb = ("post-loss", _log_loss_value)
 def _log_callback_ordering(self) -> None:
     log_str = f"Callback methods for {self.__class__.__name__}:"
 
-    wrapped_methods = set(
-        event.split("-")[1] for event in self._get_all_callback_event_methods()
-    )
+    wrapped_methods = set(event.split("-")[1] for event in self._get_all_callback_event_methods())
     for event in wrapped_methods:
         log_str += f"\n  {event}:"
 
         log_str += "\n\tPre-callbacks:"
-        pre_cbs = [
-            cb for cb in self._initialized_callbacks if cb.event == f"pre-{event}"
-        ]
+        pre_cbs = [cb for cb in self._initialized_callbacks if cb.event == f"pre-{event}"]
         log_str += str(pre_cbs)
 
         log_str += "\n\tPost-callbacks:"
-        post_cbs = [
-            cb for cb in self._initialized_callbacks if cb.event == f"post-{event}"
-        ]
+        post_cbs = [cb for cb in self._initialized_callbacks if cb.event == f"post-{event}"]
         log_str += str(post_cbs)
 
     logger.info(log_str)

@@ -51,9 +51,7 @@ class OptimizerFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", OptimizerConfig)
-        _validate_class_method(
-            cls, "create_optimizer", ["self", "model", "optimizer_config"]
-        )
+        _validate_class_method(cls, "create_optimizer", ["self", "model", "optimizer_config"])
 
     def __init__(
         self,

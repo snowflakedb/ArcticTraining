@@ -89,9 +89,7 @@ class CallbackMixin:
 
         # Accumulate callbacks from parent classes
         cls._class_callbacks = cls._class_callbacks.copy()
-        cls._class_callbacks.extend(
-            [cb for cb in cls.callbacks if cb not in cls._class_callbacks]
-        )
+        cls._class_callbacks.extend([cb for cb in cls.callbacks if cb not in cls._class_callbacks])
 
     @classmethod
     def _rewrap_class_methods(cls: Type["CallbackMixin"]) -> None:
@@ -99,9 +97,7 @@ class CallbackMixin:
         # This is necessary to keep callbacks working even when base trainer
         # classes like loss and step are overridden.
         for parent_class in cls.__bases__:
-            for name, member in inspect.getmembers(
-                parent_class, predicate=inspect.isfunction
-            ):
+            for name, member in inspect.getmembers(parent_class, predicate=inspect.isfunction):
                 if hasattr(member, WRAPPER_NAME_ATTR):
                     wrapper_name = getattr(member, WRAPPER_NAME_ATTR)
                     logger.debug(f"Rewrapping method {cls.__name__}.{name}")
@@ -144,8 +140,7 @@ class CallbackMixin:
         for event, fn in cls._class_callbacks:
             if event not in wrapped_methods:
                 raise ValueError(
-                    f"Callback {fn} for event {event} does not have a corresponding"
-                    " callback-wrapped method."
+                    f"Callback {fn} for event {event} does not have a corresponding callback-wrapped method."
                 )
 
             method = wrapped_methods[event]

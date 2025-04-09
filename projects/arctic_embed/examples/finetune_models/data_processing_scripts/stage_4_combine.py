@@ -47,24 +47,16 @@ def main(
     # Combine.
     for subdir in sub_dirs:
         table_chunks = []
-        for dataset_i, in_dir in enumerate(
-            tqdm(in_dirs_paths, desc=f"combining {subdir}", unit="dataset")
-        ):
+        for dataset_i, in_dir in enumerate(tqdm(in_dirs_paths, desc=f"combining {subdir}", unit="dataset")):
             # Read the parquet file for this dataset.
             path = in_dir / subdir
             table_chunk = pq.read_table(path)
 
             # Scramble all id values for global uniqueness across sources.
-            id_columns = [
-                (i, c)
-                for i, c in enumerate(table_chunk.column_names)
-                if c.endswith("ID")
-            ]
+            id_columns = [(i, c) for i, c in enumerate(table_chunk.column_names) if c.endswith("ID")]
             for idc_i, idc_name in id_columns:
                 idc_values = table_chunk.column(idc_i)
-                scrambled = pa.array(
-                    scramble_ids(idc_values.to_numpy(), offset_seed=dataset_i)
-                )
+                scrambled = pa.array(scramble_ids(idc_values.to_numpy(), offset_seed=dataset_i))
                 table_chunk = table_chunk.set_column(idc_i, idc_name, scrambled)
 
             table_chunks.append(table_chunk)
@@ -76,9 +68,7 @@ def main(
         if "queries.parquet" in subdir or "documents.parquet" in subdir:
             print(f"Validating ids are unique in combined {subdir}")
             for idc_i, idc_name in id_columns:
-                assert (
-                    table.column(idc_i).to_pandas().is_unique
-                ), f"{subdir=} {idc_name=}"
+                assert table.column(idc_i).to_pandas().is_unique, f"{subdir=} {idc_name=}"
 
         out_path = out_dir / subdir
         print(f"Writing {out_path}")
@@ -87,9 +77,7 @@ def main(
         del table
 
 
-def scramble_ids(
-    original_ids: NDArray[np.uint64], offset_seed: int
-) -> NDArray[np.uint64]:
+def scramble_ids(original_ids: NDArray[np.uint64], offset_seed: int) -> NDArray[np.uint64]:
     """Add a deterministic pseudorandom offset to a set of ids, then re-hash them.
 
     This process should convert multiple sequences of non-random ids (e.g. incrementing

@@ -1,0 +1,45 @@
+type: dpo
+micro_batch_size: 1
+epochs: 2
+gradient_accumulation_steps: 2
+beta: 0.1
+model:
+  type: liger
+  name_or_path: /data/excot-sft-llama-8b/global_step_147
+  attn_implementation: flash_attention_2
+ref_model:
+  type: liger
+  name_or_path: /data/excot-sft-llama-8b/global_step_147
+  attn_implementation: flash_attention_2
+deepspeed:
+  zero_optimization:
+    stage: 3
+wandb:
+  enable: true
+  project: arctic-excot
+  name: arctic-excot-dpo-test
+data:
+  sources:
+    - type: huggingface
+      name_or_path: /data-fast/excot_dpo
+  use_data_cache: true
+  cache_processed_data: true
+  cache_dir: /data-fast/data-cache
+  num_proc: 16
+  max_length: 8192
+logger:
+  level: WARNING
+  output_dir: "./"
+  file_output_ranks: [0]
+scheduler:
+  name: 'linear'
+  warmup_ratio: 0.1
+optimizer:
+  betas: [0.9,0.999]
+  weight_decay: 0.1
+  lr: 1e-6
+checkpoint:
+  - type: huggingface
+    save_every_n_steps: 10000
+    output_dir: /data-fast/excot-dpo-llama-8b-test
+    save_end_of_training: true

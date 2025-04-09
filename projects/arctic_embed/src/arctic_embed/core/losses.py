@@ -92,9 +92,7 @@ def _dim_truncated_infonce(
     return loss
 
 
-def info_nce_loss(
-    scores: Tensor, relations: Tensor, temperature: float = 0.01
-) -> Tensor:
+def info_nce_loss(scores: Tensor, relations: Tensor, temperature: float = 0.01) -> Tensor:
     """InfoNCE loss for potentially many-to-many query-document pairings.
 
     - `scores` is a floating point matrix of shape (n_query, n_doc)
@@ -118,9 +116,7 @@ class _MemoryEfficientInfoNCE(torch.autograd.Function):
     FWD_SUB_BATCH_SIZE = 1024
 
     @staticmethod
-    def forward(  # type: ignore
-        ctx, scores: Tensor, relations: Tensor, temperature: float
-    ) -> Tensor:
+    def forward(ctx, scores: Tensor, relations: Tensor, temperature: float) -> Tensor:  # type: ignore
         # If there are most then one positive column items per row item, we must
         # expand those rows into multiple rows, each with a single positive,
         # marking the other positive items as un-labeled (i.e. ignored).
@@ -152,18 +148,14 @@ class _MemoryEfficientInfoNCE(torch.autograd.Function):
             unexpansion_matrix = torch.tensor(torch.nan)
 
         # Calculate the loss.
-        logits = (
-            scores_expanded.masked_fill(relations_expanded == 0, -1e12) / temperature
-        )
+        logits = scores_expanded.masked_fill(relations_expanded == 0, -1e12) / temperature
         # Do batched cross entropy to avoid memory pressure.
         # result = F.cross_entropy(input=logits, target=pos_col_idx)
         result = torch.tensor(0.0, device=scores.device)
         sub_batch_size = _MemoryEfficientInfoNCE.FWD_SUB_BATCH_SIZE
         for start in range(0, logits.size(0), sub_batch_size):
             end = start + sub_batch_size
-            result += F.cross_entropy(
-                input=logits[start:end], target=pos_col_idx[start:end], reduction="sum"
-            )
+            result += F.cross_entropy(input=logits[start:end], target=pos_col_idx[start:end], reduction="sum")
         result /= logits.size(0)
         ctx.save_for_backward(pos_col_idx, logits, unexpansion_matrix)
         ctx.temperature = temperature
@@ -177,10 +169,7 @@ class _MemoryEfficientInfoNCE(torch.autograd.Function):
         # Reference on gradient of cross-entropy loss on softmax:
         # https://towardsdatascience.com/derivative-of-the-softmax-function-and-the-categorical-cross-entropy-loss-ffceefc081d1
         d_grad_d_s_expanded = grad_output * (
-            (
-                F.softmax(logits, dim=-1)
-                - F.one_hot(pos_col_idx, num_classes=logits.size(1))
-            )
+            (F.softmax(logits, dim=-1) - F.one_hot(pos_col_idx, num_classes=logits.size(1)))
             / logits.size(0)
             / ctx.temperature
         )

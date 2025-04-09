@@ -112,10 +112,7 @@ def log_grad_norm_cb(self: BiencoderTrainer) -> None:
 
 def eval_and_log_cb(self: BiencoderTrainer) -> None:
     """Post-step callback to evaluate and log the model."""
-    if (
-        self.config.eval_frequency == 0
-        or self.global_step % self.config.eval_frequency != 0
-    ):
+    if self.config.eval_frequency == 0 or self.global_step % self.config.eval_frequency != 0:
         return
     assert self.eval_dataloader_map is not None, "Missing eval loaders"
     if len(self.eval_dataloader_map) == 0:
@@ -130,10 +127,7 @@ def eval_and_log_cb(self: BiencoderTrainer) -> None:
             for eval_batch in tqdm(eval_loader, desc=f"eval/{eval_name}", unit="batch"):
                 eval_metrics = self.eval(eval_batch)
                 em_list.append(eval_metrics)
-            avg_metrics = {
-                f"eval/{eval_name}/{k}": sum(em[k] for em in em_list) / len(em_list)
-                for k in eval_metrics
-            }
+            avg_metrics = {f"eval/{eval_name}/{k}": sum(em[k] for em in em_list) / len(em_list) for k in eval_metrics}
             metrics.update(avg_metrics)
     finally:
         self.model.train(mode=initial_train_mode)
@@ -141,9 +135,7 @@ def eval_and_log_cb(self: BiencoderTrainer) -> None:
         import wandb
 
         wandb.log(metrics, step=self.global_step)
-    logger.info(
-        f"Global Step: {self.global_step}/{self.training_horizon} Eval: {metrics}"
-    )
+    logger.info(f"Global Step: {self.global_step}/{self.training_horizon} Eval: {metrics}")
 
 
 class BiencoderTrainer(Trainer):
@@ -180,9 +172,7 @@ class BiencoderTrainer(Trainer):
                 save_code=False,
             )
 
-    def forward_and_gather(
-        self, batch: ContrastiveLearningBatch
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward_and_gather(self, batch: ContrastiveLearningBatch) -> Tuple[Tensor, Tensor, Tensor]:
         # `self.model` is a `DeepSpeedEngine` that wraps a `Biencoder`.
         #   for type-checking, casting to `Biencoder` is helpful, but
         #   runtime checks like `isinstance` will fail.
@@ -217,15 +207,11 @@ class BiencoderTrainer(Trainer):
 
     @torch.no_grad()
     def eval(self, batch: ContrastiveLearningBatch) -> Dict[str, float]:
-        query_embeddings, document_embeddings, relations = self.forward_and_gather(
-            batch
-        )
+        query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
         q_emb = F.normalize(query_embeddings, dim=1)
         d_emb = F.normalize(document_embeddings, dim=1)
         scores = torch.matmul(q_emb, d_emb.transpose(0, 1))
-        loss_infonce = info_nce_loss(
-            scores, relations=relations, temperature=self.config.loss_temperature
-        ).item()
+        loss_infonce = info_nce_loss(scores, relations=relations, temperature=self.config.loss_temperature).item()
         return {"infoNCE": loss_infonce}
 
     def loss(self, batch: ContrastiveLearningBatch) -> Tensor:
@@ -236,9 +222,7 @@ class BiencoderTrainer(Trainer):
         self.count_total_documents_seen += global_batch_size_doc
 
         # Forward pass, gathering embeddings so each GPU has the full picture.
-        query_embeddings, document_embeddings, relations = self.forward_and_gather(
-            batch
-        )
+        query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
 
         # InfoNCE loss with Matryoshka Representation Learning (MRL).
         if self.config.use_in_batch_negatives:

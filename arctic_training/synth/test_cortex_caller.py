@@ -37,7 +37,5 @@ for i in range(3):
         ],
     )
 
-extracted_messages = client.extract_messages_from_responses(
-    client.execute_batch_task("test_task_cortex")
-)
+extracted_messages = client.extract_messages_from_responses(client.execute_batch_task("test_task_cortex"))
 print(extracted_messages)

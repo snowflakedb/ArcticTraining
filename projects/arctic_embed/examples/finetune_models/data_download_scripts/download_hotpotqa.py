@@ -55,9 +55,7 @@ if __name__ == "__main__":
             doc = title + "\n" + body
             docs.append(doc)
             doc_titles.append(title)
-    df_document = pd.DataFrame(
-        {"DOCUMENT_ID": hash_array(np.asarray(doc_titles)), "DOCUMENT_TEXT": docs}
-    )
+    df_document = pd.DataFrame({"DOCUMENT_ID": hash_array(np.asarray(doc_titles)), "DOCUMENT_TEXT": docs})
     df_document.drop_duplicates(subset=["DOCUMENT_ID"], inplace=True)
     assert df_document["DOCUMENT_ID"].is_unique
     assert df_document["DOCUMENT_TEXT"].is_unique
@@ -83,27 +81,21 @@ if __name__ == "__main__":
         if len(facts) == 0:
             print("skipping")
             continue
-        fact_doc_titles = np.asarray(
-            list(set(normalize_string(title) for title, _sentence_idx in facts))
-        )
+        fact_doc_titles = np.asarray(list(set(normalize_string(title) for title, _sentence_idx in facts)))
         for doc_title in fact_doc_titles:
             relation_qids.append(qid)
             relation_doc_titles.append(doc_title)
     relation_qids_array = np.asarray(relation_qids, dtype=np.uint64)
     del relation_qids
     relation_dids = hash_array(np.asarray(relation_doc_titles))
-    table_labels = pa.table(
-        {"QUERY_ID": relation_qids_array, "DOCUMENT_ID": relation_dids}
-    )
+    table_labels = pa.table({"QUERY_ID": relation_qids_array, "DOCUMENT_ID": relation_dids})
 
     # Ensure all relation ids are in the query and doc tables.
     missing_doc_ids = np.setdiff1d(
         table_labels["DOCUMENT_ID"].to_numpy(),
         table_document["DOCUMENT_ID"].to_numpy(),
     )
-    missing_query_ids = np.setdiff1d(
-        table_labels["QUERY_ID"].to_numpy(), table_query["QUERY_ID"].to_numpy()
-    )
+    missing_query_ids = np.setdiff1d(table_labels["QUERY_ID"].to_numpy(), table_query["QUERY_ID"].to_numpy())
     assert missing_doc_ids.shape[0] == 0
     assert missing_query_ids.shape[0] == 0
 

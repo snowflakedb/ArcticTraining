@@ -24,9 +24,7 @@ from peft import VeraConfig
 from arctic_training.config.model import ModelConfig
 
 
-@pytest.mark.parametrize(
-    "peft_type, config_cls", [("Lora", LoraConfig), ("Vera", VeraConfig)]
-)
+@pytest.mark.parametrize("peft_type, config_cls", [("Lora", LoraConfig), ("Vera", VeraConfig)])
 def test_peft_config(model_name: str, peft_type: str, config_cls: PeftConfig):
     config_dict = {
         "type": "random-weight-hf",

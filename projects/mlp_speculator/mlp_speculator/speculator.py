@@ -135,12 +135,7 @@ class MLPSpeculator(nn.Module):
         self.vocab_size = config.vocab_size
         self.scale_input = config.scale_input
         self.tie_weights = config.tie_weights
-        self.emb = nn.ModuleList(
-            [
-                nn.Embedding(self.vocab_size, self.inner_dim)
-                for _ in range(self.n_predict)
-            ]
-        )
+        self.emb = nn.ModuleList([nn.Embedding(self.vocab_size, self.inner_dim) for _ in range(self.n_predict)])
         self.proj = nn.ModuleList(
             [
                 nn.Linear(
@@ -152,23 +147,16 @@ class MLPSpeculator(nn.Module):
             ]
         )
         self.head = nn.ModuleList(
-            [
-                nn.Linear(self.inner_dim, self.vocab_size, bias=False)
-                for _ in range(self.n_predict)
-            ]
+            [nn.Linear(self.inner_dim, self.vocab_size, bias=False) for _ in range(self.n_predict)]
         )
         self.ln = nn.ModuleList(
             [
-                LayerNormParameterized(
-                    self.inner_dim, elementwise_shift=True, elementwise_scale=True
-                )
+                LayerNormParameterized(self.inner_dim, elementwise_shift=True, elementwise_scale=True)
                 for _ in range(self.n_predict)
             ]
         )
         if self.scale_input:
-            self.ln0 = LayerNormParameterized(
-                self.emb_dim, elementwise_shift=False, elementwise_scale=False
-            )
+            self.ln0 = LayerNormParameterized(self.emb_dim, elementwise_shift=False, elementwise_scale=False)
         # Weights ensure that state_0 accounts for 50% of state magnitude by final head in expectation
         self.state_weight = 0.5 ** (0.5 / self.n_predict)
         self.emb_weight = math.sqrt((1 - self.state_weight**2) * (self.inner_dim / 2))
@@ -176,9 +164,7 @@ class MLPSpeculator(nn.Module):
 
         # Handle weight tying as specified
         if self.tie_weights:
-            assert (
-                self.n_predict > 1
-            ), "You cannot tie weights between stages when only 1 exists"
+            assert self.n_predict > 1, "You cannot tie weights between stages when only 1 exists"
 
             for emb in self.emb:
                 emb.weight = self.emb[0].weight
@@ -235,14 +221,11 @@ class MLPSpeculator(nn.Module):
         # h indicates # of generated tokens
         b = state.size(0)
         k = math.prod(topk)
-        out = torch.empty(
-            b, 1, k, self.n_predict, device=state.device
-        ).int()  # b 1 k h -> b k 1 h
+        out = torch.empty(b, 1, k, self.n_predict, device=state.device).int()  # b 1 k h -> b k 1 h
         log_probs = torch.zeros(b, 1, k, device=state.device)  # b 1 k -> b k 1
-        assert len(topk) == self.n_predict, (
-            f"You must provide a topk number for each head ({self.n_predict} heads,"
-            f" {len(topk)} provided)"
-        )
+        assert (
+            len(topk) == self.n_predict
+        ), f"You must provide a topk number for each head ({self.n_predict} heads, {len(topk)} provided)"
         if self.scale_input:
             state = self.ln0(state) / (2**0.5)
         for i in range(self.n_predict):
@@ -272,9 +255,7 @@ class MLPSpeculator(nn.Module):
         out = out.view(b, k, self.n_predict)
         log_probs = log_probs.view(b, k)
         best_guesses = log_probs.topk(n, dim=1)[1]  # b k
-        return out.gather(
-            1, best_guesses.unsqueeze(2).expand(-1, -1, self.n_predict)
-        )  # b n h
+        return out.gather(1, best_guesses.unsqueeze(2).expand(-1, -1, self.n_predict))  # b n h
 
     def forward(
         self,

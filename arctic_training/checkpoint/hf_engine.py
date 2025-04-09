@@ -103,9 +103,7 @@ class HFCheckpointEngine(CheckpointEngine):
                 so_far_params += v_p.numel()
                 total_params += v_p.numel()
                 if so_far_params > SHARD_SIZE:
-                    tmp_file_name = (
-                        f"model-{checkpoint_id:05}-{ckpt_count:05}.safetensors"
-                    )
+                    tmp_file_name = f"model-{checkpoint_id:05}-{ckpt_count:05}.safetensors"
                     sf.torch.save_file(
                         output_state_dict,
                         self.model_file(tmp_file_name),

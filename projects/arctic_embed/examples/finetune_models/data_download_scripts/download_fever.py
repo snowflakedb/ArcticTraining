@@ -161,9 +161,7 @@ if __name__ == "__main__":
         table_labels["DOCUMENT_ID"].to_numpy(),
         table_document["DOCUMENT_ID"].to_numpy(),
     )
-    missing_query_ids = np.setdiff1d(
-        table_labels["QUERY_ID"].to_numpy(), table_query["QUERY_ID"].to_numpy()
-    )
+    missing_query_ids = np.setdiff1d(table_labels["QUERY_ID"].to_numpy(), table_query["QUERY_ID"].to_numpy())
     assert missing_doc_ids.shape[0] == 0
     assert missing_query_ids.shape[0] == 0
 

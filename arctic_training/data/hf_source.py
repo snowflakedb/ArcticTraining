@@ -17,6 +17,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 from typing import Dict
+from typing import List
 
 from datasets import DatasetDict
 from datasets import load_dataset
@@ -51,9 +52,7 @@ class HFDataSource(DataSource):
             if isinstance(dataset, DatasetDict):
                 dataset = dataset[split]
         else:
-            dataset = load_dataset(
-                str(config.name_or_path), split=split, **config.kwargs
-            )
+            dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
 
         return dataset
 
@@ -223,4 +222,36 @@ class LMSysChat1M(HFDataSource):
         return {
             "source": source_name,
             "messages": messages,
+        }
+
+
+class UltraFeedbackBinarized(HFDataSource):
+    name = "HuggingFaceH4/ultrafeedback_binarized"
+
+    def pre_load_callback(self, split: str) -> str:
+        split_map = dict(train="train_prefs", eval="test_prefs")
+        for original, modified in split_map.items():
+            split = split.replace(original, modified)
+        return split
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        dataset = dataset.select_columns(["chosen", "rejected"])
+        formatted_dataset = dataset.map(self.split_prompt_content, desc="Loading ultrafeedback binarized")
+        return formatted_dataset
+
+    @staticmethod
+    def split_prompt_content(example: Dict[str, List]) -> Dict[str, List]:
+        r"""
+        Extracts the shared prompt from a preference data example, where the prompt is implicit within both
+        the chosen and rejected completions.
+
+        For more details, see [`maybe_extract_prompt`].
+        """
+        for idx in range(min(len(example["chosen"]), len(example["rejected"]))):
+            if example["chosen"][idx]["content"] != example["rejected"][idx]["content"]:
+                break
+        return {
+            "prompt": example["chosen"][:idx],
+            "chosen": example["chosen"][idx:],
+            "rejected": example["rejected"][idx:],
         }
