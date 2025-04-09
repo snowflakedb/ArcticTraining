@@ -50,6 +50,10 @@ class LlamaSwiftKVAttention(LlamaAttention):
     def __init__(self, config: LlamaSwiftKVConfig, layer_idx: Optional[int] = None):
         super().__init__(config, layer_idx=layer_idx)
 
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.num_key_value_heads = config.num_key_value_heads
+
         swiftkv_layer_idx = layer_idx - config.num_key_value_layers
         if layer_idx >= config.num_key_value_layers:
             self.q_proj_swiftkv = nn.Linear(
