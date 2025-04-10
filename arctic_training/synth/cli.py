@@ -100,7 +100,7 @@ def main():
                 if len(outdated_files) < len(files.data):  # We have collected all outdated files
                     break
                 else:
-                    continued_from = files.data[-1]["id"]  # Continue from the last file
+                    continued_from = files.data[-1].id  # Continue from the last file
         file_ids_to_delete = [f.id for f in files_to_delete]
         outdated_files_count = len(file_ids_to_delete)
         if outdated_files_count == 0:
