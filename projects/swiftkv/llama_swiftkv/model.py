@@ -17,19 +17,17 @@ from typing import Callable, Optional, Tuple, Union
 
 import torch
 from torch import nn
-from transformers.cache_utils import Cache
-from transformers.cache_utils import DynamicCache
+from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.models.llama.modeling_llama import LlamaAttention
-from transformers.models.llama.modeling_llama import LlamaForCausalLM
-from transformers.models.llama.modeling_llama import LlamaMLP
-from transformers.models.llama.modeling_llama import LlamaModel
-from transformers.models.llama.modeling_llama import LlamaRMSNorm
-from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
-from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
-from transformers.models.llama.modeling_llama import eager_attention_forward
+from transformers.models.llama.modeling_llama import (LlamaAttention,
+                                                      LlamaForCausalLM,
+                                                      LlamaMLP, LlamaModel,
+                                                      LlamaRMSNorm,
+                                                      LlamaRotaryEmbedding,
+                                                      apply_rotary_pos_emb,
+                                                      eager_attention_forward)
 from transformers.processing_utils import Unpack
 from transformers.utils import logging
 

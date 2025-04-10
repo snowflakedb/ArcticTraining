@@ -17,14 +17,8 @@ from typing import Any, Union
 
 import torch
 import torch.nn.functional as F
-from arctic_training import (
-    HFCheckpointEngine,
-    HFModelFactory,
-    ModelConfig,
-    SFTTrainer,
-    TrainerConfig,
-    logger,
-)
+from arctic_training import (HFCheckpointEngine, HFModelFactory, ModelConfig,
+                             SFTTrainer, TrainerConfig, logger)
 from arctic_training.trainer.sft_trainer import to_device
 from deepspeed.runtime.zero import GatheredParameters
 from projects.swiftkv import llama_swiftkv, qwen2_swiftkv
