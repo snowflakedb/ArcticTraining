@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import math
 
 
@@ -36,3 +37,15 @@ def human_format_base10_number(num: float, suffix: str = "") -> str:
     value = num / (1000**exponent)
 
     return f"{value:_.2f}{units[exponent]}{suffix}"
+
+
+def human_format_secs(secs):
+    """
+    - less than a minute format into seconds with decimals: "%s.%msec"
+    - one minute and over use "%H:%M:%S" format
+    - if over one day use: "X days, %H:%M:%S" format
+    """
+    if secs < 60:
+        return f"{secs:.3f}s"
+    else:
+        return str(datetime.timedelta(seconds=secs)).split(".")[0]
