@@ -37,9 +37,7 @@ logger = logging.getLogger(__name__)
 class Biencoder(nn.Module):
     """Model for one-tower text embedding via a transformer `PreTrainedModel`."""
 
-    def __init__(
-        self, encoder: PreTrainedModel, pooling: PoolingOption = "first_token"
-    ) -> None:
+    def __init__(self, encoder: PreTrainedModel, pooling: PoolingOption = "first_token") -> None:
         super().__init__()
         self.encoder = encoder
         self.pooling = pooling

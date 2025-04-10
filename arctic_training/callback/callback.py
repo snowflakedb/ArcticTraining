@@ -25,10 +25,7 @@ from arctic_training.logging import logger
 
 class Callback:
     def __init__(self, event: str, fn: Callable, method: Callable) -> None:
-        logger.debug(
-            f"Initializing Callback for {method} with event={event} and"
-            f" fn={fn.__name__}"
-        )
+        logger.debug(f"Initializing Callback for {method} with event={event} and fn={fn.__name__}")
         self.event = event
         self.fn = fn
         self.method = method
@@ -53,10 +50,7 @@ class Callback:
         elif self.is_post_cb:
             self._validate_post_fn_sig()
         else:
-            raise ValueError(
-                f"Invalid event type: {self.event}. Expected 'pre' or 'post' in event"
-                " name."
-            )
+            raise ValueError(f"Invalid event type: {self.event}. Expected 'pre' or 'post' in event name.")
 
     def _validate_pre_fn_sig(self) -> None:
         callback_params = list(self.cb_fn_sig.parameters.values())
@@ -85,10 +79,7 @@ class Callback:
             params_to_pass.append(param.name)
 
         if len(params_to_pass) < 1:
-            raise ValueError(
-                f"Pre-callback function {self.fn} should have at least one parameter:"
-                " `self`."
-            )
+            raise ValueError(f"Pre-callback function {self.fn} should have at least one parameter: `self`.")
 
         self.params_to_pass = tuple(params_to_pass[1:])
 
@@ -102,36 +93,25 @@ class Callback:
         elif self.method_sig.return_annotation is None:
             self.pass_return_val = False
             if len(self.cb_fn_sig.parameters) != 1:
-                raise ValueError(
-                    f"Post-callback function {self.fn} should have at most one"
-                    " parameter: `self`."
-                )
+                raise ValueError(f"Post-callback function {self.fn} should have at most one parameter: `self`.")
         elif len(self.cb_fn_sig.parameters) != 2:
             raise ValueError(
                 f"Post-callback function {self.fn} should have exactly two parameters:"
                 " `self` and the return value of the method it wraps."
             )
 
-    def _run_pre_callback(
-        self, obj: object, args: Tuple[Any], kwargs: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _run_pre_callback(self, obj: object, args: Tuple[Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
         # Combine args and kwargs to match method signature and get defaults
         bound_args = self.method_sig.bind(obj, *args, **kwargs)
         bound_args.apply_defaults()
-        method_kwargs = {
-            p: v
-            for p, v in bound_args.arguments.items()
-            if p not in ("self", "args", "kwargs")
-        }
+        method_kwargs = {p: v for p, v in bound_args.arguments.items() if p not in ("self", "args", "kwargs")}
 
         params_to_pass = {param: method_kwargs[param] for param in self.params_to_pass}
         returned_args = self.fn(obj, **params_to_pass)
 
         if len(params_to_pass) == 0:
             if returned_args is not None:
-                raise ValueError(
-                    f"Pre-callback function {self.fn} should not return any values."
-                )
+                raise ValueError(f"Pre-callback function {self.fn} should not return any values.")
             else:
                 returned_args = tuple()
         elif len(params_to_pass) == 1:
@@ -143,15 +123,11 @@ class Callback:
                 f" {len(params_to_pass)} arguments."
             )
 
-        returned_kwargs = {
-            param: returned_args[i] for i, param in enumerate(self.params_to_pass)
-        }
+        returned_kwargs = {param: returned_args[i] for i, param in enumerate(self.params_to_pass)}
         method_kwargs.update(returned_kwargs)
         return method_kwargs
 
-    def _run_post_callback(
-        self, obj: object, return_val: Any
-    ) -> Union[Any, Tuple[Any]]:
+    def _run_post_callback(self, obj: object, return_val: Any) -> Union[Any, Tuple[Any]]:
         if self.pass_return_val:
             try:
                 return self.fn(obj, return_val)
@@ -165,22 +141,16 @@ class Callback:
         else:
             return self.fn(obj)
 
-    def __call__(
-        self, obj: object, args: Union[Any, Tuple[Any]], kwargs: Dict[str, Any]
-    ) -> Tuple[Tuple, Dict]:
+    def __call__(self, obj: object, args: Union[Any, Tuple[Any]], kwargs: Dict[str, Any]) -> Tuple[Tuple, Dict]:
         logger.debug(
-            f"Running callback {self.fn} in object {obj} for event {self.event} with"
-            f" arg(s) {args} and kwargs {kwargs}"
+            f"Running callback {self.fn} in object {obj} for event {self.event} with arg(s) {args} and kwargs {kwargs}"
         )
         if self.is_pre_cb:
             return tuple(), self._run_pre_callback(obj, args, kwargs)
         elif self.is_post_cb:
             return self._run_post_callback(obj, args), dict()
         else:
-            raise ValueError(
-                f"Invalid event type: {self.event}. Expected 'pre' or 'post' in event"
-                " name."
-            )
+            raise ValueError(f"Invalid event type: {self.event}. Expected 'pre' or 'post' in event name.")
 
     def __repr__(self) -> str:
         return f"<Callback event={self.event} fn={self.fn.__name__}>"

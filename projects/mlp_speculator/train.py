@@ -54,14 +54,10 @@ class MLPSpeculatorTrainerConfig(TrainerConfig):
     def set_grad_accum_steps(self):
         if self.gen_train:
             self.gradient_accumulation_steps = (
-                self.gen_train_global_batch_size
-                // self.gen_train_micro_batch_size
-                // self.world_size
+                self.gen_train_global_batch_size // self.gen_train_micro_batch_size // self.world_size
             )
         else:
-            self.gradient_accumulation_steps = (
-                self.global_batch_size // self.micro_batch_size // self.world_size
-            )
+            self.gradient_accumulation_steps = self.global_batch_size // self.micro_batch_size // self.world_size
         self = self.build_deepspeed_config()
         return self
 
@@ -194,9 +190,7 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
         dist.barrier()
 
         # Gather final model.
-        for parameter_to_save, (name, ds_param) in zip(
-            parameters_to_save, self.model.speculator.named_parameters()
-        ):
+        for parameter_to_save, (name, ds_param) in zip(parameters_to_save, self.model.speculator.named_parameters()):
             # Using gathered parameter does not work.
             # Parameters tracking is messed up at this point
             # So we need to be selective when partitioning
@@ -205,10 +199,7 @@ class MLPSpeculatorCheckpointEngine(CheckpointEngine):
                 ds_param.all_gather(param_list=[ds_param])
                 if dist.get_rank() == 0:
                     parameter_to_save.data.copy_(ds_param.data)
-                if (
-                    not ds_param.ds_active_sub_modules
-                    and ds_param.ds_status is not ZeroParamStatus.INFLIGHT
-                ):
+                if not ds_param.ds_active_sub_modules and ds_param.ds_status is not ZeroParamStatus.INFLIGHT:
                     ds_param.partition(param_list=[ds_param])
             else:
                 if dist.get_rank() == 0:
@@ -253,9 +244,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
         """
 
         input_ids = inputs["input_ids"]
-        assert (
-            type(input_ids) is torch.Tensor and input_ids.dim() == 2
-        ), "Invalid Input Shape. Must be b x n"
+        assert type(input_ids) is torch.Tensor and input_ids.dim() == 2, "Invalid Input Shape. Must be b x n"
 
         embeds = None
         result = input_ids
@@ -357,9 +346,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
                 config.gen_prompt_length * grow_factor <= config.data.max_length
             ), "Error: batch is too small for specified partition"
 
-            inputs["input_ids"] = inputs["input_ids"][
-                :, : config.gen_prompt_length * grow_factor
-            ].reshape(
+            inputs["input_ids"] = inputs["input_ids"][:, : config.gen_prompt_length * grow_factor].reshape(
                 inputs["input_ids"].size(0) * grow_factor, config.gen_prompt_length
             )
 
@@ -374,9 +361,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
             )
 
             generated_tokens = generated_tokens[:, -config.gen_seq_length :]
-            hidden_states = hidden_states[
-                :, -config.gen_seq_length : -self.model.speculator.n_predict
-            ]
+            hidden_states = hidden_states[:, -config.gen_seq_length : -self.model.speculator.n_predict]
 
         preds = self.model.speculator(
             hidden_states.detach(),
@@ -390,9 +375,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
             # + 2 maps to the first speculative token
             # + 1 maps to the output token of the model
             label = labels[:, i + 1 : preds.size(2) + i + 1]  # b n
-            loss = loss_fn(
-                preds[i].reshape(-1, preds.size(3)), label.long().reshape(-1)
-            )
+            loss = loss_fn(preds[i].reshape(-1, preds.size(3)), label.long().reshape(-1))
             losses.append(loss)
 
         loss = sum(losses)
@@ -410,12 +393,8 @@ class MLPSpeculatorTrainer(SFTTrainer):
         """
 
         inputs = to_device(inputs, self.device)
-        assert (
-            "speculator_input" in inputs.keys()
-        ), "Error: speculator_input not in inputs"
-        assert (
-            "speculator_label" in inputs.keys()
-        ), "Error: speculator_label not in inputs"
+        assert "speculator_input" in inputs.keys(), "Error: speculator_input not in inputs"
+        assert "speculator_label" in inputs.keys(), "Error: speculator_label not in inputs"
 
         preds = self.model.speculator(
             inputs["speculator_input"].detach(),
@@ -429,9 +408,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
             # + 2 maps to the first speculative token
             # + 1 maps to the output token of the model
             label = labels[:, i + 1 : preds.size(2) + i + 1]  # b n
-            loss = loss_fn(
-                preds[i].reshape(-1, preds.size(3)), label.long().reshape(-1)
-            )
+            loss = loss_fn(preds[i].reshape(-1, preds.size(3)), label.long().reshape(-1))
             losses.append(loss)
 
         loss = sum(losses)
@@ -456,9 +433,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
 
         inputs = to_device(batch, self.device)
         with torch.no_grad():
-            inputs["input_ids"] = inputs["input_ids"][
-                :, : self.config.gen_prompt_length * grow_factor
-            ].reshape(
+            inputs["input_ids"] = inputs["input_ids"][:, : self.config.gen_prompt_length * grow_factor].reshape(
                 inputs["input_ids"].size(0) * grow_factor, self.config.gen_prompt_length
             )
 
@@ -471,14 +446,10 @@ class MLPSpeculatorTrainer(SFTTrainer):
                 include_embeds=True,
             )
 
-            generated_tokens = generated_tokens[
-                :, -self.config.gen_seq_length :
-            ].reshape(
+            generated_tokens = generated_tokens[:, -self.config.gen_seq_length :].reshape(
                 [-1, self.config.gen_train_micro_batch_size, self.config.gen_seq_length]
             )
-            hidden_states = hidden_states[
-                :, -self.config.gen_seq_length : -self.model.speculator.n_predict, :
-            ]
+            hidden_states = hidden_states[:, -self.config.gen_seq_length : -self.model.speculator.n_predict, :]
 
             hidden_states = hidden_states.reshape(
                 [

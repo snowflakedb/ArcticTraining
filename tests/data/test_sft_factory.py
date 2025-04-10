@@ -24,19 +24,18 @@ from .utils import create_sft_data_factory
 @pytest.mark.parametrize(
     "training_sources, expected_sum",
     [
-        (["HuggingFaceH4/ultrachat_200k-truncated"], 487103798),
+        (["HuggingFaceH4/ultrachat_200k:train[:20]"], 487103798),
         (
-            ["HuggingFaceH4/ultrachat_200k-truncated", "Open-Orca/SlimOrca-truncated"],
+            [
+                "HuggingFaceH4/ultrachat_200k:train[:20]",
+                "Open-Orca/SlimOrca:train[:20]",
+            ],
             591408621,
         ),
     ],
 )
-def test_generated_data(
-    model_name: str, training_sources: List[str], expected_sum: int, tmp_path: Path
-):
-    sft_data_factory = create_sft_data_factory(
-        model_name=model_name, sources=training_sources, cache_dir=tmp_path
-    )
+def test_generated_data(model_name: str, training_sources: List[str], expected_sum: int, tmp_path: Path):
+    sft_data_factory = create_sft_data_factory(model_name=model_name, sources=training_sources, cache_dir=tmp_path)
     training_dataloader, _ = sft_data_factory()
 
     # Quick check that the data is the same as expected. The sum value was
@@ -46,30 +45,20 @@ def test_generated_data(
         for key in ("input_ids", "labels", "position_ids"):
             tensor_sum += batch[key].sum().item()
 
-    assert (
-        tensor_sum == expected_sum
-    ), f"Incorrect tensor sum: {tensor_sum}. Expected {expected_sum}"
+    assert tensor_sum == expected_sum, f"Incorrect tensor sum: {tensor_sum}. Expected {expected_sum}"
 
 
 def test_sft_factory_cache_path_uniqueness(model_name: str, tmp_path: Path):
     data_sources = [
-        "HuggingFaceH4/ultrachat_200k-truncated",
-        "Open-Orca/SlimOrca-truncated",
+        "HuggingFaceH4/ultrachat_200k",
+        "Open-Orca/SlimOrca",
     ]
-    data_factory_1 = create_sft_data_factory(
-        model_name=model_name, sources=data_sources, cache_dir=tmp_path
-    )
+    data_factory_1 = create_sft_data_factory(model_name=model_name, sources=data_sources, cache_dir=tmp_path)
 
     data_sources = data_sources[:1]
-    data_factory_2 = create_sft_data_factory(
-        model_name=model_name, sources=data_sources, cache_dir=tmp_path
-    )
+    data_factory_2 = create_sft_data_factory(model_name=model_name, sources=data_sources, cache_dir=tmp_path)
 
-    cache_path_1 = data_factory_1.cache_path(
-        data_factory_1._get_data_sources(split="train"), "train"
-    )
-    cache_path_2 = data_factory_2.cache_path(
-        data_factory_2._get_data_sources(split="train"), "train"
-    )
+    cache_path_1 = data_factory_1.cache_path(data_factory_1._get_data_sources(data_factory_1.config.sources))
+    cache_path_2 = data_factory_2.cache_path(data_factory_2._get_data_sources(data_factory_2.config.sources))
 
     assert cache_path_1 != cache_path_2, "Cache paths were not unique"

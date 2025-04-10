@@ -13,21 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Copyright 2025 Snowflake Inc.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -93,20 +78,14 @@ def main(
             "SCORE": pa.float32(),
         }
     )
-    with pq.ParquetWriter(out_path, out_schema) as pq_writer, tqdm(
-        total=result_indices.size, unit="score"
-    ) as pbar:
+    with pq.ParquetWriter(out_path, out_schema) as pq_writer, tqdm(total=result_indices.size, unit="score") as pbar:
         chunk_size = 1024
         for slice_start in range(0, result_indices.shape[0], chunk_size):
             slice_end = slice_start + chunk_size
             slice_table = pa.table(
                 {
-                    "QUERY_ID": np.repeat(
-                        query_ids[slice_start:slice_end], retrieval_depth
-                    ),
-                    "DOCUMENT_ID": doc_ids[
-                        result_indices[slice_start:slice_end].ravel()
-                    ],
+                    "QUERY_ID": np.repeat(query_ids[slice_start:slice_end], retrieval_depth),
+                    "DOCUMENT_ID": doc_ids[result_indices[slice_start:slice_end].ravel()],
                     "SCORE": result_scores[slice_start:slice_end].ravel(),
                 }
             )

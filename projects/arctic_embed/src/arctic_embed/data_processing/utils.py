@@ -65,9 +65,7 @@ def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tenso
     return last_hidden_states[row, col]
 
 
-def normalize_embeddings(
-    embedings_matrix: NDArrayOfFloat, inplace: bool = False
-) -> None:
+def normalize_embeddings(embedings_matrix: NDArrayOfFloat, inplace: bool = False) -> None:
     assert embedings_matrix.ndim == 2
     norms = np.linalg.norm(embedings_matrix, axis=1, keepdims=True)
     out = embedings_matrix if inplace else None
@@ -79,12 +77,7 @@ def np_2darray_from_pa_list_array(
 ) -> NDArrayOfFloat:
     """Converts from a fixed sized list array in Arrow to a Numpy 2D array."""
     embed_dim = len(fixed_size_list_array[0])
-    res = (
-        fixed_size_list_array.combine_chunks()
-        .flatten()
-        .to_numpy()
-        .reshape(-1, embed_dim)
-    )
+    res = fixed_size_list_array.combine_chunks().flatten().to_numpy().reshape(-1, embed_dim)
     return cast(NDArrayOfFloat, res)
 
 
@@ -117,17 +110,11 @@ def read_embeddings_from_pq(
 
         # Read the input in batches into the output objects.
         start_idx = 0
-        with tqdm(
-            total=num_rows, desc="Reading embeddings to memmap", unit="row"
-        ) as pbar:
-            for batch_table in ds.stream_tables(
-                columns_subset=[id_coumn_name, vector_colunn_name]
-            ):
+        with tqdm(total=num_rows, desc="Reading embeddings to memmap", unit="row") as pbar:
+            for batch_table in ds.stream_tables(columns_subset=[id_coumn_name, vector_colunn_name]):
                 end_idx = start_idx + len(batch_table)
                 ids[start_idx:end_idx] = batch_table.column(id_coumn_name).to_numpy()
-                vectors[start_idx:end_idx] = np_2darray_from_pa_list_array(
-                    batch_table.column(vector_colunn_name)
-                )
+                vectors[start_idx:end_idx] = np_2darray_from_pa_list_array(batch_table.column(vector_colunn_name))
                 start_idx = end_idx
                 pbar.update(len(batch_table))
     return ids, vectors
@@ -146,9 +133,7 @@ def run_config_file_cli(
     """
     # Parse the config file.
     if len(sys.argv) != 2:
-        raise RuntimeError(
-            "You must provide exactly one argument: the path to the config file"
-        )
+        raise RuntimeError("You must provide exactly one argument: the path to the config file")
     config_file_path = Path(sys.argv[1])
     if not config_file_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_file_path}")

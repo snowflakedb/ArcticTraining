@@ -43,9 +43,7 @@ class AbstractEmbedder(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def embed_batch(
-        self, texts: Sequence[str], is_query: bool, **kwargs: Any
-    ) -> NDArrayOfFloat:
+    def embed_batch(self, texts: Sequence[str], is_query: bool, **kwargs: Any) -> NDArrayOfFloat:
         pass
 
 
@@ -67,9 +65,7 @@ class Arctic2LargeEmbedder(AbstractEmbedder):
         self.device = device
         self.model = self.model.to(device)
 
-    def tokenize(
-        self, texts: Sequence[str], prefix: str, max_seq_len: int | None
-    ) -> dict[str, Tensor]:
+    def tokenize(self, texts: Sequence[str], prefix: str, max_seq_len: int | None) -> dict[str, Tensor]:
         prefixed_texts = [f"{prefix}{text}" for text in texts]
         inputs: dict[str, Tensor] = self.tokenizer(
             prefixed_texts,

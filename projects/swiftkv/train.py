@@ -28,11 +28,12 @@ from arctic_training import TrainerConfig
 from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
 
-import llama_swiftkv
-import qwen2_swiftkv
+from projects.swiftkv import llama_swiftkv
+from projects.swiftkv import qwen2_swiftkv
 
 llama_swiftkv.register_auto()
 qwen2_swiftkv.register_auto()
+
 
 
 class SwiftKVModelConfig(ModelConfig):
@@ -86,10 +87,7 @@ class SwiftKVModelFactory(HFModelFactory):
             model.config.key_value_group_size,
         ):
             this_attn = model.model.layers[layer_idx].self_attn
-            next_attn = [
-                model.model.layers[layer_idx + i].self_attn
-                for i in range(model.config.key_value_group_size)
-            ]
+            next_attn = [model.model.layers[layer_idx + i].self_attn for i in range(model.config.key_value_group_size)]
             for param in ("k_proj", "v_proj"):
                 kv_proj_swiftkv = getattr(this_attn, f"{param}_swiftkv")
                 # Initialize k_proj or v_proj weights
@@ -152,9 +150,7 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-    def distillation_loss(
-        self, student_output, teacher_output, temperature=1.0, dim=-1
-    ):
+    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)

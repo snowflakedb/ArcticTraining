@@ -17,16 +17,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 from typing import Type
 from typing import Union
 
+from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.data.utils import is_local_fs
 from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
@@ -43,6 +46,14 @@ class DataSourceConfig(BaseConfig):
 
     type: str = ""
     """ Data source type. Defaults to 'huggingface' if only a dataset name or path is provided."""
+
+    split: str = ""
+    """
+    Which split the data source is used for. This will be automatically set to either "train" or "eval" if no value is passed.
+
+    For HFDataSource, this can be any value supported by Dataset slice splits:
+    https://huggingface.co/docs/datasets/en/loading#slice-splits.
+    """
 
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
@@ -80,6 +91,8 @@ class DataConfig(BaseConfig):
     cache_dir: Path = Path("/tmp/")
     """ Directory to store cached data. """
 
+    cache_fs_type: Literal["auto", "local", "shared"] = "auto"
+
     @property
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)
@@ -98,12 +111,19 @@ class DataConfig(BaseConfig):
     def init_source_configs(
         cls,
         v: List[Union[str, Dict, DataSourceConfig]],
+        info: ValidationInfo,
     ) -> List[DataSourceConfig]:
         """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
         data_configs = []
         for config in v:
+            split = "train" if info.field_name == "sources" else "eval"
+
             # Support passing just a dataset name or path
             if isinstance(config, str):
+                # User has passed split suffix as part of the name
+                if ":" in config:
+                    config, split = config.split(":", 1)
+
                 try:
                     _ = get_registered_data_source(config)
                     config = dict(type=config, name_or_path=config)
@@ -117,6 +137,8 @@ class DataConfig(BaseConfig):
                         "Unspecified data source type. Please specify the 'type' field"
                         f" in your datasource config. Error raised for input: {config}."
                     )
+                if "split" not in config:
+                    config["split"] = split
                 data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
                 data_configs.append(config_cls(**config))
@@ -137,9 +159,14 @@ class DataConfig(BaseConfig):
                 self.train_eval_split[0] == 1.0
             ), "train_eval_split should be (1.0, 0.0) when eval_datasets is provided."
         if self.train_eval_split[1] > 0.0:
-            assert not self.eval_sources, (
-                "If you provide the evaluation split, you should not provide the"
-                " evaluation datasets."
-            )
+            assert (
+                not self.eval_sources
+            ), "If you provide the evaluation split, you should not provide the evaluation datasets."
         assert sum(self.train_eval_split) == 1.0, "train_eval_split should sum to 1.0."
+        return self
+
+    @model_validator(mode="after")
+    def set_cache_fs_type(self) -> Self:
+        if self.cache_fs_type == "auto":
+            self.cache_fs_type = "local" if is_local_fs(self.cache_dir) else "shared"
         return self

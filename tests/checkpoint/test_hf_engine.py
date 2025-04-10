@@ -23,6 +23,7 @@ def test_hf_engine(tmp_path, model_name):
     config_dict = {
         "type": "sft",
         "skip_validation": True,
+        "train_log_iter_interval": 0,
         "model": {
             "type": "random-weight-hf",
             "name_or_path": model_name,
@@ -56,9 +57,7 @@ def test_hf_engine(tmp_path, model_name):
     # Store original model for comparison later
     original_model = trainer.model
 
-    config_dict["model"]["name_or_path"] = str(
-        trainer.checkpoint_engines[0].checkpoint_dir
-    )
+    config_dict["model"]["name_or_path"] = str(trainer.checkpoint_engines[0].checkpoint_dir)
     config = get_config(config_dict)
     trainer_cls = get_registered_trainer(config.type)
     trainer = trainer_cls(config)

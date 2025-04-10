@@ -101,9 +101,7 @@ def input_args(base_cls, num_args):
 
 
 @pytest.fixture
-def expected_val(
-    base_cls, method_name, num_args, input_args, pre_callback, post_callback
-):
+def expected_val(base_cls, method_name, num_args, input_args, pre_callback, post_callback):
     obj = base_cls()
 
     new_args = pre_callback(obj, *input_args)
@@ -148,12 +146,8 @@ def post_callback(base_cls, method_name):
     return callback_one_arg_fn
 
 
-@pytest.mark.parametrize(
-    "base_cls", [SubClass, SubSubClass], ids=["SubClass", "SubSubClass"]
-)
-@pytest.mark.parametrize(
-    "method_name", ["no_args", "one_arg", "multi_args", "no_out", "any_out"]
-)
+@pytest.mark.parametrize("base_cls", [SubClass, SubSubClass], ids=["SubClass", "SubSubClass"])
+@pytest.mark.parametrize("method_name", ["no_args", "one_arg", "multi_args", "no_out", "any_out"])
 def test_callback_inputs_outputs(cls, method_name, input_args, expected_val):
     obj = cls()
     val = getattr(obj, method_name)(*input_args)
