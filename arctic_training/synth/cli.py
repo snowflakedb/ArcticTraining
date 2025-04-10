@@ -86,19 +86,21 @@ def main():
     if args.clean_files_older_than_n_days:
         files_to_delete = []
         continued_from = None
-        while True:  # This loop is to handle pagination
-            files = client.files.list(purpose="batch", extra_query={"order": "asc", "after": continued_from})
-            outdated_files = [
-                f
-                for f in files.data
-                if (datetime.datetime.now() - datetime.datetime.fromtimestamp(f.created_at)).days
-                > args.clean_files_older_than_n_days
-            ]
-            files_to_delete.extend(outdated_files)
-            if len(outdated_files) < len(files.data):  # We have collected all outdated files
-                break
-            else:
-                continued_from = files.data[-1].id  # Continue from the last file
+        for purpose in ["batch", "batch_output"]:  # compatibility due to API change
+            while True:  # This loop is to handle pagination
+                outdated_files = []
+                files = client.files.list(purpose=purpose, extra_query={"order": "asc", "after": continued_from})
+                outdated_files = [
+                    f
+                    for f in files.data
+                    if (datetime.datetime.now() - datetime.datetime.fromtimestamp(f.created_at)).days
+                    > args.clean_files_older_than_n_days
+                ]
+                files_to_delete.extend(outdated_files)
+                if len(outdated_files) < len(files.data):  # We have collected all outdated files
+                    break
+                else:
+                    continued_from = files.data[-1].id  # Continue from the last file
         file_ids_to_delete = [f.id for f in files_to_delete]
         outdated_files_count = len(file_ids_to_delete)
         if outdated_files_count == 0:
