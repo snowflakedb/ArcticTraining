@@ -368,7 +368,7 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
             spec.loader.exec_module(module)  # type: ignore
         finally:
             sys.path = original_sys_path
-    elif "code" in config_dict:
+    elif config_dict.get("code") is not None:
         # User specified a script that doesn't exist
         raise FileNotFoundError(f"Cannot find script at {script_path}")
 
