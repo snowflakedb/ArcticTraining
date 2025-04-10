@@ -15,6 +15,16 @@ sequence_parallel_size: 4
 which would lead to 2 replicas.
 
 
+## component versions
+
+Here are some known component versions that are likely to impact the max achievable seqlen.
+
+### pytorch
+
+- there is 4GB leak in torch.distributed when `barrier` is called on gpu0 w/ 8 gpu-nodes - it doesn't exist in pt-2.4, but is there in 2.6*, 2.7.0. The bug fix will appear in 2.7.1 and 2.8.
+- if you add `all_gather_object` with tensors placed on cuda, that would waste ~4GB/per gpu on any pytorch version up to 2.7.x - perhaps it'll get fixed in the future to do the right thing.
+
+
 ## Performance vs. Correctness
 
 The longer the sequence the higher the performance will be.

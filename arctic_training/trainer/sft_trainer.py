@@ -50,6 +50,7 @@ class SFTTrainer(Trainer):
     def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
+        # XXX: this will be later moved to get instantiated right after deepspeed.initialize with a new Trainer method `self.post_deepspeed_initialize` or something like that. It'd auto-manifest `sp_fwd_loss_bwd` method which will do what's here now but the `ulysses` object will be instantiated once per training
         from arctic_training.trainer.trainer import UlyssesAttentionHFFwdLossBwdWithLogits
         ulysses = UlyssesAttentionHFFwdLossBwdWithLogits(
             model=self.model,

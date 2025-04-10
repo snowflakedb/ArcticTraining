@@ -170,6 +170,7 @@ class Metrics:
         summary_str += f" | epoch: {self.summary_dict['epoch']}"
 
         if self.trainer.global_rank == 0:
+            # XXX: make configurable via yaml
             mem_metrics = get_mem_metrics()
             summary_str += f" | {mem_metrics}"
 

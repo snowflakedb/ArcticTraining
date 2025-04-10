@@ -100,7 +100,7 @@ def get_mem_metrics():
     ])
 
     # get the peak memory to report correct data, so reset the counter for the next call
-    # this will lead to wrong peak reports if `see_mem_usage` is also used as it resets the peak and there is only one counter
+    # this will lead to wrong peak reports if `see_mem_usage` is also used during the run, as it resets the peak counter and there is only one counter
     get_accelerator().reset_peak_memory_stats()
 
     return summary
