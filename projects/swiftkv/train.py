@@ -13,27 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-from typing import Union
+from typing import Any, Union
 
 import torch
 import torch.nn.functional as F
-from deepspeed.runtime.zero import GatheredParameters
-
-from arctic_training import HFCheckpointEngine
-from arctic_training import HFModelFactory
-from arctic_training import ModelConfig
-from arctic_training import SFTTrainer
-from arctic_training import TrainerConfig
-from arctic_training import logger
+from arctic_training import (
+    HFCheckpointEngine,
+    HFModelFactory,
+    ModelConfig,
+    SFTTrainer,
+    TrainerConfig,
+    logger,
+)
 from arctic_training.trainer.sft_trainer import to_device
-
-from projects.swiftkv import llama_swiftkv
-from projects.swiftkv import qwen2_swiftkv
+from deepspeed.runtime.zero import GatheredParameters
+from projects.swiftkv import llama_swiftkv, qwen2_swiftkv
 
 llama_swiftkv.register_auto()
 qwen2_swiftkv.register_auto()
-
 
 
 class SwiftKVModelConfig(ModelConfig):
@@ -72,14 +69,10 @@ class SwiftKVModelFactory(HFModelFactory):
             # Initialize q_proj_swiftkv
             q_proj_swiftkv = layer.self_attn.q_proj_swiftkv
             with GatheredParameters(layer.parameters(), modifier_rank=0):
-                q_proj_swiftkv.weight.data.copy_(
-                    layer.self_attn.q_proj.weight.data
-                )
+                q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
                 q_proj_swiftkv.weight.requires_grad = True
                 if getattr(q_proj_swiftkv, "bias", None) is not None:
-                    q_proj_swiftkv.bias.data.copy_(
-                        layer.self_attn.q_proj.bias.data
-                    )
+                    q_proj_swiftkv.bias.data.copy_(layer.self_attn.q_proj.bias.data)
                     q_proj_swiftkv.bias.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
@@ -87,7 +80,10 @@ class SwiftKVModelFactory(HFModelFactory):
             model.config.key_value_group_size,
         ):
             this_attn = model.model.layers[layer_idx].self_attn
-            next_attn = [model.model.layers[layer_idx + i].self_attn for i in range(model.config.key_value_group_size)]
+            next_attn = [
+                model.model.layers[layer_idx + i].self_attn
+                for i in range(model.config.key_value_group_size)
+            ]
             for param in ("k_proj", "v_proj"):
                 kv_proj_swiftkv = getattr(this_attn, f"{param}_swiftkv")
                 # Initialize k_proj or v_proj weights
@@ -150,7 +146,9 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
+    def distillation_loss(
+        self, student_output, teacher_output, temperature=1.0, dim=-1
+    ):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)
