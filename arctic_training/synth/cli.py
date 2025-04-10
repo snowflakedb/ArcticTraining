@@ -86,7 +86,7 @@ def main():
     if args.clean_files_older_than_n_days:
         files_to_delete = []
         continued_from = None
-        for purpose in ["batch", "batch_output"]:  # compatity due to API change
+        for purpose in ["batch", "batch_output"]:  # compatibility due to API change
             while True:  # This loop is to handle pagination
                 outdated_files = []
                 files = client.files.list(purpose=purpose, extra_query={"order": "asc", "after": continued_from})
