@@ -121,8 +121,9 @@ def pad(
 
 
 class DataCollatorForCausalLM:
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, config):
         self.tokenizer = tokenizer
+        self.config = config
 
     def __call__(self, instances: List[Dict]) -> Dict[str, torch.Tensor]:
         input_ids = [torch.tensor(example["input_ids"]) for example in instances]
@@ -137,9 +138,9 @@ class DataCollatorForCausalLM:
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
 
-        input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id)
-        labels = pad(labels, padding_value=IGNORE_INDEX)
-        position_ids = pad(position_ids, padding_value=0, is_position_id=True)
+        input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
+        labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
+        position_ids = pad(position_ids, divisible_by=self.config.div_length, padding_value=0, is_position_id=True)
 
         return {
             "input_ids": input_ids,
@@ -202,6 +203,9 @@ def packing_sft_dataset(
 class SFTDataConfig(DataConfig):
     max_length: int = 8192
     """ Maximum length of the input sequence. """
+
+    div_length: int = 256
+    """ The number that the length of the sequence should be divisible by. """
 
     mask_inputs: bool = True
     """ Whether to mask the input sequence. """
@@ -347,7 +351,7 @@ class SFTDataFactory(DataFactory):
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         return DataLoader(
             dataset,
-            collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer),
+            collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config),
             batch_size=self.micro_batch_size,
             sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.num_proc,
