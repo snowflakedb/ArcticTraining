@@ -120,12 +120,13 @@ class Metrics:
 
         tflos_total: float = 0.0
         if "seqlen" in self.values:
+            # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
             tflos_total = sum(
                 gather_object(
                     self._estimate_decoder_transformer_tflos(self.values["seqlen"]),
                     self.trainer.world_size,
                 )
-            )
+            ) / self.trainer.config.sequence_parallel_size
 
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size

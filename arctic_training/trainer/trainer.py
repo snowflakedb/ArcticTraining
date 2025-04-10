@@ -565,6 +565,115 @@ class UlyssesAttentionHF(torch.nn.Module):
                 raise ValueError("sequence parallelism has been configured but the HF model isn't configured to run it - check whether the `register_with_transformers` method was called before the `model` has been created")
 
 
+
+from collections import defaultdict
+from torch.utils.data import DataLoader
+class UlyssesAttentionHFDataLoaderWrapper():
+    def __init__(
+        self,
+        dl: DataLoader,
+        sp_rank: int,
+        sp_group,
+        sp_world_size,
+        device,
+    ):
+        """
+        Assumption: the batch is a dict with at least the keys: `input_ids`, `labels`, `position_ids` - but can have any additional keys necessary.
+        """
+
+        self.dl = dl
+        self.sp_rank = sp_rank
+        self.sp_group = sp_group
+        self.sp_world_size = sp_world_size
+        self.device = device
+
+        self.iter = iter(dl)
+        self.micro_batches = []
+
+    def __len__(self):
+        return len(self.dl)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if len(self.micro_batches) == 0:
+            self.refill()
+
+        batch = self.micro_batches.pop(0)
+
+        seq_length = len(batch['input_ids'][0])
+
+        if seq_length % self.sp_world_size != 0:
+            raise ValueError(f"batch's seqlen={seq_length} isn't divisible by sp-size={self.sp_world_size}")
+        chunk_len = int(seq_length / self.sp_world_size)
+
+        # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+        # therefore remove labels to avoid an attempt to calculate loss by transformers
+        labels = batch.pop("labels")
+        labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+        batch["shift_labels"] = labels[..., 1:].contiguous()
+        # free up temp memory
+        del labels
+
+        # batch sharding
+        for k in batch.keys():
+            #print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
+            batch[k] = batch[k][:, chunk_len*self.sp_rank:chunk_len*(self.sp_rank+1)].to(self.device)
+            # else:
+            #     print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
+            #     batch[k] = batch[k].to(self.device)
+
+            #print_rank0(f"after sp: {k}: {batch[k].shape=}")
+
+        # if len(self.micro_batches) == 0:
+        #     raise StopIteration
+        return batch
+
+    def refill(self):
+        # this will raise StopIteration when empty
+        batch = next(self.iter)
+        micro_batches = defaultdict(dict)
+        # XXX: replace with more efficient all-to-all?
+
+        # we have batches of variable seqlen so in order to do all_gather on batches - we need to know the exact length of each tensor on each rank
+        seqlen = torch.tensor(batch["input_ids"].shape[1], dtype=torch.int64, device=self.device)
+        #print(seqlen)
+        seqlens = [torch.zeros(1, dtype=torch.int64, device=self.device) for _ in range(self.sp_world_size)]
+        dist.all_gather(seqlens, seqlen, group=self.sp_group)
+        seqlens = [x[0].item() for x in seqlens]
+
+        for k in batch.keys():
+            batch[k] = batch[k].to(self.device)
+            #print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
+            #print_rank0(f"before gather: {k}: {batch[k]=}")
+            with torch.no_grad():
+
+                tensor_list = [torch.zeros((batch[k].shape[0],seqlens[i]), dtype=batch[k].dtype, device=batch[k].device) for i in range(self.sp_world_size)]
+                # # print(tensor_list)
+                # # print(batch[k])
+                dist.all_gather(tensor_list, batch[k], group=self.sp_group)
+
+                # gathering on the data dimension
+                # will be concatenating and later splitting again for the more general case
+                # batch[k] = torch.cat(tensor_list, dim=1)
+                for rank, tensor in enumerate(tensor_list):
+                    micro_batches[rank][k] = tensor
+                    #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
+                    #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].device=}", skip=False)
+                    #print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
+                    # if k == "input_ids":
+                    #     print_rank0(f"{self.trainer.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
+
+                #see_memory_usage("mid-gathering", force=False)
+
+        del tensor_list
+        del batch
+
+        # convert to list
+        self.micro_batches = [micro_batches[i] for i in range(len(micro_batches))]
+
+
 # XXX: this class shouldn't depend on anything in AT (trainer, etc) - we can have a subclass if needed to support that
 # but can also accept kwargs that a customizer can use in methods
 
@@ -1649,6 +1758,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     `post-` for `init`, `train`, `epoch`, `step`, and `checkpoint`.
     """
 
+    # XXX: hack to compare correctness until we support GAS
+    temp_losses = []
+
     @classmethod
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
@@ -1683,8 +1795,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # enable memory history, which will add tracebacks and event history to snapshots
         # "none" | "e2e" | "step"
-        #self.mem_profiler = "none"
-        self.mem_profiler = "step"
+        self.mem_profiler = "none"
+        #self.mem_profiler = "step"
         # profiling from here is slower, best to start at top of `epoch` ("step")
         if self.mem_profiler == "e2e":
             torch.cuda.memory._record_memory_history(max_entries=100_000)
@@ -1880,22 +1992,33 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         see_memory_usage("before forward", force=False)
 
         self.model.train()
-        if self.config.sequence_parallel_size == 1:
-            loss = self.loss(batch)
-            self.model.backward(loss)
+        loss = self.loss(batch)
+        self.model.backward(loss)
 
-            with torch.no_grad():
-                # average losses since they are different on each dp rank
-                losses_per_rank = torch.distributed.nn.functional.all_gather(loss)
-                #print(f"LOSS {losses_per_rank=}")
-                average_loss = torch.cat([l.unsqueeze(0) for l in losses_per_rank], dim=0).mean()
-                #print(f"LOSS {average_loss=}")
-                loss = average_loss
+        # XXX: uncomment to compare loss exactness vs dp8-sp1
+        # self.temp_losses.append(loss.item())
+        # sp_world_size = 8
+        # if len(self.temp_losses) == sp_world_size:
+        #     avg_loss = sum(self.temp_losses) / len(self.temp_losses)
+        #     print(f"{avg_loss=}")
+        #     self.temp_losses = []
 
-        else:
-            # sp will do backward inside sp_fwd_bwd_loss
-            # the returned loss is already averaged across ranks and it's a float
-            loss = self.sp_fwd_loss_bwd(batch)
+        # if self.config.sequence_parallel_size == 1:
+        #     loss = self.loss(batch)
+        #     self.model.backward(loss)
+
+        #     # with torch.no_grad():
+        #     #     # average losses since they are different on each dp rank
+        #     #     losses_per_rank = torch.distributed.nn.functional.all_gather(loss)
+        #     #     #print(f"LOSS {losses_per_rank=}")
+        #     #     average_loss = torch.cat([l.unsqueeze(0) for l in losses_per_rank], dim=0).mean()
+        #     #     #print(f"LOSS {average_loss=}")
+        #     #     loss = average_loss
+
+        # else:
+        #     # sp will do backward inside sp_fwd_bwd_loss
+        #     # the returned loss is already averaged across ranks and it's a float
+        #     loss = self.sp_fwd_loss_bwd(batch)
 
         see_memory_usage("after backward", force=False)
 
@@ -1915,7 +2038,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
 
 
-        from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
+        #from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
@@ -1945,13 +2068,32 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.mem_profiler == "step":
            torch.cuda.memory._record_memory_history(max_entries=100_000)
 
+        train_batches = self.train_batches
+        if self.config.sequence_parallel_size > 1:
+            from deepspeed.utils import groups
+            self.sp_group = groups._get_sequence_parallel_group()
+            self.sp_world_size = groups._get_sequence_parallel_world_size()
+            self.sp_rank = groups._get_sequence_parallel_rank()
+
+            train_batches = UlyssesAttentionHFDataLoaderWrapper(
+                train_batches,
+                sp_rank=self.sp_rank,
+                sp_group=self.sp_group,
+                sp_world_size=self.sp_world_size,
+                device=self.device,
+            )
+            # this will break on epoch 2+ as it'd continue multiplying the previous value from epoch 1
+            self.config.exit_iteration *= self.sp_world_size
+            #self.training_horizon *= self.sp_world_size
+            self.metrics.max_iter *= self.sp_world_size
+
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
-        for batch in self.train_batches:
+        for batch in train_batches:
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            self.metrics.record("seqlen", len(batch["input_ids"][0]))
+            self.metrics.record("seqlen", len(batch["input_ids"][0])*self.config.sequence_parallel_size)
 
             see_memory_usage(f"before step", force=True)
 

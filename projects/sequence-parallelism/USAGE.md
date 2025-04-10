@@ -25,6 +25,22 @@ Here are some known component versions that are likely to impact the max achieva
 - if you add `all_gather_object` with tensors placed on cuda, that would waste ~4GB/per gpu on any pytorch version up to 2.7.x - perhaps it'll get fixed in the future to do the right thing.
 
 
+## Requirements
+
+### Batch seqlen
+
+The batch seqlen has to be divisible by sequence parallel size.
+
+
+
+## Performance
+
+### Batch seqlen
+
+While the batch seqlen has to be divisible by sequence parallel size, ideally you also want it to be divisible by a largish `2**x` - e.g. 256 to have the fastest matrix multiplication.
+
+So together, try to have it divisible by `256*sequence_parallel_size` if it works out, if not any `2**x*sequence_parallel_size` (where `x>=0`) will do functionally-wise.
+
 ## Performance vs. Correctness
 
 The longer the sequence the higher the performance will be.

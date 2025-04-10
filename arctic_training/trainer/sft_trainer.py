@@ -30,7 +30,8 @@ from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 from arctic_training.debug import see_memory_usage, print_rank0, print_rank
 
-
+import math
+from arctic_training.trainer.trainer import ChunkedMemEfficientLoss
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory
@@ -42,20 +43,65 @@ class SFTTrainer(Trainer):
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
-        outputs = self.model(**batch, use_cache=False)
-        loss = outputs.loss
+
+        if self.config.sequence_parallel_size == 1:
+            outputs = self.model(**batch, use_cache=False)
+            loss = outputs.loss
+        else:
+            # Ulysses SP
+            # expectations:
+            # 1. batch has labels replaced with shift_labels (which are already preshifted)
+            # 2. this rank deals with a seqlen dimension shard so once the loss is calculated it needs to do a differentiable weighted loss average to get the grads right
+
+            if "labels" in batch:
+                raise ValueError("found labels in batch - they shouldn't be there, instead shift_labels should be there - check that UlyssesAttentionHFDataLoaderWrapper has been applied to the original DataLoader object")
+            if "shift_labels" not in batch:
+                raise ValueError("shift_labels are missing from the batch - check that UlyssesAttentionHFDataLoaderWrapper has been applied to the original DataLoader object")
+
+            shift_labels = batch.pop("shift_labels")
+            outputs = self.model(**batch, use_cache=False)
+            logits = outputs.logits
+
+            # XXX: parameterize
+            num_loss_logit_shards = "auto"
+
+            if all((shift_labels == -100).squeeze()):
+                # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
+                # XXX: should this be float and not the original dtype?
+                loss = (logits.sum() * 0.0).float()
+            else:
+                if num_loss_logit_shards == "auto":
+                    # parameterize to about 1GB fp32 logits shards
+                    slice_size_in_gb = 1 # XXX: make configurable?
+                    size_in_gb = logits.numel() * 4 / 2**30 # fp32
+                    # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
+                    num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
+                    #print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
+                if num_loss_logit_shards > 1:
+                    loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, num_loss_logit_shards)
+                else:
+                    # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
+                    loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+
+            # differentiable weighted per-shard-loss aggregation across ranks
+            import torch.distributed.nn.functional
+            losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
+            good_tokens = sum((shift_labels != -100).view(-1))
+            good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
+            loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size)) / sum(good_tokens_per_rank)
+
         return loss
 
-    # XXX: return tensor like normal `loss`?
-    def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
-        batch = to_device(batch, self.device)
+    # # XXX: return tensor like normal `loss`?
+    # def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
+    #     batch = to_device(batch, self.device)
 
-        # XXX: this will be later moved to get instantiated right after deepspeed.initialize with a new Trainer method `self.post_deepspeed_initialize` or something like that. It'd auto-manifest `sp_fwd_loss_bwd` method which will do what's here now but the `ulysses` object will be instantiated once per training
-        from arctic_training.trainer.trainer import UlyssesAttentionHFFwdLossBwdWithLogits
-        ulysses = UlyssesAttentionHFFwdLossBwdWithLogits(
-            model=self.model,
-            model_unwrapped=self.model_unwrapped,
-            device=self.device,
-            num_loss_logit_shards="auto",
-        )
-        return ulysses.sp_fwd_loss_bwd(batch)
+    #     # XXX: this will be later moved to get instantiated right after deepspeed.initialize with a new Trainer method `self.post_deepspeed_initialize` or something like that. It'd auto-manifest `sp_fwd_loss_bwd` method which will do what's here now but the `ulysses` object will be instantiated once per training
+    #     from arctic_training.trainer.trainer import UlyssesAttentionHFFwdLossBwdWithLogits
+    #     ulysses = UlyssesAttentionHFFwdLossBwdWithLogits(
+    #         model=self.model,
+    #         model_unwrapped=self.model_unwrapped,
+    #         device=self.device,
+    #         num_loss_logit_shards="auto",
+    #     )
+    #     return ulysses.sp_fwd_loss_bwd(batch)
