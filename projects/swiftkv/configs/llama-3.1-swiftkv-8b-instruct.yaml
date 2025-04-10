@@ -1,12 +1,11 @@
 type: swiftkv
-code: train_qwen2.py
+code: ../train.py
 micro_batch_size: 1
 epochs: 1
 gradient_accumulation_steps: 1
 temperature: 2.0
-decoder_loss_mult: 0.0
 model:
-  name_or_path: Qwen/Qwen2.5-7B-Instruct
+  name_or_path: meta-llama/Llama-3.1-8B-Instruct
   num_key_value_layers: 16
   key_value_group_size: 1
   attn_implementation: flash_attention_2
@@ -16,7 +15,7 @@ deepspeed:
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
-    - teknium/OpenHermes-2.5
+    - lmsys/lmsys-chat-1m
     - meta-math/MetaMathQA
     - ise-uiuc/Magicoder-OSS-Instruct-75K
   use_data_cache: true
@@ -25,9 +24,9 @@ data:
   num_proc: 16
   max_length: 8192
 logger:
-  level: INFO
-  #output_dir: "./"
-  #file_output_ranks: [0]
+  level: WARNING
+  output_dir: "./"
+  file_output_ranks: [0]
 scheduler:
   warmup_ratio: 0.05
 optimizer:
@@ -37,5 +36,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/icml25/swiftkv-qwen2.5-7b-16l-1g
+    output_dir: /data-fast/llama-3.1-swiftkv-8b-instruct
     save_end_of_training: true

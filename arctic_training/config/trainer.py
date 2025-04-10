@@ -365,7 +365,6 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
     config_dict["type"] = trainer_type
 
     trainer_script = config_dict.get("code", CUSTOM_CODE_DEFAULT)
-    config_dict["code"] = trainer_script
 
     script_path = Path(trainer_script)
     if not script_path.is_absolute():
@@ -386,6 +385,11 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
             spec.loader.exec_module(module)  # type: ignore
         finally:
             sys.path = original_sys_path
+    elif "code" in config_dict:
+        # User specified a script that doesn't exist
+        raise FileNotFoundError(f"Cannot find script at {script_path}")
+
+    config_dict["code"] = trainer_script
 
     trainer_cls = get_registered_trainer(trainer_type)
     config_cls = _get_class_attr_type_hints(trainer_cls, "config")[0]
