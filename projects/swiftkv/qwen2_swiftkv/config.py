@@ -43,6 +43,4 @@ class Qwen2SwiftKVConfig(Qwen2Config):
         self.swiftkv = swiftkv
         self.num_key_value_layers = num_key_value_layers or self.num_hidden_layers
         self.key_value_group_size = key_value_group_size or 1
-        assert (
-            self.num_hidden_layers - self.num_key_value_layers
-        ) % self.key_value_group_size == 0
+        assert (self.num_hidden_layers - self.num_key_value_layers) % self.key_value_group_size == 0

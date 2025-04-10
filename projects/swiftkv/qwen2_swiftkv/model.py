@@ -13,21 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable
+from typing import Optional
+from typing import Tuple
+from typing import Union
 
 import torch
 from torch import nn
-from transformers.cache_utils import Cache, DynamicCache
+from transformers.cache_utils import Cache
+from transformers.cache_utils import DynamicCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.models.qwen2.modeling_qwen2 import (Qwen2Attention,
-                                                      Qwen2ForCausalLM,
-                                                      Qwen2MLP, Qwen2Model,
-                                                      Qwen2RMSNorm,
-                                                      Qwen2RotaryEmbedding,
-                                                      apply_rotary_pos_emb,
-                                                      eager_attention_forward)
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
+from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
+from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Model
+from transformers.models.qwen2.modeling_qwen2 import Qwen2RMSNorm
+from transformers.models.qwen2.modeling_qwen2 import Qwen2RotaryEmbedding
+from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
+from transformers.models.qwen2.modeling_qwen2 import eager_attention_forward
 from transformers.processing_utils import Unpack
 from transformers.utils import logging
 
@@ -90,16 +95,12 @@ class Qwen2SwiftKVAttention(Qwen2Attention):
         value_states = value_states.view(hidden_shape).transpose(1, 2)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(
-            query_states, key_states, cos, sin
-        )
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_value.update(
-                key_states, value_states, self.layer_idx, cache_kwargs
-            )
+            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         sliding_window = None
         if (
@@ -111,17 +112,14 @@ class Qwen2SwiftKVAttention(Qwen2Attention):
 
         attention_interface: Callable = eager_attention_forward
         if self.config._attn_implementation != "eager":
-            if self.config._attn_implementation == "sdpa" and kwargs.get(
-                "output_attentions", False
-            ):
+            if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
                 logger.warning_once(
-                    "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
-                    'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
+                    "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`."
+                    " Falling back to eager attention. This warning can be removed using the argument"
+                    ' `attn_implementation="eager"` when loading the model.'
                 )
             else:
-                attention_interface = ALL_ATTENTION_FUNCTIONS[
-                    self.config._attn_implementation
-                ]
+                attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
         attn_output, attn_weights = attention_interface(
             self,
@@ -148,9 +146,7 @@ class Qwen2SwiftKVDecoderLayer(nn.Module):
         self.self_attn = Qwen2SwiftKVAttention(config=config, layer_idx=layer_idx)
         self.mlp = Qwen2MLP(config)
         self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = Qwen2RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         if config.sliding_window and config._attn_implementation != "flash_attention_2":
             logger.warning_once(
                 f"Sliding Window Attention is enabled but not implemented for `{config._attn_implementation}`; "
@@ -168,13 +164,9 @@ class Qwen2SwiftKVDecoderLayer(nn.Module):
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[
-            Tuple[torch.Tensor, torch.Tensor]
-        ] = None,  # necessary, but kept here for BC
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         **kwargs: Unpack[FlashAttentionKwargs],
-    ) -> Tuple[
-        torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
-    ]:
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
@@ -224,14 +216,9 @@ class Qwen2SwiftKVModel(Qwen2Model):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = nn.Embedding(
-            config.vocab_size, config.hidden_size, self.padding_idx
-        )
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
-            [
-                Qwen2SwiftKVDecoderLayer(config, layer_idx)
-                for layer_idx in range(config.num_hidden_layers)
-            ]
+            [Qwen2SwiftKVDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.norm_swiftkv = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -255,25 +242,15 @@ class Qwen2SwiftKVModel(Qwen2Model):
         cache_position: Optional[torch.LongTensor] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> Union[Tuple, BaseModelOutputWithPast]:
-        output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError(
-                "You must specify exactly one of input_ids or inputs_embeds"
-            )
+            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
         if self.gradient_checkpointing and self.training and use_cache:
             logger.warning_once(
@@ -288,9 +265,7 @@ class Qwen2SwiftKVModel(Qwen2Model):
             past_key_values = DynamicCache()
 
         if cache_position is None:
-            past_seen_tokens = (
-                past_key_values.get_seq_length() if past_key_values is not None else 0
-            )
+            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             cache_position = torch.arange(
                 past_seen_tokens,
                 past_seen_tokens + inputs_embeds.shape[1],
@@ -319,9 +294,7 @@ class Qwen2SwiftKVModel(Qwen2Model):
 
         swiftkv_key_states = {}
         swiftkv_value_states = {}
-        num_key_value_layers = (
-            self.config.num_key_value_layers or self.config.num_hidden_layers
-        )
+        num_key_value_layers = self.config.num_key_value_layers or self.config.num_hidden_layers
         for layer_idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -342,11 +315,7 @@ class Qwen2SwiftKVModel(Qwen2Model):
                         else swiftkv_value_states[layer_idx + i - 1]
                     )
 
-            if (
-                self.gradient_checkpointing
-                and self.training
-                and layer_idx >= num_key_value_layers
-            ):
+            if self.gradient_checkpointing and self.training and layer_idx >= num_key_value_layers:
                 layer_outputs = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,

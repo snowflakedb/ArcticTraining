@@ -13,15 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Union
+from typing import Any
+from typing import Union
 
 import torch
 import torch.nn.functional as F
-from arctic_training import (HFCheckpointEngine, HFModelFactory, ModelConfig,
-                             SFTTrainer, TrainerConfig, logger)
-from arctic_training.trainer.sft_trainer import to_device
 from deepspeed.runtime.zero import GatheredParameters
-from projects.swiftkv import llama_swiftkv, qwen2_swiftkv
+
+from arctic_training import HFCheckpointEngine
+from arctic_training import HFModelFactory
+from arctic_training import ModelConfig
+from arctic_training import SFTTrainer
+from arctic_training import TrainerConfig
+from arctic_training import logger
+from arctic_training.trainer.sft_trainer import to_device
+from projects.swiftkv import llama_swiftkv
+from projects.swiftkv import qwen2_swiftkv
 
 llama_swiftkv.register_auto()
 qwen2_swiftkv.register_auto()
@@ -74,30 +81,19 @@ class SwiftKVModelFactory(HFModelFactory):
             model.config.key_value_group_size,
         ):
             this_attn = model.model.layers[layer_idx].self_attn
-            next_attn = [
-                model.model.layers[layer_idx + i].self_attn
-                for i in range(model.config.key_value_group_size)
-            ]
+            next_attn = [model.model.layers[layer_idx + i].self_attn for i in range(model.config.key_value_group_size)]
             for param in ("k_proj", "v_proj"):
                 kv_proj_swiftkv = getattr(this_attn, f"{param}_swiftkv")
                 # Initialize k_proj or v_proj weights
-                weights = [kv_proj_swiftkv.weight] + [
-                    getattr(attn, f"{param}").weight for attn in next_attn
-                ]
+                weights = [kv_proj_swiftkv.weight] + [getattr(attn, f"{param}").weight for attn in next_attn]
                 with GatheredParameters(weights, modifier_rank=0):
-                    weights[0].data.copy_(
-                        sum(weights[1:]) / model.config.key_value_group_size
-                    )
+                    weights[0].data.copy_(sum(weights[1:]) / model.config.key_value_group_size)
                     kv_proj_swiftkv.weight.requires_grad = True
                 # Initialize k_proj or v_proj biases (if they exist)
                 if getattr(kv_proj_swiftkv, "bias", None) is not None:
-                    biases = [kv_proj_swiftkv.bias] + [
-                        getattr(attn, f"{param}").bias for attn in next_attn
-                    ]
+                    biases = [kv_proj_swiftkv.bias] + [getattr(attn, f"{param}").bias for attn in next_attn]
                     with GatheredParameters(biases, modifier_rank=0):
-                        biases[0].data.copy_(
-                            sum(biases[1:]) / model.config.key_value_group_size
-                        )
+                        biases[0].data.copy_(sum(biases[1:]) / model.config.key_value_group_size)
                         kv_proj_swiftkv.bias.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
@@ -140,9 +136,7 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-    def distillation_loss(
-        self, student_output, teacher_output, temperature=1.0, dim=-1
-    ):
+    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)
