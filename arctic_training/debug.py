@@ -31,11 +31,6 @@ torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
 
-def exit():
-    """useful when one wants to debug dump something and exit cleanly fast"""
-    sys.exit()
-
-
 def gc_empty_accelerator_cache():
     """runs gc.collect and empties cuda cache.
     this is useful when wanting to test real memory usage
