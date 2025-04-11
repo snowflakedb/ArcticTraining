@@ -167,7 +167,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # enable memory history, which will add tracebacks and event history to snapshots
         # "none" | "e2e" | "step"
         self.mem_profiler = "none"
-        # self.mem_profiler = "step"
+        #self.mem_profiler = "step"
         # profiling from here is slower, best to start at top of `epoch` ("step")
         if self.mem_profiler == "e2e":
             torch.cuda.memory._record_memory_history(max_entries=100_000)
@@ -178,7 +178,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # see_memory_usage("after tokenizer", force=True)
 
-        # dist.barrier()
         # see_memory_usage("before dataloader", force=True)
 
         data_factory = self.config.data.factory(self)
@@ -186,12 +185,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
-        # see_memory_usage("after dataloader", force=True)
-        # exit()
-        # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
-        # there are no functional code changes in LlamaAttentionNew
-
-        # transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
         # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
             model_name_or_path=self.config.model.name_or_path,
@@ -488,7 +481,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             raise (e)
         finally:
             if self.mem_profiler == "e2e" or self.mem_profiler == "step":
-                torch.cuda.memory._dump_snapshot(f"mem/mem_snapshot.{self.global_rank}.pickle")
+                from pathlib import Path
+                path = Path("mem-prof")
+                path.mkdir(parents=True, exist_ok=True)
+                torch.cuda.memory._dump_snapshot(f"{path}/mem_snapshot.{self.global_rank}.pickle")
 
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
