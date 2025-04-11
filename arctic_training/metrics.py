@@ -24,6 +24,7 @@ import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 
 from arctic_training.utils import human_format_base10_number
+from arctic_training.utils import human_format_secs
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -157,14 +158,14 @@ class Metrics:
         if "loss" in self.summary_dict:
             summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
         if "iter_time" in self.summary_dict:
-            summary_str += f" | iter time: {self.summary_dict['iter_time']:.1f} s"
+            summary_str += f" | iter time: {human_format_secs(self.summary_dict['iter_time'])}"
         if "iter_tflops" in self.summary_dict:
             summary_str += f" | iter tflops: {self.summary_dict['iter_tflops']:.1f}"
         summary_str += f" | lr: {self.summary_dict['lr']:.3E}"
         if "seqlen" in self.summary_dict:
             summary_str += f" | seqlen: {human_format_base10_number(self.summary_dict['seqlen'])}"
         if "step_time" in self.summary_dict:
-            summary_str += f" | step time: {self.summary_dict['step_time']:.1f} s"
+            summary_str += f" | step time: {human_format_secs(self.summary_dict['step_time'])}"
         if "step_tflops" in self.summary_dict:
             summary_str += f" | step tflops: {self.summary_dict['step_tflops']:.1f}"
         summary_str += f" | epoch: {self.summary_dict['epoch']}"
