@@ -25,17 +25,17 @@ def send_dict(tensor_dict, dst):
     size_tensor = torch.IntTensor([byte_tensor.numel()]).cuda()
 
     # Send size and then data
-    dist.send(size_tensor, dst)
-    dist.send(byte_tensor, dst)
+    dist.send(size_tensor, dst=dst)
+    dist.send(byte_tensor, dst=dst)
 
 def recv_dict(src):
     # Receive size and then data
     size_tensor = torch.IntTensor([0]).cuda()
-    dist.recv(size_tensor, src)
+    dist.recv(size_tensor, src=src)
     size = size_tensor.item()
 
     byte_tensor = torch.ByteTensor(size).cuda()
-    dist.recv(byte_tensor, src)
+    dist.recv(byte_tensor, src=src)
 
     # Deserialize
     serialized = bytearray(byte_tensor.cpu().tolist())

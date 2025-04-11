@@ -27,6 +27,7 @@ from typing import Union
 from typing import cast
 
 import deepspeed
+import deepspeed.comm as dist
 import yaml
 from deepspeed.accelerator import get_accelerator
 from pydantic import Field
@@ -54,6 +55,8 @@ from arctic_training.registry import get_registered_optimizer_factory
 from arctic_training.registry import get_registered_scheduler_factory
 from arctic_training.registry import get_registered_tokenizer_factory
 from arctic_training.registry import get_registered_trainer
+from arctic_training.logging import logger
+from typing import Optional
 
 if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
@@ -62,8 +65,30 @@ TRAINER_DEFAULT = "sft"
 CUSTOM_CODE_DEFAULT = Path("train.py")
 
 
+class CustomMPU:
+    def __init__(self, group):
+        self.group = group
+
+    def get_model_parallel_group(self):
+        return None
+
+    def get_model_parallel_world_size(self):
+        return 1
+
+    def get_model_parallel_rank(self):
+        return 0
+
+    def get_data_parallel_group(self):
+        return self.group
+
+    def get_data_parallel_world_size(self):
+        return len(dist.get_all_ranks_from_group(self.group))
+
+
 class TrainerConfig(BaseConfig):
     """Base Trainer Configuration."""
+
+    mpu: Optional[Any] = None
 
     type: str = TRAINER_DEFAULT
     """ Trainer type. """
@@ -137,6 +162,10 @@ class TrainerConfig(BaseConfig):
     def init_dist(self) -> Self:
         get_accelerator().set_device(self.local_rank)
         deepspeed.init_distributed()
+        num_nodes = (self.world_size // 8) # Assuming 8 GPUs per node
+        inference_group = dist.new_group(list(range((num_nodes-1)*8, num_nodes*8)))
+        training_group = dist.new_group(list(range((num_nodes-1)*8)))
+        self.mpu = CustomMPU(training_group)
         return self
 
     @property

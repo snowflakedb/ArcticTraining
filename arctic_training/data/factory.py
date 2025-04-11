@@ -118,7 +118,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                 logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
                 dataset.save_to_disk(cache_path.as_posix())
 
-            dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
+            dist.barrier(device_ids=list(range(self.world_size-8)))  # Wait for the main process to finish its preprocessing + saving to cache
 
             # Reset seeds after may be processing data if cache didn't exist - so that main process ends up with the same RNG if the cache was there and if it wasn't, thus ensuring reproducibility.
             self.trainer._set_seeds(self.trainer.config.seed)
@@ -219,7 +219,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
+            sampler=DistributedSampler(dataset, num_replicas=self.world_size//2, rank=self.global_rank),
             num_workers=self.config.num_proc,
             drop_last=True,
         )

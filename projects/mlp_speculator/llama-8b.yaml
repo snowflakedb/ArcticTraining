@@ -6,14 +6,15 @@ gen_micro_batch_size: 768
 gen_train_global_batch_size: 2048
 gen_train_micro_batch_size: 32
 train_iters: 3000
+train_log_iter_interval: 0
 model:
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
   disable_activation_checkpoint: true
 tokenizer:
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  name_or_path: /checkpoint/huggingface/hub/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659
 deepspeed:
   zero_optimization:
-    stage: 3
+    stage: 0
     allgather_bucket_size: 500000000
     stage3_param_persistence_threshold: 10000
     stage3_max_live_parameters: 30000000
@@ -25,14 +26,13 @@ data:
     - HuggingFaceH4/ultrachat_200k
     - ise-uiuc/Magicoder-OSS-Instruct-75K
   always_max_length: true
-  use_data_cache: true
-  cache_processed_data: true
-  cache_dir: /data/data-cache
+  cache_dir: /data-fast/data-cache
   num_proc: 16
   max_length: 4096
 logger:
-  output_dir: "./"
-  file_output_ranks: [0]
+  level: DEBUG
+  output_dir: "./logs/"
+  file_output_ranks: "*"
 scheduler:
   name: cosine
   warmup_ratio: 0.05
@@ -41,7 +41,7 @@ optimizer:
   weight_decay: 0.1
   lr: 1e-3
 exit_iteration: 11
-checkpoint:
-  - type: deepspeed
-    save_every_n_steps: 10
-    output_dir: /data/spec-decode-llama-8b
+#checkpoint:
+#  - type: deepspeed
+#    save_every_n_steps: 10
+#    output_dir: /data-fast/spec-decode-llama-8b

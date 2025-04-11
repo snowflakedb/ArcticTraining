@@ -56,7 +56,6 @@ try:
 except ImportError:
     from transformers.deepspeed import HfDeepSpeedConfig
 
-
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base Trainer class."""
 
@@ -144,6 +143,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     def __init__(self, config: TrainerConfig) -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
+        mpu = self.config.mpu
+        self.config.mpu = None
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
@@ -168,8 +169,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
+        logger.warning("MODEL CREATED")
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
+        logger.warning("OPT CREATED")
 
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
@@ -179,6 +182,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             optimizer=self.optimizer,
             lr_scheduler=self.scheduler,
             config=self.config.deepspeed,
+            mpu=mpu,
         )
 
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]

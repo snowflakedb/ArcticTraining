@@ -53,14 +53,14 @@ class LoggerConfig(BaseConfig):
 
     @property
     def log_file(self) -> Path:
-        return self.output_dir / "logs" / f"rank_{self.local_rank}.log"
+        return self.output_dir / "logs" / f"rank_{self.global_rank}.log"
 
     @property
     def file_enabled(self) -> bool:
         if self.output_dir == Path("/dev/null"):
             return False
-        return self.local_rank in self.file_output_ranks
+        return self.global_rank in self.file_output_ranks
 
     @property
     def print_enabled(self) -> bool:
-        return self.local_rank in self.print_output_ranks
+        return self.global_rank in self.print_output_ranks

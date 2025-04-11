@@ -20,7 +20,7 @@ import types
 from typing import Optional
 
 import torch
-import torch.distributed as dist
+import deepspeed.comm as dist
 import torch.nn.functional as F
 import tqdm
 from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
@@ -55,10 +55,10 @@ class MLPSpeculatorTrainerConfig(TrainerConfig):
     def set_grad_accum_steps(self):
         if self.gen_train:
             self.gradient_accumulation_steps = (
-                self.gen_train_global_batch_size // self.gen_train_micro_batch_size // self.world_size
+                self.gen_train_global_batch_size // self.gen_train_micro_batch_size // (self.world_size / 2)
             )
         else:
-            self.gradient_accumulation_steps = self.global_batch_size // self.micro_batch_size // self.world_size
+            self.gradient_accumulation_steps = self.global_batch_size // self.micro_batch_size // (self.world_size / 2)
         self = self.build_deepspeed_config()
         return self
 
@@ -100,69 +100,8 @@ class MLPSpeculatorModelFactory(HFModelFactory):
             scale_input=self.config.speculator_scale_input,
         )
 
-        model.speculator = MLPSpeculator(speculator_config)
-
-        model.speculator.to(model.dtype).to(model.device)
-
-        model.speculator.reset_parameters()
-
-        model.old_forward = model.forward
-
-        def forward(
-            self,
-            input_ids: torch.LongTensor = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_values=None,
-            inputs_embeds: Optional[torch.FloatTensor] = None,
-            labels: Optional[torch.LongTensor] = None,
-            use_cache: Optional[bool] = None,
-            output_attentions: Optional[bool] = None,
-            output_hidden_states: Optional[bool] = None,
-            return_dict: Optional[bool] = None,
-            speculator_return: bool = False,
-        ):
-            """Forward pass of the SpeculatorModel.
-            Returns:
-                torch.Tensor: A tensor containing predictions from all Medusa heads.
-                (Optional) Original predictions from the base model's LM head.
-            """
-
-            if not speculator_return:
-                return self.old_forward(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_values=past_key_values,
-                    inputs_embeds=inputs_embeds,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                    output_hidden_states=output_hidden_states,
-                    return_dict=return_dict,
-                )
-
-            # Pass input through the base model
-            outputs = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_values=past_key_values,
-                inputs_embeds=inputs_embeds,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
-
-            return outputs
-
-        model.forward = types.MethodType(forward, model)
-
-        if self.config.n_speculator_heads > 0:
-            for param in model.parameters():
-                param.requires_grad = False
-            for param in model.speculator.parameters():
-                param.requires_grad = True
+        #model.speculator = MLPSpeculator(speculator_config)
+        model = MLPSpeculator(speculator_config)
 
         if not self.config.disable_activation_checkpoint:
             model.gradient_checkpointing_enable()
@@ -174,10 +113,10 @@ class MLPSpeculatorModelFactory(HFModelFactory):
 class MLPSpeculatorCheckpointEngine(CheckpointEngine):
     name = "spec-decode"
 
-    def load(self) -> None:
+    def load(self, model) -> None:
         raise NotImplementedError()
 
-    def save(self) -> None:
+    def save(self, model) -> None:
         if dist.get_rank() == 0:
             model_config = copy.deepcopy(self.model.speculator.config)
             model_to_save = MLPSpeculator(model_config)
@@ -310,6 +249,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
         send_dict(inputs, dst=8)
         outputs = recv_dict(src=8)
         hidden_states = outputs[0]
+        print(hidden_states)
         #with torch.no_grad():
         #    outputs = self.model(**inputs, speculator_return=True)
         #    hidden_states = outputs[0]  # b n h
@@ -419,6 +359,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
         return loss
 
     def loss(self, batch) -> float:
+        return self._compute_loss1(batch)
         if self.config.gen_train and not self.config.gen_train_simple:
             return self._compute_loss3(batch)
         elif self.config.gen_train:
@@ -427,6 +368,7 @@ class MLPSpeculatorTrainer(SFTTrainer):
             return self._compute_loss1(batch)
 
     def step(self, batch) -> None:
+        return super().step(batch)
         if not (self.config.gen_train or self.config.gen_train_simple):
             super().step(batch)
 

@@ -46,6 +46,7 @@ def main():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
     exe_path = shutil.which("arctic_training_run")
+    print("EXE", exe_path)
 
     env = os.environ.copy()
 
@@ -63,27 +64,49 @@ def main():
 
 def wait_forever():
     import time
-    import sys
+    import deepspeed.comm as dist
+    from arctic_training.logging import logger
     try:
         while True:
+            logger.info("WAITING")
             time.sleep(60)
+
     except KeyboardInterrupt:
         pass
 
 
 def run_model():
     from arctic_training.utils import send_dict, recv_dict
-    from transformers import AutoModelForCausalLM
-    import sys
-    model = AutoModelForCausalLM.from_pretrained("facebook/opt-125m")
+    from transformers import AutoTokenizer, Llama4ForConditionalGeneration, AutoModelForCausalLM
+    import deepspeed.comm as dist
+    from arctic_training.logging import logger
+    logger.info("STARTING MODEL LOAD")
+    model_path = "meta-llama/Llama-3.1-8B-Instruct"
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+        )
+    except Exception as e:
+        logger.error(e)
+        raise e
+    logger.info("MODEL LOADED")
     try:
         while True:
             for i in range(8):
+                logger.info("WAITING FOR INPUTS", i)
                 inputs = recv_dict(src=i)
-                outputs = model.generate(**inputs, max_length=50)
+                logger.warning(f"INPUTS: {inputs}")
+                for k, t in inputs.items():
+                    logger.warning(f"INPUTS: {k} {t.shape}")
+                outputs = model.generate(**inputs)
+                logger.info("SENDING OUTPUTS", i)
                 send_dict(outputs, dst=i)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        logger.error(e)
+        raise e
 
 
 def run_script():
@@ -119,6 +142,8 @@ def run_script():
     else:
         trainer_cls = get_registered_trainer(name=config.type)
         trainer = trainer_cls(config)
+        from arctic_training.logging import logger
+        logger.warning("RUNNING TRAINER")
         trainer.train()
     if dist.is_initialized():
         dist.barrier()
