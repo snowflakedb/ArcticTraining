@@ -129,7 +129,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     """
 
     # XXX: hack to compare correctness until we support GAS
-    temp_losses = []
+    temp_losses: list[int] = []
 
     @classmethod
     def _validate_subclass(cls) -> None:
@@ -419,7 +419,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.metrics.start_timer("iter")
 
-        see_memory_usage(f"entered epoch", force=True)
+        see_memory_usage("entered epoch", force=True)
         # exit()
 
         # enable memory history, which will add tracebacks and event history to snapshots
@@ -454,13 +454,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
 
-            see_memory_usage(f"before step", force=True)
+            see_memory_usage("before step", force=True)
 
             self.metrics.start_timer("step")
             self.step(batch)
             self.metrics.stop_timer("step")
 
-            see_memory_usage(f"after step", force=True)
+            see_memory_usage("after step", force=True)
 
             self.metrics.restart_timer("iter")
 
