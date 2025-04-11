@@ -76,6 +76,10 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
         return self.trainer.device
 
     @property
+    def epoch_finished(self) -> bool:
+        return self.trainer.epoch_finished
+
+    @property
     def training_finished(self) -> bool:
         return self.trainer.training_finished
 
@@ -95,9 +99,7 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
         ):
             return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
         if self.config.save_every_n_epochs:
-            return_value = (self.trainer.epoch_idx > 0) and (
-                self.trainer.epoch_idx % self.config.save_every_n_epochs
-            ) == 0
+            return_value = self.epoch_finished and (self.trainer.epoch_idx % self.config.save_every_n_epochs) == 0
         if self.config.save_end_of_training:
             return_value = return_value or self.training_finished
         return return_value
