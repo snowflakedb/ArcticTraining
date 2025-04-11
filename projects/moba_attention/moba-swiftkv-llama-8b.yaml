@@ -3,7 +3,6 @@ micro_batch_size: 1
 epochs: 1
 gradient_accumulation_steps: 1
 temperature: 2.0
-decoder_loss_mult: 0.0
 model:
   name_or_path: meta-llama/Llama-3.1-8B-Instruct
   num_key_value_layers: 16

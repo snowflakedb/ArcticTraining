@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from functools import partial
 
 import flash_attn
@@ -51,7 +52,7 @@ def moba_flash_attn_varlen_func(
         assert max_seqlen_q == max_seqlen_k, "MoBA Only supports Self Attention"
         assert (
             dropout_p == 0.0
-            and softmax_scale is None
+            and (softmax_scale is None or math.isclose(softmax_scale, 1.0 / q.shape[-1] ** 0.5))
             and causal is True
             and window_size == (-1, -1)
             and softcap == 0.0
