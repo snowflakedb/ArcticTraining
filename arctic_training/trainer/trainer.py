@@ -93,7 +93,7 @@ Some additional Ulysses docs that perhaps should go elsewhere:
 If you want to try to push the seqlen higher w/o using more gpus, try to add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (but measure the performance - it could be slower). This should help with minimizing fragmentation.
 
 """
-class UlyssesAttentionHF(torch.nn.Module):
+class UlyssesSPAttentionHF(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
     to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
 
@@ -308,7 +308,7 @@ class UlyssesAttentionHF(torch.nn.Module):
         """
         # HF incoming shapes are:
         # [batch_size, num_heads, seqlen, head_size]
-        # UlyssesAttentionHF expects:
+        # UlyssesSPAttentionHF expects:
         # [seqlen, batch_size, num_heads, head_size]
         # print_rank0(f"{query.shape=}")
         # print_rank0(f"{key.shape=}")
@@ -513,7 +513,7 @@ class UlyssesAttentionHF(torch.nn.Module):
             raise ValueError(f"{core_attn_implementation} is not a valid attn_implementation. The choices are {ALL_ATTENTION_FUNCTIONS.valid_keys()}")
         core_attn_function = ALL_ATTENTION_FUNCTIONS[core_attn_implementation]
         #see_memory_usage("ulysses: 3", force=True)
-        uattn = UlyssesAttentionHF(
+        uattn = UlyssesSPAttentionHF(
             attn=core_attn_function,
             local_seq_length=max_length // mpu.get_sequence_parallel_world_size(),
             global_seq_length=max_length,
@@ -568,7 +568,7 @@ class UlyssesAttentionHF(torch.nn.Module):
 
 from collections import defaultdict
 from torch.utils.data import DataLoader
-class UlyssesAttentionHFDataLoaderWrapper():
+class UlyssesSPDataLoaderWrapper():
     def __init__(
         self,
         dl: DataLoader,
@@ -681,7 +681,7 @@ class UlyssesAttentionHFDataLoaderWrapper():
 import math
 import deepspeed.comm as dist
 from collections import defaultdict
-class UlyssesAttentionHFFwdLossBwdWithLogits():
+class UlyssesSPFwdLossBwdWithLogits():
     def __init__(self,
                  model,
                  model_unwrapped,
@@ -883,7 +883,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
 
 
             #     shards = 8
-            #     loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
+            #     loss = UlyssesSPChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
 
 
                 #see_memory_usage(f"{sub_step_id=} after loss", force=True)
@@ -1031,7 +1031,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
                 self.num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
                 #print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
             if self.num_loss_logit_shards > 1:
-                loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
+                loss = UlyssesSPChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
             else:
                 # XXX: for some reason this fails with zero1
                 loss = self.model_unwrapped.loss_function(logits=self.logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
@@ -1044,7 +1044,7 @@ class UlyssesAttentionHFFwdLossBwdWithLogits():
 
 
 
-class ChunkedMemEfficientLoss(torch.autograd.Function):
+class UlyssesSPChunkedMemEfficientLoss(torch.autograd.Function):
     @staticmethod
     def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
         """
@@ -1135,7 +1135,7 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
         return None, logits_grad, None, None, None
 
 
-class UlyssesAttentionHFNoFrag(torch.nn.Module):
+class UlyssesSPAttentionHFNoFrag(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape
     to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
 
@@ -1344,7 +1344,7 @@ class UlyssesAttentionHFNoFrag(torch.nn.Module):
         """
         # HF incoming shapes are:
         # [batch_size, num_heads, seqlen, head_size]
-        # UlyssesAttentionHF expects:
+        # UlyssesSPAttentionHF expects:
         # [seqlen, batch_size, num_heads, head_size]
         # print_rank0(f"{query.shape=}")
         # print_rank0(f"{key.shape=}")
@@ -1821,8 +1821,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         import transformers.models.llama.modeling_llama
         #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
-        # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesAttentionHF should not have any AT-specific objects / assumptions
-        mpu = UlyssesAttentionHF.register_with_transformers(
+        # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
+        mpu = UlyssesSPAttentionHF.register_with_transformers(
             model_name_or_path=self.config.model.name_or_path,
             core_attn_implementation=self.config.model.attn_implementation,
             sequence_parallel_size=self.config.sequence_parallel_size,
@@ -1831,7 +1831,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             seq_length_is_variable=True,
         )
         if self.config.sequence_parallel_size > 1:
-            # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesAttentionHF`
+            # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
             self.config.model.attn_implementation = "ulysses"
 
         #see_memory_usage("after ulysses", force=True)
@@ -1843,7 +1843,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         see_memory_usage("after model", force=True)
 
-        UlyssesAttentionHF.validate_model(
+        UlyssesSPAttentionHF.validate_model(
             model=self.model,
             sequence_parallel_size=self.config.sequence_parallel_size,
         )
@@ -2077,7 +2077,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.sp_world_size = groups._get_sequence_parallel_world_size()
             self.sp_rank = groups._get_sequence_parallel_rank()
 
-            train_batches = UlyssesAttentionHFDataLoaderWrapper(
+            train_batches = UlyssesSPDataLoaderWrapper(
                 train_batches,
                 sp_rank=self.sp_rank,
                 sp_group=self.sp_group,
