@@ -27,3 +27,6 @@ format: ## fix formatting
 		pre-commit install; \
 	fi
 	. venv/bin/activate && pre-commit run --all-files && deactivate
+
+autoflake: ## autoremove unused imports (careful!)
+	autoflake --quiet --in-place --remove-all-unused-imports --ignore-init-module-imports --ignore-pass-statements -r arctic_training

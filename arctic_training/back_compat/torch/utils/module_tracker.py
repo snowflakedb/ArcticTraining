@@ -1,3 +1,18 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # mypy: allow-untyped-defs
 import logging
 import weakref
@@ -5,12 +20,9 @@ from typing import TYPE_CHECKING
 
 import torch
 from torch.autograd.graph import register_multi_grad_hook
-from torch.nn.modules.module import (
-    register_module_forward_hook,
-    register_module_forward_pre_hook,
-)
+from torch.nn.modules.module import register_module_forward_hook
+from torch.nn.modules.module import register_module_forward_pre_hook
 from torch.utils._pytree import tree_flatten
-
 
 if TYPE_CHECKING:
     from torch.utils.hooks import RemovableHandle
@@ -103,7 +115,8 @@ class ModuleTracker:
                 self._maybe_set_engine_callback()
             if name in self.parents:
                 logger.info(
-                    "The module hierarchy tracking seems to be broken as this Module was already entered. %s during %s",
+                    "The module hierarchy tracking seems to be broken as this Module was already entered. %s"
+                    " during %s",
                     name,
                     "backward" if is_bw else "forward",
                 )
@@ -117,7 +130,8 @@ class ModuleTracker:
                 self.parents.remove(name)
             else:
                 logger.info(
-                    "The Module hierarchy tracking is confused as we're exiting a Module that was never entered. %s during %s",
+                    "The Module hierarchy tracking is confused as we're exiting a Module that was never entered. %s"
+                    " during %s",
                     name,
                     "backward" if is_bw else "forward",
                 )
@@ -131,9 +145,7 @@ class ModuleTracker:
         args, _ = tree_flatten(input)
         tensors = [a for a in args if isinstance(a, torch.Tensor) and a.requires_grad]
         if tensors:
-            self._hooks.append(
-                register_multi_grad_hook(tensors, self._get_pop_fn(name, True))
-            )
+            self._hooks.append(register_multi_grad_hook(tensors, self._get_pop_fn(name, True)))
 
     def _fw_post_hook(self, mod, input, output):
         name = self._get_mod_name(mod)
@@ -142,9 +154,7 @@ class ModuleTracker:
         args, _ = tree_flatten(output)
         tensors = [a for a in args if isinstance(a, torch.Tensor) and a.requires_grad]
         if tensors:
-            self._hooks.append(
-                register_multi_grad_hook(tensors, self._get_append_fn(name, True))
-            )
+            self._hooks.append(register_multi_grad_hook(tensors, self._get_append_fn(name, True)))
 
     def __enter__(self):
         self._fw_pre_handle = register_module_forward_pre_hook(self._fw_pre_hook)

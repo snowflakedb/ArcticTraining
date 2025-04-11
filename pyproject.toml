@@ -67,6 +67,7 @@ testing = [
 
 formatting = [
     "pre-commit",
+    "autoflake",
 ]
 
 docs = [
@@ -90,3 +91,9 @@ cortex = [
 arctic_training = "arctic_training.cli:main"
 arctic_training_run = "arctic_training.cli:run_script"
 arctic_synth = "arctic_training.synth:main"
+
+[tool.autoflake]
+# this tool is optional not to be run automatically as it could have unexpected side-effects, but is useful when needing to remove a bulk of unused imports
+#check = true
+imports = []
+

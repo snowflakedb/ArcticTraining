@@ -22,8 +22,10 @@ from typing import cast
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
-from arctic_training.utils import human_format_base10_number, human_format_secs
+
 from arctic_training.debug import get_mem_metrics
+from arctic_training.utils import human_format_base10_number
+from arctic_training.utils import human_format_secs
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -121,12 +123,15 @@ class Metrics:
         tflos_total: float = 0.0
         if "seqlen" in self.values:
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
-            tflos_total = sum(
-                gather_object(
-                    self._estimate_decoder_transformer_tflos(self.values["seqlen"]),
-                    self.trainer.world_size,
+            tflos_total = (
+                sum(
+                    gather_object(
+                        self._estimate_decoder_transformer_tflos(self.values["seqlen"]),
+                        self.trainer.world_size,
+                    )
                 )
-            ) / self.trainer.config.sequence_parallel_size
+                / self.trainer.config.sequence_parallel_size
+            )
 
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size
@@ -174,8 +179,6 @@ class Metrics:
             # XXX: make configurable via yaml
             mem_metrics = get_mem_metrics()
             summary_str += f" | {mem_metrics}"
-
-
 
         if self.trainer.global_rank == 0:
             print(summary_str)

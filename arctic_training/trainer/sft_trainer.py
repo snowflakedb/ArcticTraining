@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from typing import Union
 
 import torch
@@ -20,6 +21,9 @@ import torch
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.sft_factory import SFTDataFactory
+from arctic_training.debug import print_rank
+from arctic_training.debug import print_rank0
+from arctic_training.debug import see_memory_usage
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
@@ -28,12 +32,12 @@ from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
-from arctic_training.debug import see_memory_usage, print_rank0, print_rank
 
-import math
 # XXX: this will be moved to deepspeed
 if 1:
     from arctic_training.deepspeed import ChunkedMemEfficientLoss
+
+
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory
@@ -56,9 +60,15 @@ class SFTTrainer(Trainer):
             # 2. this rank deals with a seqlen dimension shard so once the loss is calculated it needs to do a differentiable weighted loss average to get the grads right
 
             if "labels" in batch:
-                raise ValueError("found labels in batch - they shouldn't be there, instead shift_labels should be there - check that UlyssesAttentionHFDataLoaderWrapper has been applied to the original DataLoader object")
+                raise ValueError(
+                    "found labels in batch - they shouldn't be there, instead shift_labels should be there - check"
+                    " that UlyssesAttentionHFDataLoaderWrapper has been applied to the original DataLoader object"
+                )
             if "shift_labels" not in batch:
-                raise ValueError("shift_labels are missing from the batch - check that UlyssesAttentionHFDataLoaderWrapper has been applied to the original DataLoader object")
+                raise ValueError(
+                    "shift_labels are missing from the batch - check that UlyssesAttentionHFDataLoaderWrapper has been"
+                    " applied to the original DataLoader object"
+                )
 
             shift_labels = batch.pop("shift_labels")
             outputs = self.model(**batch, use_cache=False)
@@ -74,23 +84,37 @@ class SFTTrainer(Trainer):
             else:
                 if num_loss_logit_shards == "auto":
                     # parameterize to about 1GB fp32 logits shards
-                    slice_size_in_gb = 1 # XXX: make configurable?
-                    size_in_gb = logits.numel() * 4 / 2**30 # fp32
+                    slice_size_in_gb = 1  # XXX: make configurable?
+                    size_in_gb = logits.numel() * 4 / 2**30  # fp32
                     # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
                     num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
-                    #print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
+                    # print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
                 if num_loss_logit_shards > 1:
-                    loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, num_loss_logit_shards)
+                    loss = ChunkedMemEfficientLoss.apply(
+                        self.model_unwrapped.loss_function,
+                        logits,
+                        self.model_unwrapped.config.vocab_size,
+                        shift_labels,
+                        num_loss_logit_shards,
+                    )
                 else:
                     # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
-                    loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
+                    loss = self.model_unwrapped.loss_function(
+                        logits=logits,
+                        labels=None,
+                        vocab_size=self.model_unwrapped.config.vocab_size,
+                        shift_labels=shift_labels,
+                    )
 
             # differentiable weighted per-shard-loss aggregation across ranks
             import torch.distributed.nn.functional
+
             losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
             good_tokens = sum((shift_labels != -100).view(-1))
             good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
-            loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size)) / sum(good_tokens_per_rank)
+            loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size)) / sum(
+                good_tokens_per_rank
+            )
 
         return loss
 

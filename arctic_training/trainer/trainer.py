@@ -22,24 +22,35 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
-import copy
+
 import deepspeed
 import numpy as np
 import torch
-import wandb
+import torch.distributed.nn
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
+from torch import Tensor
+from torch.nn import Module
 from tqdm import tqdm
 from transformers import set_seed
+from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from wandb.sdk.wandb_run import Run as WandbRun
-import torch.distributed.nn
 
+import wandb
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
+from arctic_training.config.utils import get_local_rank
 from arctic_training.data.factory import DataFactory
+from arctic_training.debug import debug_gathered_tensor
+from arctic_training.debug import exit
+from arctic_training.debug import pr
+from arctic_training.debug import pr0
+from arctic_training.debug import print_rank
+from arctic_training.debug import print_rank0
+from arctic_training.debug import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -50,19 +61,13 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.debug import print_rank0, print_rank, exit, debug_gathered_tensor, see_memory_usage, pr, pr0
 from arctic_training.utils import StepFlopCounter
-from arctic_training.config.utils import get_local_rank
-
-from transformers.integrations.deepspeed import HfDeepSpeedConfig
-
-from typing import Any, Tuple
-from torch import Tensor
-from torch.nn import Module
 
 # XXX: this will be moved to deepspeed
 if 1:
-    from arctic_training.deepspeed import UlyssesSPDataLoaderWrapper, UlyssesSPAttentionHF
+    from arctic_training.deepspeed import UlyssesSPAttentionHF
+    from arctic_training.deepspeed import UlyssesSPDataLoaderWrapper
+
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     """Base Trainer class."""
@@ -171,30 +176,30 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # enable memory history, which will add tracebacks and event history to snapshots
         # "none" | "e2e" | "step"
         self.mem_profiler = "none"
-        #self.mem_profiler = "step"
+        # self.mem_profiler = "step"
         # profiling from here is slower, best to start at top of `epoch` ("step")
         if self.mem_profiler == "e2e":
             torch.cuda.memory._record_memory_history(max_entries=100_000)
-        #see_memory_usage("before model creation", force=True)
+        # see_memory_usage("before model creation", force=True)
 
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
 
-        #see_memory_usage("after tokenizer", force=True)
+        # see_memory_usage("after tokenizer", force=True)
 
-        #dist.barrier()
-        #see_memory_usage("before dataloader", force=True)
+        # dist.barrier()
+        # see_memory_usage("before dataloader", force=True)
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
 
-        #see_memory_usage("after dataloader", force=True)
-        #exit()
+        # see_memory_usage("after dataloader", force=True)
+        # exit()
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
         import transformers.models.llama.modeling_llama
-        #transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
 
+        # transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
         # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
             model_name_or_path=self.config.model.name_or_path,
@@ -208,10 +213,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
             self.config.model.attn_implementation = "ulysses"
 
-        #see_memory_usage("after ulysses", force=True)
+        # see_memory_usage("after ulysses", force=True)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
-        #print(self.config.deepspeed)
+        # print(self.config.deepspeed)
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
@@ -337,18 +342,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         this method.
         """
 
-
-        #import deepspeed.comm as dist
+        # import deepspeed.comm as dist
         # import q
-        #from deepspeed.utils import groups
+        # from deepspeed.utils import groups
         # q(self.global_rank)
         # print_rank0(f"{groups._get_sequence_parallel_group()=}")
         # print_rank0(f"{groups._get_sequence_parallel_rank()=}")
         # print_rank0(f"{groups._get_sequence_parallel_world_size()=}")
-        #dist.barrier()
-        #import time
-        #time.sleep(5)
-        #die
+        # dist.barrier()
+        # import time
+        # time.sleep(5)
+        # die
 
         torch.set_printoptions(sci_mode=False)
         # torch.set_printoptions(
@@ -399,21 +403,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         def maybe_item(v):
             return v.item() if torch.is_tensor(v) else v
+
         self.metrics.record("loss", maybe_item(loss))
 
         self.model.step()
 
         see_memory_usage("after step", force=False)
-        #exit()
+        # exit()
 
-            # # should loss be averaged over sp sub-steps and logged as such?
-            # loss = loss_aggregate / sp_world_size
-            # print_rank0(f"averaged loss = {loss}")
-            # #exit()
+        # # should loss be averaged over sp sub-steps and logged as such?
+        # loss = loss_aggregate / sp_world_size
+        # print_rank0(f"averaged loss = {loss}")
+        # #exit()
 
-
-
-        #from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
+        # from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
@@ -426,7 +429,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.early_stop = True
             logger.info(f"Hit exit iteration of {self.global_step}, ending training")
 
-
     @callback_wrapper("epoch")
     def epoch(self) -> None:
         """
@@ -438,15 +440,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.metrics.start_timer("iter")
 
         see_memory_usage(f"entered epoch", force=True)
-        #exit()
+        # exit()
 
         # enable memory history, which will add tracebacks and event history to snapshots
         if self.mem_profiler == "step":
-           torch.cuda.memory._record_memory_history(max_entries=100_000)
+            torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         train_batches = self.train_batches
         if self.config.sequence_parallel_size > 1:
             from deepspeed.utils import groups
+
             self.sp_group = groups._get_sequence_parallel_group()
             self.sp_world_size = groups._get_sequence_parallel_world_size()
             self.sp_rank = groups._get_sequence_parallel_rank()
@@ -460,7 +463,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             )
             # this will break on epoch 2+ as it'd continue multiplying the previous value from epoch 1
             self.config.exit_iteration *= self.sp_world_size
-            #self.training_horizon *= self.sp_world_size
+            # self.training_horizon *= self.sp_world_size
             self.metrics.max_iter *= self.sp_world_size
 
         # XXX: this counter must not be reset between epochs
@@ -469,7 +472,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            self.metrics.record("seqlen", len(batch["input_ids"][0])*self.config.sequence_parallel_size)
+            self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
 
             see_memory_usage(f"before step", force=True)
 
@@ -501,14 +504,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.metrics.stop_timer("iter")
         self.epoch_finished = True
 
-
     @callback_wrapper("train")
     def train(self) -> None:
         """
         Main training loop. Calls the epoch method for each epoch of training.
         """
 
-        #self.step_flos_counter = StepFlopCounter(start_iter=2)
+        # self.step_flos_counter = StepFlopCounter(start_iter=2)
 
         try:
             for epoch_idx in self.epochs:
