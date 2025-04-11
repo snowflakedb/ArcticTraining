@@ -27,6 +27,7 @@ import deepspeed
 import numpy as np
 import torch
 import torch.distributed.nn
+import wandb
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
@@ -34,13 +35,13 @@ from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from wandb.sdk.wandb_run import Run as WandbRun
 
-import wandb
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.utils import OverfitOneBatchDataLoader
 from arctic_training.debug import print_rank
 from arctic_training.debug import see_memory_usage
 from arctic_training.logging import logger
@@ -183,6 +184,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
+        if self.config.overfit_first_batch:
+            self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
         # see_memory_usage("after dataloader", force=True)
         # exit()

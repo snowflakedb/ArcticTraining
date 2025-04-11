@@ -696,7 +696,6 @@ from collections import defaultdict
 
 import deepspeed.comm as dist
 
-
 # if we decide to keep UlyssesSPFwdLossBwdWithLogits way of doing UlyssesSP fwd/loss/bwd for those don't want to use UlyssesSPDataLoaderWrapper - here is how it should be installed into the sub-trainer class:
 # class SFTTrainer(Trainer):
 # def sp_fwd_loss_bwd(self, batch) -> torch.Tensor:
@@ -710,6 +709,7 @@ import deepspeed.comm as dist
 #         num_loss_logit_shards="auto",
 #     )
 #     return ulysses.sp_fwd_loss_bwd(batch)
+
 
 class UlyssesSPFwdLossBwdWithLogits:
     def __init__(self, model, model_unwrapped, device, num_loss_logit_shards="auto", **kwargs):
