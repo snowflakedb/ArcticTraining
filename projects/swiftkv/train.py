@@ -28,6 +28,10 @@ from arctic_training import TrainerConfig
 from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
 from projects.swiftkv import llama_swiftkv
+from projects.swiftkv import qwen2_swiftkv
+
+llama_swiftkv.register_auto()
+qwen2_swiftkv.register_auto()
 
 
 class SwiftKVModelConfig(ModelConfig):
@@ -40,10 +44,15 @@ class SwiftKVModelFactory(HFModelFactory):
     config: SwiftKVModelConfig
 
     def post_create_config_callback(self, hf_config):
-        llama_swiftkv.register_auto()
-
         config_dict = hf_config.to_dict()
-        hf_config = llama_swiftkv.LlamaSwiftKVConfig.from_dict(config_dict)
+
+        model_type = config_dict.get("model_type")
+        if model_type == "llama":
+            hf_config = llama_swiftkv.LlamaSwiftKVConfig.from_dict(config_dict)
+        elif model_type == "qwen2":
+            hf_config = qwen2_swiftkv.Qwen2SwiftKVConfig.from_dict(config_dict)
+        else:
+            raise ValueError(f"Unsupported model type: {model_type}")
 
         hf_config.num_key_value_layers = self.config.num_key_value_layers
         hf_config.key_value_group_size = self.config.key_value_group_size
@@ -59,9 +68,13 @@ class SwiftKVModelFactory(HFModelFactory):
         model.model.norm_swiftkv.weight.requires_grad = True
         for layer in model.model.layers[model.config.num_key_value_layers :]:
             # Initialize q_proj_swiftkv
+            q_proj_swiftkv = layer.self_attn.q_proj_swiftkv
             with GatheredParameters(layer.parameters(), modifier_rank=0):
-                layer.self_attn.q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
-            layer.self_attn.q_proj_swiftkv.weight.requires_grad = True
+                q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
+                q_proj_swiftkv.weight.requires_grad = True
+                if getattr(q_proj_swiftkv, "bias", None) is not None:
+                    q_proj_swiftkv.bias.data.copy_(layer.self_attn.q_proj.bias.data)
+                    q_proj_swiftkv.bias.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
             model.config.num_hidden_layers,
@@ -70,18 +83,23 @@ class SwiftKVModelFactory(HFModelFactory):
             this_attn = model.model.layers[layer_idx].self_attn
             next_attn = [model.model.layers[layer_idx + i].self_attn for i in range(model.config.key_value_group_size)]
             for param in ("k_proj", "v_proj"):
-                weights = [getattr(this_attn, f"{param}_swiftkv").weight] + [
-                    getattr(attn, f"{param}").weight for attn in next_attn
-                ]
+                kv_proj_swiftkv = getattr(this_attn, f"{param}_swiftkv")
+                # Initialize k_proj or v_proj weights
+                weights = [kv_proj_swiftkv.weight] + [getattr(attn, f"{param}").weight for attn in next_attn]
                 with GatheredParameters(weights, modifier_rank=0):
                     weights[0].data.copy_(sum(weights[1:]) / model.config.key_value_group_size)
-                getattr(this_attn, f"{param}_swiftkv").weight.requires_grad = True
+                    kv_proj_swiftkv.weight.requires_grad = True
+                # Initialize k_proj or v_proj biases (if they exist)
+                if getattr(kv_proj_swiftkv, "bias", None) is not None:
+                    biases = [kv_proj_swiftkv.bias] + [getattr(attn, f"{param}").bias for attn in next_attn]
+                    with GatheredParameters(biases, modifier_rank=0):
+                        biases[0].data.copy_(sum(biases[1:]) / model.config.key_value_group_size)
+                        kv_proj_swiftkv.bias.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
 
 
 class SwiftKVTrainerConfig(TrainerConfig):
-    decoder_loss_mult: float = 0.0
     temperature: float = 1.0
 
 
@@ -97,43 +115,22 @@ class SwiftKVTrainer(SFTTrainer):
         with torch.no_grad():
             self.model.swiftkv(False)
             self.model.eval()
-            teacher_outputs = self.model(
-                **batch,
-                output_hidden_states=(self.config.decoder_loss_mult > 0),
-            )
+            teacher_outputs = self.model(**batch)
 
         self.model.swiftkv(True)
         self.model.train()
-        student_outputs = self.model(
-            **batch,
-            output_hidden_states=(self.config.decoder_loss_mult > 0),
-        )
+        student_outputs = self.model(**batch)
 
-        distill_loss = self.distillation_loss(
+        loss = self.distillation_loss(
             student_outputs.logits,
             teacher_outputs.logits,
             temperature=self.config.temperature,
         )
 
-        decoder_loss = torch.zeros_like(distill_loss)
-        if self.config.decoder_loss_mult > 0:
-            decoder_loss_count = 0
-            for layer_idx in [15, 23]:
-                student_hidden = student_outputs.hidden_states[layer_idx]
-                teacher_hidden = teacher_outputs.hidden_states[layer_idx]
-                decoder_loss += torch.linalg.norm(
-                    student_hidden - teacher_hidden,
-                    dim=-1,
-                ).mean()
-                decoder_loss_count += 1
-            decoder_loss *= self.config.decoder_loss_mult / decoder_loss_count
-
         logger.info(
             f"student loss: {student_outputs.loss.item()}, teacher loss:"
-            f" {teacher_outputs.loss.item()}, distill loss: {distill_loss.item()}"
+            f" {teacher_outputs.loss.item()}, distill loss: {loss.item()}"
         )
-
-        loss = distill_loss + decoder_loss
 
         torch.cuda.synchronize()
 
