@@ -149,7 +149,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_method(cls, "checkpoint", ["self"])
 
     def __init__(self, config: TrainerConfig) -> None:
-
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
         self.epoch_idx = 0
@@ -183,7 +182,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # see_memory_usage("before dataloader", force=True)
 
         data_factory = self.config.data.factory(self)
-        self.train_dataloader, self.eval_dataloader = data_factory()
+        self.train_dataloader, self.eval_dataloader_map = data_factory()
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
@@ -226,7 +225,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        torch.distributed.barrier()
+        # torch.distributed.barrier()
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -304,11 +303,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             return self.config.train_iters
         return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
 
-    @property
-    def warmup_steps(self) -> int:
-        """Number of warmup steps."""
-        return int(self.config.scheduler.warmup_ratio * self.training_horizon)
-
     @callback_wrapper("loss")
     @abstractmethod
     def loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
@@ -317,6 +311,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         inheriting trainer class.
         """
         raise NotImplementedError("Loss method must be implemented by the trainer.")
+
+    @callback_wrapper("backward")
+    def backward(self, loss: torch.Tensor) -> None:
+        """
+        Backward function for the trainer. This method is called after the loss
+        method and is responsible for backpropagating the loss through the model.
+        """
+        self.model.backward(loss)
 
     @callback_wrapper("step")
     def step(self, batch: Dict[str, torch.Tensor]) -> None:
@@ -355,32 +357,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.train()
         loss = self.loss(batch)
-        self.model.backward(loss)
+        self.backward(loss)
 
-        # XXX: uncomment to compare loss exactness vs dp8-sp1
+        # XXX: do not delete until we get GAS working
+        # until then uncomment to compare loss exactness vs dp8-sp1
         # self.temp_losses.append(loss.item())
         # sp_world_size = 8
         # if len(self.temp_losses) == sp_world_size:
         #     avg_loss = sum(self.temp_losses) / len(self.temp_losses)
         #     print(f"{avg_loss=}")
         #     self.temp_losses = []
-
-        # if self.config.sequence_parallel_size == 1:
-        #     loss = self.loss(batch)
-        #     self.model.backward(loss)
-
-        #     # with torch.no_grad():
-        #     #     # average losses since they are different on each dp rank
-        #     #     losses_per_rank = torch.distributed.nn.functional.all_gather(loss)
-        #     #     #print(f"LOSS {losses_per_rank=}")
-        #     #     average_loss = torch.cat([l.unsqueeze(0) for l in losses_per_rank], dim=0).mean()
-        #     #     #print(f"LOSS {average_loss=}")
-        #     #     loss = average_loss
-
-        # else:
-        #     # sp will do backward inside sp_fwd_bwd_loss
-        #     # the returned loss is already averaged across ranks and it's a float
-        #     loss = self.sp_fwd_loss_bwd(batch)
 
         see_memory_usage("after backward", force=False)
 
@@ -392,12 +378,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.model.step()
 
         see_memory_usage("after step", force=False)
-        # exit()
-
-        # # should loss be averaged over sp sub-steps and logged as such?
-        # loss = loss_aggregate / sp_world_size
-        # print_rank0(f"averaged loss = {loss}")
-        # #exit()
 
         # from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
 
@@ -492,9 +472,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         Main training loop. Calls the epoch method for each epoch of training.
         """
-
-        # self.step_flos_counter = StepFlopCounter(start_iter=2)
-
         try:
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
