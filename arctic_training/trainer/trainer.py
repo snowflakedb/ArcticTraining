@@ -1788,6 +1788,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.early_stop = False
         self.world_size = config.world_size
         self.global_rank = config.global_rank
+        self.epoch_finished = False
         self.training_finished = False
         self.wandb_experiment: Optional[WandbRun] = None
 
@@ -2059,6 +2060,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         training and iterates across batches of training data, calling the step
         method on each batch.
         """
+        self.epoch_finished = False
         self.metrics.start_timer("iter")
 
         see_memory_usage(f"entered epoch", force=True)
@@ -2122,6 +2124,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             if self.early_stop:
                 break
+        self.metrics.stop_timer("iter")
+        self.epoch_finished = True
 
 
     @callback_wrapper("train")
