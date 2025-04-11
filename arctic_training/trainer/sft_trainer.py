@@ -31,7 +31,9 @@ from arctic_training.trainer.utils import to_device
 from arctic_training.debug import see_memory_usage, print_rank0, print_rank
 
 import math
-from arctic_training.trainer.trainer import UlyssesSPChunkedMemEfficientLoss
+# XXX: this will be moved to deepspeed
+if 1:
+    from arctic_training.deepspeed import UlyssesSPChunkedMemEfficientLoss
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory
