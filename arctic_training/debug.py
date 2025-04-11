@@ -17,7 +17,6 @@
 import builtins
 import fcntl
 import gc
-import sys
 
 import psutil
 import pynvml
