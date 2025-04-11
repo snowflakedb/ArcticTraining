@@ -36,6 +36,7 @@ dependencies = [
     "peft",
     "psutil",
     "pydantic>=2.0",
+    "pynvml",
     "tabulate",
     "torch",
     "tqdm",
