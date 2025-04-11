@@ -33,7 +33,7 @@ from arctic_training.debug import see_memory_usage, print_rank0, print_rank
 import math
 # XXX: this will be moved to deepspeed
 if 1:
-    from arctic_training.deepspeed import UlyssesSPChunkedMemEfficientLoss
+    from arctic_training.deepspeed import ChunkedMemEfficientLoss
 class SFTTrainer(Trainer):
     name = "sft"
     data_factory: SFTDataFactory
@@ -80,7 +80,7 @@ class SFTTrainer(Trainer):
                     num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
                     #print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
                 if num_loss_logit_shards > 1:
-                    loss = UlyssesSPChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, num_loss_logit_shards)
+                    loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, num_loss_logit_shards)
                 else:
                     # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
                     loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)

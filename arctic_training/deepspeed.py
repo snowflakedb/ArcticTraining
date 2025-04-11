@@ -849,7 +849,7 @@ class UlyssesSPFwdLossBwdWithLogits():
 
 
             #     shards = 8
-            #     loss = UlyssesSPChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
+            #     loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
 
 
                 #see_memory_usage(f"{sub_step_id=} after loss", force=True)
@@ -997,7 +997,7 @@ class UlyssesSPFwdLossBwdWithLogits():
                 self.num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
                 #print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
             if self.num_loss_logit_shards > 1:
-                loss = UlyssesSPChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
+                loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, self.logits, self.model_unwrapped.config.vocab_size, shift_labels, self.num_loss_logit_shards)
             else:
                 # XXX: for some reason this fails with zero1
                 loss = self.model_unwrapped.loss_function(logits=self.logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
@@ -1010,7 +1010,7 @@ class UlyssesSPFwdLossBwdWithLogits():
 
 
 
-class UlyssesSPChunkedMemEfficientLoss(torch.autograd.Function):
+class ChunkedMemEfficientLoss(torch.autograd.Function):
     @staticmethod
     def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
         """
