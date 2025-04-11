@@ -29,8 +29,6 @@ import torch
 import torch.distributed.nn
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
-from torch import Tensor
-from torch.nn import Module
 from tqdm import tqdm
 from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
@@ -42,14 +40,8 @@ from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
-from arctic_training.config.utils import get_local_rank
 from arctic_training.data.factory import DataFactory
-from arctic_training.debug import debug_gathered_tensor
-from arctic_training.debug import exit
-from arctic_training.debug import pr
-from arctic_training.debug import pr0
 from arctic_training.debug import print_rank
-from arctic_training.debug import print_rank0
 from arctic_training.debug import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
@@ -61,7 +53,6 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.utils import StepFlopCounter
 
 # XXX: this will be moved to deepspeed
 if 1:
@@ -197,7 +188,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # exit()
         # XXX: eventually switch back to normal hf modeling code (it's just debug prints mod'ed at the moment)
         # there are no functional code changes in LlamaAttentionNew
-        import transformers.models.llama.modeling_llama
 
         # transformers.models.llama.modeling_llama.LlamaAttention = LlamaAttentionNew
         # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
@@ -301,16 +291,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     def device(self) -> torch.device:
         """Current device."""
         return torch.device(get_accelerator().device_name(self.config.local_rank))
-
-    @property
-    def model_unwrapped(self):
-        """Return the original model before it was wrapped by deepspeed"""
-
-        # XXX: later might add a recursion if we have more than one level of wrapping
-        if hasattr(self.model, "module"):
-            return self.model.module
-        else:
-            return self.model
 
     @property
     def training_horizon(self) -> int:

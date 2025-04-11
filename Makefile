@@ -18,15 +18,18 @@ test-gpu: ## run gpu-only tests
 
 format: ## fix formatting
 	@if [ ! -d "venv" ]; then \
-		pip install virtualenv; \
-		virtualenv venv; \
+		sudo apt update; \
+		sudo apt-get install -y python3-venv; \
+		python -m venv venv; \
 		. venv/bin/activate; \
-		pip install pre-commit; \
+		pip install pre-commit -U; \
 		pre-commit clean; \
 		pre-commit uninstall; \
 		pre-commit install; \
+		deactivate; \
 	fi
 	. venv/bin/activate && pre-commit run --all-files && deactivate
 
+# this tool is optional not to be run automatically as it could have unexpected side-effects, but is useful when needing to remove a bulk of unused imports
 autoflake: ## autoremove unused imports (careful!)
-	autoflake --quiet --in-place --remove-all-unused-imports --ignore-init-module-imports --ignore-pass-statements -r arctic_training
+	autoflake --quiet --in-place --remove-all-unused-imports --ignore-init-module-imports --ignore-pass-after-docstring -r arctic_training

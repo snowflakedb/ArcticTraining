@@ -15,11 +15,7 @@
 
 import datetime
 import math
-import os
 from contextlib import contextmanager
-from pathlib import Path
-
-import deepspeed.comm as dist
 
 # FlopCounterMode leaks memory via ModuleTracker in `torch<2.6` - fixed in torch-2.6 - if using a lower version switch to a copy of a known good version of torch.utils.module_tracker.ModuleTracker
 # BACKCOMPAT: can remove this workaround and the whole `arctic_training/back_compat/module_tracker.py` once we require `torch>=2.6` in dependencies
@@ -101,45 +97,6 @@ class StepFlopCounter:
 
     def get_total_tflos(self):
         return self.flos / 1e12
-
-
-import torch
-
-
-def gather_sum_number(number, device, group=None):
-    tensor = torch.tensor(number).to(device)
-    dist.all_reduce(tensor, op=dist.ReduceOp.SUM, group=group)
-    return tensor.item()
-
-
-def gather_number(number, device, group=None):
-    tensor = torch.tensor(number).to(device)
-    dist.all_reduce(tensor, op=dist.ReduceOp.MEAN, group=group)
-    return tensor.item()
-
-
-def gather_mean_number(number, device, group=None):
-    tensor = torch.tensor(number).to(device)
-    dist.all_reduce(tensor, op=dist.ReduceOp.MEAN, group=group)
-    return tensor.item()
-
-
-def gather_sum_tensor(tensor, device, group=None):
-    dist.all_reduce(t, op=dist.ReduceOp.SUM, group=group)
-    return tensor
-
-
-def gather_mean_tensor(tensor, device, group=None):
-    dist.all_reduce(t, op=dist.ReduceOp.MEAN, group=group)
-    return tensor
-
-
-def gather_object(number, device, group=None):
-    """returns a list of objects"""
-    # XXX: which world size? probably better to always specify the group explicitly and derive from it to avoid bugs and assumptions
-    output = [None for _ in range(get_world_size())]
-    torch.distributed.all_gather_object(output, number, group=group)
-    return output
 
 
 def human_format_base2_number(num: float, suffix: str = "") -> str:

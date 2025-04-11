@@ -27,8 +27,6 @@ import torch
 import torch.distributed as dist
 from deepspeed.accelerator import get_accelerator
 
-from arctic_training.logging import logger
-
 torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 

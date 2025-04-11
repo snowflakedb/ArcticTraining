@@ -15,40 +15,19 @@
 
 ### Ulysses ###
 
-import copy
-import random
-from abc import ABC
-from abc import abstractmethod
-from functools import cached_property
 from typing import Any
-from typing import Callable
-from typing import Dict
-from typing import List
 from typing import Optional
 from typing import Tuple
 
-import deepspeed
 import deepspeed.comm as dist
-import numpy as np
 import torch
 import torch.distributed.nn
-from deepspeed.accelerator import get_accelerator
-from deepspeed.sequence.layer import _SeqAllToAll
-from devtools import debug
 
 # from deepspeed.sequence.layer import UlyssesAttention
 from einops import rearrange
 from torch import Tensor
-from torch.nn import Module
-from tqdm import tqdm
-from transformers import set_seed
-from wandb.sdk.wandb_run import Run as WandbRun
 
-import wandb
 from arctic_training.debug import debug_gathered_tensor
-from arctic_training.debug import exit
-from arctic_training.debug import pr
-from arctic_training.debug import pr0
 from arctic_training.debug import print_rank
 from arctic_training.debug import print_rank0
 from arctic_training.debug import see_memory_usage
@@ -832,8 +811,6 @@ class UlyssesSPFwdLossBwdWithLogits:
             see_memory_usage(f"{sub_step_id=} start", force=False)
             # print_rank0(batch)
 
-            import math
-
             print_rank0(f"{sub_step_id}: {len(batch['input_ids'][0])=}")
             seq_length = len(batch["input_ids"][0])
             # seq_length = self.config.data.max_length
@@ -1563,38 +1540,16 @@ class UlyssesSPAttentionHFNoFrag(torch.nn.Module):
         return output, attn_weights
 
 
-from typing import Callable
-from typing import List
 from typing import Optional
 from typing import Tuple
-from typing import Union
 
 from torch import nn
 from transformers.cache_utils import Cache
-from transformers.cache_utils import DynamicCache
-from transformers.cache_utils import StaticCache
-from transformers.generation import GenerationMixin
-from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.modeling_outputs import CausalLMOutputWithPast
-from transformers.modeling_outputs import QuestionAnsweringModelOutput
-from transformers.modeling_outputs import SequenceClassifierOutputWithPast
-from transformers.modeling_outputs import TokenClassifierOutput
-from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.modeling_utils import PreTrainedModel
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 from transformers.processing_utils import Unpack
-from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from transformers.utils import LossKwargs
-from transformers.utils import add_code_sample_docstrings
-from transformers.utils import add_start_docstrings
-from transformers.utils import add_start_docstrings_to_model_forward
-from transformers.utils import logging
-from transformers.utils import replace_return_docstrings
-from transformers.utils.deprecation import deprecate_kwarg
 
 
 class LlamaAttentionNew(torch.nn.Module):
@@ -1662,8 +1617,6 @@ class LlamaAttentionNew(torch.nn.Module):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        import transformers
 
         # attention_interface: Callable = transformers.models.llama.modeling_llama.eager_attention_forward
         # XXX: fix me - temp hardcoding - must remove this hack
