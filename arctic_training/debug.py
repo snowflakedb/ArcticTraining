@@ -32,9 +32,6 @@ pynvml_handle = None
 def get_mem_metrics():
     global pynvml_handle
 
-    if not can_run_pynvml:
-        return ""
-
     gc.collect()
 
     if can_run_pynvml:
