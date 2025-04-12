@@ -37,13 +37,16 @@ def get_mem_metrics():
 
     gc.collect()
 
-    if pynvml_handle is None:
-        pynvml.nvmlInit()
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
-        # pynvml.nvmlShutdown()
-    memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
-    nv_mem = memory_info.used
+    if can_run_pynvml:
+        if pynvml_handle is None:
+            pynvml.nvmlInit()
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
+            # pynvml.nvmlShutdown()
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
+        nv_mem = memory_info.used
+    else:
+        nv_mem = 0
 
     summary = " | ".join(
         [
