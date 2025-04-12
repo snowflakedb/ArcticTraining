@@ -29,21 +29,26 @@ except Exception:
 pynvml_handle = None
 
 
-def get_mem_metrics():
+def get_nvml_mem():
     global pynvml_handle
+
+    if not can_run_pynvml:
+        return 0
+
+    if pynvml_handle is None:
+        pynvml.nvmlInit()
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
+        # pynvml.nvmlShutdown()
+    memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
+    return memory_info.used
+
+
+def get_mem_metrics():
 
     gc.collect()
 
-    if can_run_pynvml:
-        if pynvml_handle is None:
-            pynvml.nvmlInit()
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
-            # pynvml.nvmlShutdown()
-        memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
-        nv_mem = memory_info.used
-    else:
-        nv_mem = 0
+    nv_mem = get_nvml_mem()
 
     summary = " | ".join(
         [
