@@ -16,17 +16,24 @@
 
 import gc
 
-import pynvml
-
-# deepspeed or
 import torch.distributed as dist
 from deepspeed.accelerator import get_accelerator
+
+can_run_pynvml = True
+try:
+    import pynvml
+except Exception:
+    can_run_pynvml = False
+
 
 pynvml_handle = None
 
 
 def get_mem_metrics():
     global pynvml_handle
+
+    if not can_run_pynvml:
+        return ""
 
     gc.collect()
 
