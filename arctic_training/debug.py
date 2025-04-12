@@ -22,7 +22,7 @@ from deepspeed.accelerator import get_accelerator
 can_run_pynvml = True
 try:
     import pynvml
-except Exception:
+except pynvml.NVMLError_LibraryNotFound:
     can_run_pynvml = False
 
 
