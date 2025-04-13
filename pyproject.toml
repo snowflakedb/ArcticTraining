@@ -39,7 +39,7 @@ classifiers = [
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed",
+    "deepspeed>=0.16.4", # XXX: needs to be >0.16.4 once it's released to include https://github.com/deepspeedai/DeepSpeed/pull/7175
     "devtools",
     "jsonlines",
     "loguru",
@@ -50,7 +50,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.47.0",
+    "transformers>=4.51.0", # attention api
     "wandb",
 ]
 
@@ -68,6 +68,7 @@ dev = [
     "arctic_training[docs]",
     "arctic_training[formatting]",
     "arctic_training[testing]",
+    "pynvml",
 ]
 
 testing = [
@@ -77,6 +78,7 @@ testing = [
 
 formatting = [
     "pre-commit",
+    "autoflake",
 ]
 
 docs = [

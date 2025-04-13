@@ -26,6 +26,10 @@ format: ## fix formatting
 		pre-commit clean; \
 		pre-commit uninstall; \
 		pre-commit install; \
-                deactivate; \
+		deactivate; \
 	fi
 	. venv/bin/activate && pre-commit run --all-files && deactivate
+
+# this tool is optional not to be run automatically as it could have unexpected side-effects, but is useful when needing to remove a bulk of unused imports
+autoflake: ## autoremove unused imports (careful!)
+	autoflake --quiet --in-place --remove-all-unused-imports --ignore-init-module-imports --ignore-pass-after-docstring -r arctic_training
