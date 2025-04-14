@@ -22,7 +22,8 @@ from deepspeed.accelerator import get_accelerator
 can_run_pynvml = True
 try:
     import pynvml
-except:
+    pynvml.nvmlInit()
+except Exception:
     can_run_pynvml = False
 
 
@@ -36,7 +37,6 @@ def get_nvml_mem():
         return 0
 
     if pynvml_handle is None:
-        pynvml.nvmlInit()
         rank = dist.get_rank() if dist.is_initialized() else 0
         pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
         # pynvml.nvmlShutdown()
