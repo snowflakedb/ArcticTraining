@@ -317,6 +317,11 @@ class UlyssesSPAttentionHF(torch.nn.Module):
         key = rearrange(key, "bs hc sl hs -> sl bs hc hs")  # .contiguous()
         value = rearrange(value, "bs hc sl hs -> sl bs hc hs")  # .contiguous()
 
+        if "position_ids" in kwargs:
+            position_ids_list = [torch.empty_like(kwargs["position_ids"]) for _ in range(self.world_size)]
+            dist.all_gather(position_ids_list, kwargs["position_ids"], group=self.process_group)
+            kwargs["position_ids"] = torch.cat(position_ids_list, dim=1)
+
         # print_rank0(f"forward 2 {query.shape=}")
         # print_rank0(f"forward 2 {key.shape=}")
         # print_rank0(f"forward 2 {value.shape=}")
