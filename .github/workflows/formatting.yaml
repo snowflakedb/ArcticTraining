@@ -37,7 +37,7 @@ jobs:
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
           echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
-          python scripts/install_deps.py formatting
+          python -m pip install ".[formatting]"
       - name: Environment print
         run: pip list
       - name: Formatting checks
