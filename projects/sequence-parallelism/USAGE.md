@@ -35,6 +35,20 @@ The batch seqlen has to be divisible by sequence parallel size.
 
 ## Performance
 
+### ChunkedMemEfficientLoss
+
+Normally when loss is calculated for a long seqlen it consumed a huge amount of memory. For example, let's take seqlen=150_000 - when split 8-way, each rank will compute a seqlen shard of 18750. Now with [Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/blob/main/config.json) that has a vocab of `128_256` at fp32 this is:
+
+```
+18750*4*128256/2**30 = 8.96GB
+```
+Let's round it up to 9GB. Let's next look at the memory profiler for the loss function:
+
+![loss calculation normal](images/)
+
+![loss calculation sharded](images/)
+
+
 ### Batch seqlen
 
 While the batch seqlen has to be divisible by sequence parallel size, ideally you also want it to be divisible by a largish `2**x` - e.g. 256 to have the fastest matrix multiplication.
