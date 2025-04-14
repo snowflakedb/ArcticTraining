@@ -22,6 +22,7 @@ from deepspeed.accelerator import get_accelerator
 can_run_pynvml = True
 try:
     import pynvml
+
     pynvml.nvmlInit()
 except Exception:
     can_run_pynvml = False
