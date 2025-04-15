@@ -40,3 +40,6 @@ class UniqueKeyLoader(yaml.SafeLoader):
                 raise ValueError(f"Duplicate '{key}' key found in YAML on line {key_node.start_mark.line + 1}.")
             mapping.add(key)
         return super().construct_mapping(node, deep)
+
+    def process_empty_scalar(self, node):
+        raise ValueError(f"Empty value found in YAML on line {node.line + 1}.")
