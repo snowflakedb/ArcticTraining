@@ -153,12 +153,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self._set_seeds(self.config.seed)
 
-        # enable memory history, which will add tracebacks and event history to snapshots
-        # "none" | "e2e" | "step"
-        self.mem_profiler = "none"
-        # self.mem_profiler = "step"
-        # profiling from here is slower, best to start at top of `epoch` ("step")
-        if self.mem_profiler == "e2e":
+        if self.config.mem_profiler == "e2e":
             torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         tokenizer_factory = self.config.tokenizer.factory(self)
@@ -303,7 +298,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.metrics.start_timer("iter")
 
         # enable memory history, which will add tracebacks and event history to snapshots
-        if self.mem_profiler == "step":
+        if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=100_000)
 
         for batch in self.train_batches:
@@ -356,12 +351,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # logger.info(f"{self._trainer_state}")
             raise (e)
         finally:
-            if self.mem_profiler == "e2e" or self.mem_profiler == "step":
-                from pathlib import Path
-
-                path = Path("mem-prof")
-                path.mkdir(parents=True, exist_ok=True)
-                torch.cuda.memory._dump_snapshot(f"{path}/mem_snapshot.{self.global_rank}.pickle")
+            if self.config.mem_profiler is not None:
+                torch.cuda.memory._dump_snapshot(self.config.mem_profiler_dir / f"{self.global_rank}.pickle")
 
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
