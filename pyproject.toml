@@ -12,6 +12,7 @@ version = "0.0.3"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
+    {author = "Stas Bekman", email = "stas.bekman@snowflake.com"},
     {author = "Jeff Rasley", email = "jeff.rasley@snowflake.com"},
     {author = "Zhewei Yao", email = "zhewei.yao@snowflake.com"},
     {author = "Samyam Rajbhandari", email = "samyam.rajbhandari@snowflake.com"},
@@ -24,6 +25,16 @@ readme = "README.md"
 homepage = "https://github.com/snowflakedb/ArcticTraining"
 repository = "https://github.com/snowflakedb/ArcticTraining"
 keywords = ["llm", "training"]
+
+classifiers = [
+  # How mature is this project?  4 - Beta / 5 - Production/Stable
+  "Development Status :: 4 - Beta",
+
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
 
 # Dependencies for the project
 dependencies = [
@@ -66,6 +77,7 @@ testing = [
 
 formatting = [
     "pre-commit",
+    "autoflake",
 ]
 
 docs = [

@@ -31,6 +31,7 @@ from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
+from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from wandb.sdk.wandb_run import Run as WandbRun
 
 from arctic_training.callback.logging import post_loss_log_cb
@@ -50,11 +51,6 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-
-try:
-    from transformers.integrations.deepspeed import HfDeepSpeedConfig
-except ImportError:
-    from transformers.deepspeed import HfDeepSpeedConfig
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
