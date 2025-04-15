@@ -334,6 +334,12 @@ class TrainerConfig(BaseConfig):
         assert sum(resume_checkpoint_values) <= 1, "Only one checkpoint can auto resume."
         return self
 
+    @model_validator(mode="after")
+    def set_optimizer_for_cpu_offload(self) -> Self:
+        if self.deepspeed.get("cpu_offload", {}).get("device", None) == "cpu" and self.optimizer.type == "fusedadam":
+            self.optimizer.type = "cpu_adam"
+        return self
+
 
 def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
     if isinstance(config_file_or_dict, dict):

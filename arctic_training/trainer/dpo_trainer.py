@@ -39,6 +39,7 @@ from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.dpo_factory import DPODataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
+from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.registry import get_registered_model_factory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
@@ -176,7 +177,7 @@ class DPOTrainer(Trainer):
     model_factory: Union[HFModelFactory, LigerModelFactory]
     ref_model_factory: Union[HFModelFactory, LigerModelFactory]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
-    optimizer_factory: FusedAdamOptimizerFactory
+    optimizer_factory: Union[FusedAdamOptimizerFactory, CPUAdamOptimizerFactory]
     scheduler_factory: HFSchedulerFactory
     tokenizer_factory: HFTokenizerFactory
     ref_model: torch.nn.Module
