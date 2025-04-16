@@ -154,7 +154,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self._set_seeds(self.config.seed)
 
         if self.config.mem_profiler == "e2e":
-            torch.cuda.memory._record_memory_history(max_entries=100_000)
+            torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
@@ -299,7 +299,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # enable memory history, which will add tracebacks and event history to snapshots
         if self.config.mem_profiler == "step":
-            torch.cuda.memory._record_memory_history(max_entries=100_000)
+            torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         for batch in self.train_batches:
             self.train_batch_idx += 1

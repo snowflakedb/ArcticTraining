@@ -139,6 +139,9 @@ class TrainerConfig(BaseConfig):
     mem_profiler_dir: Path = Field(default_factory=lambda data: data["logger"].output_dir / "mem-prof")
     """ Path to save memory profiling results. Defaults to `logger.output_dir/mem-prof`. """
 
+    mem_profiler_max_entries: int = Field(default=100_000, ge=1)
+    """ Maximum number of entries to store in the memory profiler. """
+
     @model_validator(mode="after")
     def init_dist(self) -> Self:
         get_accelerator().set_device(self.local_rank)
