@@ -22,6 +22,8 @@ from pathlib import Path
 
 
 def main():
+    from arctic_training.config.trainer import get_config
+
     parser = argparse.ArgumentParser(
         prog="arctic_training",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -44,6 +46,9 @@ def main():
 
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
+
+    # Early catch any config errors
+    _ = get_config(args.config)
 
     exe_path = shutil.which("arctic_training_run")
 
