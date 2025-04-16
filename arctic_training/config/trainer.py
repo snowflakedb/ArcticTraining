@@ -133,6 +133,15 @@ class TrainerConfig(BaseConfig):
     overfit_first_batch: bool = False
     """ Train only on repetitions of the first training batch. Useful for development. """
 
+    mem_profiler: Literal[None, "step", "e2e"] = None
+    """ Enable memory profiling. """
+
+    mem_profiler_dir: Path = Field(default_factory=lambda data: data["logger"].output_dir / "mem-prof")
+    """ Path to save memory profiling results. Defaults to `logger.output_dir/mem-prof`. """
+
+    mem_profiler_max_entries: int = Field(default=100_000, ge=1)
+    """ Maximum number of entries to store in the memory profiler. """
+
     @model_validator(mode="after")
     def init_dist(self) -> Self:
         get_accelerator().set_device(self.local_rank)
@@ -332,6 +341,12 @@ class TrainerConfig(BaseConfig):
     def validate_single_checkpoint_resume(self) -> Self:
         resume_checkpoint_values = [c.auto_resume for c in self.checkpoint]
         assert sum(resume_checkpoint_values) <= 1, "Only one checkpoint can auto resume."
+        return self
+
+    @model_validator(mode="after")
+    def mem_profiler_mkdir(self) -> Self:
+        if self.mem_profiler is not None:
+            self.mem_profiler_dir.mkdir(parents=True, exist_ok=True)
         return self
 
 

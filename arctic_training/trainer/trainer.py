@@ -153,6 +153,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self._set_seeds(self.config.seed)
 
+        if self.config.mem_profiler == "e2e":
+            torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
+
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
 
@@ -293,6 +296,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         self.epoch_finished = False
         self.metrics.start_timer("iter")
+
+        # enable memory history, which will add tracebacks and event history to snapshots
+        if self.config.mem_profiler == "step":
+            torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
+
         for batch in self.train_batches:
             self.train_batch_idx += 1
             self.metrics.record("seqlen", len(batch["input_ids"][0]))
@@ -343,6 +351,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # logger.info(f"{self._trainer_state}")
             raise (e)
         finally:
+            if self.config.mem_profiler is not None:
+                torch.cuda.memory._dump_snapshot(self.config.mem_profiler_dir / f"{self.global_rank}.pickle")
+
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
 
