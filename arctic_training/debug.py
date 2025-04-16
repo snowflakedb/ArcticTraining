@@ -19,15 +19,36 @@ import fcntl
 import gc
 
 import psutil
-import pynvml
 import torch
 
 # deepspeed or
 import torch.distributed as dist
 from deepspeed.accelerator import get_accelerator
 
+can_run_pynvml = True
+try:
+    import pynvml
+
+    pynvml.nvmlInit()
+except Exception:
+    can_run_pynvml = False
+
 torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
+
+pynvml_handle = None
+def get_nvml_mem():
+    global pynvml_handle
+
+    if not can_run_pynvml:
+        return 0
+
+    if pynvml_handle is None:
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
+        # pynvml.nvmlShutdown()
+    memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
+    return memory_info.used
 
 
 def gc_empty_accelerator_cache():
@@ -39,7 +60,6 @@ def gc_empty_accelerator_cache():
     get_accelerator().empty_cache()
 
 
-pynvml_handle = None
 
 
 def see_memory_usage(message, force=False, ranks=[0]):
@@ -49,7 +69,6 @@ def see_memory_usage(message, force=False, ranks=[0]):
         force: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
         ranks: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
     """
-    global pynvml_handle
     # gc.collect()
     # torch.cuda.empty_cache()
 
@@ -67,13 +86,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
     torch.cuda.empty_cache()
 
     # collect raw memory usage outside pytorch
-    if pynvml_handle is None:
-        pynvml.nvmlInit()
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
-        # pynvml.nvmlShutdown()
-    memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
-    nv_mem = memory_info.used
+    nv_mem = get_nvml_mem()
 
     vm_stats = psutil.virtual_memory()
     used_GB = round(((vm_stats.total - vm_stats.available) / (1024**3)), 2)
@@ -96,19 +109,11 @@ def see_memory_usage(message, force=False, ranks=[0]):
     # get the peak memory to report correct data, so reset the counter for the next call
     get_accelerator().reset_peak_memory_stats()
 
-
 def get_mem_metrics():
-    global pynvml_handle
 
     gc.collect()
 
-    if pynvml_handle is None:
-        pynvml.nvmlInit()
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
-        # pynvml.nvmlShutdown()
-    memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
-    nv_mem = memory_info.used
+    nv_mem = get_nvml_mem()
 
     summary = " | ".join(
         [
@@ -119,11 +124,11 @@ def get_mem_metrics():
     )
 
     # get the peak memory to report correct data, so reset the counter for the next call
-    # this will lead to wrong peak reports if `see_mem_usage` is also used during the run, as it resets the peak counter and there is only one counter
+    # this will lead to wrong peak reports if `see_mem_usage` is also used during the run,
+    # as it resets the peak counter and there is only one counter
     get_accelerator().reset_peak_memory_stats()
 
     return summary
-
 
 # fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks
 # are used, you will want it off at a cost of interleaved prints from the same host.

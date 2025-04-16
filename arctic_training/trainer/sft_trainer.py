@@ -74,6 +74,7 @@ class SFTTrainer(Trainer):
 
             # XXX: parameterize
             num_loss_logit_shards: Any = "auto"
+            #num_loss_logit_shards: Any = 1
 
             if all((shift_labels == -100).squeeze()):
                 # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.

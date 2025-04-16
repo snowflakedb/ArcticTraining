@@ -168,9 +168,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # "none" | "e2e" | "step"
         self.mem_profiler = "none"
         #self.mem_profiler = "step"
+        #self.mem_profiler = "e2e"
+
         # profiling from here is slower, best to start at top of `epoch` ("step")
         if self.mem_profiler == "e2e":
-            torch.cuda.memory._record_memory_history(max_entries=100_000)
+            torch.cuda.memory._record_memory_history(max_entries=1000_000)
         # see_memory_usage("before model creation", force=True)
 
         tokenizer_factory = self.config.tokenizer.factory(self)
@@ -349,7 +351,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         see_memory_usage("before forward", force=False)
 
         self.model.train()
+        if self.config.sequence_parallel_size > 1:
+            self.model.set_gradient_accumulation_boundary(False)
+
         loss = self.loss(batch)
+
+        if self.config.sequence_parallel_size > 1:
+        #    if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
+            # this breaks gas
+            self.model.set_gradient_accumulation_boundary(True)
+
         self.backward(loss)
 
         # XXX: do not delete until we get GAS working
@@ -368,7 +379,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.metrics.record("loss", maybe_item(loss))
 
+        #if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
         self.model.step()
+
+        # XXX: a hack to exit early until the counters are unbroken
+        #if self.train_batch_idx == 9:
+        #    self.early_stop = True
 
         see_memory_usage("after step", force=False)
 
@@ -400,7 +416,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # enable memory history, which will add tracebacks and event history to snapshots
         if self.mem_profiler == "step":
-            torch.cuda.memory._record_memory_history(max_entries=100_000)
+            torch.cuda.memory._record_memory_history(max_entries=1_000_000)
 
         train_batches = self.train_batches
         if self.config.sequence_parallel_size > 1:
@@ -418,9 +434,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 device=self.device,
             )
             # this will break on epoch 2+ as it'd continue multiplying the previous value from epoch 1
-            self.config.exit_iteration *= self.sp_world_size
+            #self.config.exit_iteration *= self.sp_world_size
             # self.training_horizon *= self.sp_world_size
-            self.metrics.max_iter *= self.sp_world_size
+            #self.metrics.max_iter *= self.sp_world_size
 
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
@@ -482,6 +498,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         finally:
             if self.mem_profiler == "e2e" or self.mem_profiler == "step":
                 from pathlib import Path
+
                 path = Path("mem-prof")
                 path.mkdir(parents=True, exist_ok=True)
                 torch.cuda.memory._dump_snapshot(f"{path}/mem_snapshot.{self.global_rank}.pickle")
