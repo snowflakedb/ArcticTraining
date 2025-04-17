@@ -46,6 +46,7 @@ class _DimZeroAllToAll(torch.autograd.Function):
         ctx.group = group
 
         output = torch.empty_like(input).contiguous()
+        # torch.distributed.nn.functional.all_to_all_single(output, input.contiguous(), group=group)
         dist.all_to_all_single(output, input.contiguous(), group=group)
         return output
 
@@ -212,7 +213,9 @@ class UlyssesSPAttentionHF(torch.nn.Module):
             # see_memory_usage(f"combine: 4", force=False)
 
             output = _DimZeroAllToAll.apply(self.process_group, input)
-            # output = input
+            # direct pytorch version of the same
+            # output = torch.empty_like(input).contiguous()
+            # torch.distributed.nn.functional.all_to_all_single(output, input, group=self.process_group)
             print_rank0(f"combine {head_type}: after all2all:   {output.shape=}", skip=False)
             # see_memory_usage(f"combine: 5", force=False)
 
@@ -322,6 +325,15 @@ class UlyssesSPAttentionHF(torch.nn.Module):
         # print_rank0(f"forward 2 {value.shape=}")
         # print_rank0(f"forward 2 {self.required_query_shape=}")
         # print_rank0(f"forward 2 {self.required_key_value_shape=}")
+
+        # core attn like FA2 expects an unsharded `position_ids` - without which packed samples will return loss=nan.
+        # XXX: need to figure out if we can do the same for SDPA - as it doesn't require this and wants an attention mask, so possibly doing this for FA2 only?
+        # XXX: ideally we would passing the original unsharded position_ids - but we have no way to pass it here as HF Transformers drops unexpected keys in `batch` - so either we need to stash it somewhere in the DataLoader wrapper and retrieve it here
+        # or we could gather it once per batch and stash it inside `module` arg - I already have a machinery to figure out which layer number is being called below in the  skip_all_but_last_attention_debug_mode code where rotating_layer_counter is used - so we could calculate it on the first layer and re-use on the remaining layers
+        if "position_ids" in kwargs:
+            position_ids_list = [torch.empty_like(kwargs["position_ids"]) for _ in range(self.world_size)]
+            dist.all_gather(position_ids_list, kwargs["position_ids"], group=self.process_group)
+            kwargs["position_ids"] = torch.cat(position_ids_list, dim=1)
 
         # print_rank0(f"{attention_mask.shape=}")
         # please don't remove the white-space vertical alignment in the error message
@@ -626,6 +638,10 @@ class UlyssesSPDataLoaderWrapper:
         # free up temp memory
         del labels
 
+        ## we need both the sharded and non-sharded version of position_ids
+        # XXX: don't know how to pass it to ulysses attn - HF drops custom keys in batch
+        # batch["position_ids_whole"] = copy.copy(batch["position_ids"])
+
         # batch sharding
         for k in batch.keys():
             # print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
@@ -927,9 +943,8 @@ class UlyssesSPFwdLossBwdWithLogits:
             #     break
             #     #continue
             #     #loss = torch.tensor(0.0).to(self.device).requires_grad_() + 0.0
+
             # differentiable loss aggregation across ranks
-            # import torch.distributed.nn.functional
-            # loss = torch.distributed.nn.functional.all_reduce(loss, op=torch.distributed.ReduceOp.SUM, group=self.sp_group)
             losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
             # print(f"LOSS {losses_per_rank=}")
             print_rank(f"LOSS {losses_per_rank=}", skip=False)

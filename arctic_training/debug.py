@@ -37,6 +37,8 @@ torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
 pynvml_handle = None
+
+
 def get_nvml_mem():
     global pynvml_handle
 
@@ -58,8 +60,6 @@ def gc_empty_accelerator_cache():
     """
     gc.collect()
     get_accelerator().empty_cache()
-
-
 
 
 def see_memory_usage(message, force=False, ranks=[0]):
@@ -109,6 +109,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
     # get the peak memory to report correct data, so reset the counter for the next call
     get_accelerator().reset_peak_memory_stats()
 
+
 def get_mem_metrics():
 
     gc.collect()
@@ -129,6 +130,7 @@ def get_mem_metrics():
     get_accelerator().reset_peak_memory_stats()
 
     return summary
+
 
 # fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks
 # are used, you will want it off at a cost of interleaved prints from the same host.

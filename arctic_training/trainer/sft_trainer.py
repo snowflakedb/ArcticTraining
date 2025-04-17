@@ -74,7 +74,7 @@ class SFTTrainer(Trainer):
 
             # XXX: parameterize
             num_loss_logit_shards: Any = "auto"
-            #num_loss_logit_shards: Any = 1
+            # num_loss_logit_shards: Any = 1
 
             if all((shift_labels == -100).squeeze()):
                 # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
@@ -89,6 +89,7 @@ class SFTTrainer(Trainer):
                     num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
                     # print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
                 if num_loss_logit_shards > 1:
+                    # if shards == 1 this will lead to a higher memory usage then calling the normal loss function, so don't do that.
                     loss = ChunkedMemEfficientLoss.apply(
                         self.model_unwrapped.loss_function,
                         logits,
@@ -97,7 +98,6 @@ class SFTTrainer(Trainer):
                         num_loss_logit_shards,
                     )
                 else:
-                    # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
                     loss = self.model_unwrapped.loss_function(
                         logits=logits,
                         labels=None,

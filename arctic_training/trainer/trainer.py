@@ -27,7 +27,6 @@ import deepspeed
 import numpy as np
 import torch
 import torch.distributed.nn
-import wandb
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
 from tqdm import tqdm
@@ -35,6 +34,7 @@ from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from wandb.sdk.wandb_run import Run as WandbRun
 
+import wandb
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
@@ -167,8 +167,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # enable memory history, which will add tracebacks and event history to snapshots
         # "none" | "e2e" | "step"
         self.mem_profiler = "none"
-        #self.mem_profiler = "step"
-        #self.mem_profiler = "e2e"
+        # self.mem_profiler = "step"
+        # self.mem_profiler = "e2e"
 
         # profiling from here is slower, best to start at top of `epoch` ("step")
         if self.mem_profiler == "e2e":
@@ -357,7 +357,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         loss = self.loss(batch)
 
         if self.config.sequence_parallel_size > 1:
-        #    if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
+            #    if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
             # this breaks gas
             self.model.set_gradient_accumulation_boundary(True)
 
@@ -379,11 +379,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.metrics.record("loss", maybe_item(loss))
 
-        #if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
+        # if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
         self.model.step()
 
         # XXX: a hack to exit early until the counters are unbroken
-        #if self.train_batch_idx == 9:
+        # if self.train_batch_idx == 9:
         #    self.early_stop = True
 
         see_memory_usage("after step", force=False)
@@ -434,9 +434,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 device=self.device,
             )
             # this will break on epoch 2+ as it'd continue multiplying the previous value from epoch 1
-            #self.config.exit_iteration *= self.sp_world_size
+            # self.config.exit_iteration *= self.sp_world_size
             # self.training_horizon *= self.sp_world_size
-            #self.metrics.max_iter *= self.sp_world_size
+            # self.metrics.max_iter *= self.sp_world_size
 
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
@@ -449,6 +449,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             see_memory_usage("before step", force=True)
 
             self.metrics.start_timer("step")
+
+            # with torch.autograd.graph.save_on_cpu():
             self.step(batch)
             self.metrics.stop_timer("step")
 

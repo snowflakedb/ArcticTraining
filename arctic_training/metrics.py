@@ -122,6 +122,11 @@ class Metrics:
 
         tflos_total: float = 0.0
         if "seqlen" in self.values:
+            # XXX: this is only correct for:
+            #  1. unpacked samples -
+            #  2. our current use of sdpa where it attend to the whole packed sample because we aren't sending the 4D attn mask
+            # in the case of FA2 which decides what it attends to sections based on position ids, we should run the estimator for each sample's length and then sum it up, otherwise the compute will be estimated to be much much bigger than it is.
+
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
             tflos_total = (
                 sum(
