@@ -164,16 +164,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self._set_seeds(self.config.seed)
 
-        # enable memory history, which will add tracebacks and event history to snapshots
-        # "none" | "e2e" | "step"
-        self.mem_profiler = "none"
-        # self.mem_profiler = "step"
-        # self.mem_profiler = "e2e"
-
-        # profiling from here is slower, best to start at top of `epoch` ("step")
-        if self.mem_profiler == "e2e":
-            torch.cuda.memory._record_memory_history(max_entries=1000_000)
-        # see_memory_usage("before model creation", force=True)
+        if self.config.mem_profiler == "e2e":
+            torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
@@ -415,8 +407,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # exit()
 
         # enable memory history, which will add tracebacks and event history to snapshots
-        if self.mem_profiler == "step":
-            torch.cuda.memory._record_memory_history(max_entries=1_000_000)
+        if self.config.mem_profiler == "step":
+            torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         train_batches = self.train_batches
         if self.config.sequence_parallel_size > 1:
@@ -498,12 +490,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # logger.info(f"{self._trainer_state}")
             raise (e)
         finally:
-            if self.mem_profiler == "e2e" or self.mem_profiler == "step":
-                from pathlib import Path
-
-                path = Path("mem-prof")
-                path.mkdir(parents=True, exist_ok=True)
-                torch.cuda.memory._dump_snapshot(f"{path}/mem_snapshot.{self.global_rank}.pickle")
+            if self.config.mem_profiler is not None:
+                torch.cuda.memory._dump_snapshot(self.config.mem_profiler_dir / f"{self.global_rank}.pickle")
 
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
