@@ -19,6 +19,7 @@ from typing import Any
 from typing import Optional
 from typing import Tuple
 
+import copy
 import deepspeed.comm as dist
 import torch
 import torch.distributed.nn
@@ -638,12 +639,31 @@ class UlyssesSPDataLoaderWrapper:
         # free up temp memory
         del labels
 
-        ## we need both the sharded and non-sharded version of position_ids
-        # XXX: don't know how to pass it to ulysses attn - HF drops custom keys in batch
-        # batch["position_ids_whole"] = copy.copy(batch["position_ids"])
+        # XXX: do not delete this block for now
+        # if "position_ids" in batch:
+        #     ## we need both the sharded and non-sharded version of position_ids
+        #     # XXX: don't know how to pass it to ulysses attn - HF drops custom keys in batch
+        #     batch["position_ids_unsharded"] = copy.copy(batch["position_ids"])
+        #     # and when calculating FLOs one needs the length of each sequence because the compute is quadratic wrt sequence length
+        #     t = batch["position_ids"].flatten()
+        #     zero_positions = torch.where(t==0)[0].tolist() + [t.numel]
+        #     seqlens = [zero_positions[i+1]-zero_positions[i] for i in range(len(zero_positions)-1)]
+        #     # XXX: the last seqlens may include padding - need to figure out how to fix that
+        #     # XXX: Aurick is going to rework this for padding of pos ids to be 0..x, like normal sequences, so for now will just leave the padding in the last sample - the flops estimate would be still correct - when it'll be its own sample we still need to count it in as a sample because compute will still be done
+
+        #     print(seqlens)
+        #     batch["sample_sequence_lengths"] = seqlens
+            #if self.sp_rank == 0:
+            #    print(f'{batch["position_ids"].tolist()}\n\n')
+            #exit()
+            #batch["seqlens"] =
+
 
         # batch sharding
         for k in batch.keys():
+            # leave non-tensors alone
+            if not torch.is_tensor(batch[k]):
+                continue
             # print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
             batch[k] = batch[k][:, chunk_len * self.sp_rank : chunk_len * (self.sp_rank + 1)].to(self.device)
             # else:
@@ -670,31 +690,34 @@ class UlyssesSPDataLoaderWrapper:
         seqlens = [x[0].item() for x in seqlens]
 
         for k in batch.keys():
-            batch[k] = batch[k].to(self.device)
-            # print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
-            # print_rank0(f"before gather: {k}: {batch[k]=}")
-            with torch.no_grad():
+            if torch.is_tensor(batch[k]):
+                batch[k] = batch[k].to(self.device)
+                # print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
+                # print_rank0(f"before gather: {k}: {batch[k]=}")
+                with torch.no_grad():
+                    tensor_list = [
+                        torch.zeros((batch[k].shape[0], seqlens[i]), dtype=batch[k].dtype, device=batch[k].device)
+                        for i in range(self.sp_world_size)
+                    ]
+                    # # print(tensor_list)
+                    # # print(batch[k])
+                    dist.all_gather(tensor_list, batch[k], group=self.sp_group)
+            else:
+                tensor_list = [None for _ in range(self.sp_world_size)]
+                torch.distributed.all_gather_object(tensor_list, batch[k], group=self.sp_group)
 
-                tensor_list = [
-                    torch.zeros((batch[k].shape[0], seqlens[i]), dtype=batch[k].dtype, device=batch[k].device)
-                    for i in range(self.sp_world_size)
-                ]
-                # # print(tensor_list)
-                # # print(batch[k])
-                dist.all_gather(tensor_list, batch[k], group=self.sp_group)
+            # gathering on the data dimension
+            # will be concatenating and later splitting again for the more general case
+            # batch[k] = torch.cat(tensor_list, dim=1)
+            for rank, tensor in enumerate(tensor_list):
+                micro_batches[rank][k] = tensor
+                # print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
+                # print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].device=}", skip=False)
+                # print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
+                # if k == "input_ids":
+                #     print_rank0(f"{self.trainer.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
 
-                # gathering on the data dimension
-                # will be concatenating and later splitting again for the more general case
-                # batch[k] = torch.cat(tensor_list, dim=1)
-                for rank, tensor in enumerate(tensor_list):
-                    micro_batches[rank][k] = tensor
-                    # print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].shape=}", skip=False)
-                    # print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k].device=}", skip=False)
-                    # print_rank(f"after gather: {rank} {k}: {micro_batches[rank][k]=}", skip=False)
-                    # if k == "input_ids":
-                    #     print_rank0(f"{self.trainer.tokenizer.decode(micro_batches[rank][k][0])=}", skip=False)
-
-                # see_memory_usage("mid-gathering", force=False)
+            # see_memory_usage("mid-gathering", force=False)
 
         del tensor_list
         del batch

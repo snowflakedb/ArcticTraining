@@ -135,8 +135,10 @@ class DataCollatorForCausalLM:
         # ]
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
+            packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
+            packed_sample_seqlens = [len(example["input_ids"]) for example in instances]
 
         input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
         labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
@@ -146,6 +148,7 @@ class DataCollatorForCausalLM:
             "input_ids": input_ids,
             "labels": labels,
             "position_ids": position_ids,
+            "packed_sample_seqlens": packed_sample_seqlens,
         }
 
 
@@ -158,7 +161,7 @@ def packing_sft_dataset(
 ) -> DatasetType:
     # packing for sft / cpt are different
     dataset = dataset.shuffle(seed=seed + rank)
-    ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    ds_keys = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask")
     train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
     example: Dict[str, List] = {key: [] for key in ds_keys}
 
@@ -190,6 +193,7 @@ def packing_sft_dataset(
         example["input_ids"].extend(input_ids)
         example["labels"].extend(labels)
         example["position_ids"].extend(list(range(len(input_ids))))
+        example["packed_sample_seqlens"].append(len(input_ids))
         example["attention_mask"].extend(attention_mask)
 
     # add the last example

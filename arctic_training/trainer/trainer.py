@@ -188,6 +188,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             micro_batch_size=self.config.micro_batch_size,
             seq_length_is_variable=True,
         )
+
+        self.core_attn_implementation = self.config.model.attn_implementation
         if self.config.sequence_parallel_size > 1:
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
             self.config.model.attn_implementation = "ulysses"
@@ -436,7 +438,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
+            # seqlens = batch.pop("packed_sample_seqlens")
+            # print(seqlens)
+            # for seqlen in seqlens:
+            #     tflos = self.metrics._estimate_decoder_transformer_tflos(seqlen)
+            #     print(f"{self.global_rank}: {tflos}")
+            # #tflos = sum(self.metrics._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
+            # print(tflos)
+            # exit()
+
+            if "packed_sample_seqlens" in batch and self.core_attn_implementation == "flash_attention_2":
+                # XXX: fix me: double list
+                self.metrics.record("seqlen", batch.pop("packed_sample_seqlens")[0])
+            else:
+                self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
 
             see_memory_usage("before step", force=True)
 
