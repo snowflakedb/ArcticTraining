@@ -188,11 +188,15 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     @callback_wrapper("load")
     def load(self, data_sources: List["DataSource"]) -> DatasetType:
         """Loads data from one or more data sources and concatenates into a single dataset."""
+        import pandas
+        from datasets import Dataset
         datasets = []
         for data_source in data_sources:
             dataset = data_source()
             datasets.append(dataset)
-        dataset = concatenate_datasets(datasets)
+        datasets = [dataset.to_pandas() for dataset in datasets]
+        dataset = pandas.concat(datasets)
+        dataset = Dataset.from_pandas(dataset)
         return dataset
 
     @callback_wrapper("process")

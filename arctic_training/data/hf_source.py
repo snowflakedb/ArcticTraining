@@ -52,9 +52,54 @@ class HFDataSource(DataSource):
             if isinstance(dataset, DatasetDict):
                 dataset = dataset[split]
         else:
-            dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
+            dataset = load_dataset(str(config.name_or_path), split=split, verification_mode="no_checks", **config.kwargs)
 
         return dataset
+
+
+class AceMath(HFDataSource):
+    name = "nvidia/AceMath-Instruct-Training-Data"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        def process_example(example):
+            return {
+                "messages": example["messages"] + [
+                    {"role": "assistant", "content": example["answer"]}
+                ]
+            }
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading AceMath",
+        )
+
+
+class LocPdBooks(HFDataSource):
+    name = "storytracer/LoC-PD-Books"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+
+        import random
+        rng = random.Random(42)
+        indices = list(range(len(dataset)))
+        rng.shuffle(indices)
+        indices = list(sorted(indices[:1000]))
+
+        dataset = dataset.select(indices)
+
+        def process_example(example):
+            return {
+                "messages": [
+                    {"role": "user", "content": example["text"]}
+                ]
+            }
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading LoC-PD-Books",
+        )
 
 
 class UltraChat200K(HFDataSource):
@@ -65,6 +110,37 @@ class UltraChat200K(HFDataSource):
         for original, modified in split_map.items():
             split = split.replace(original, modified)
         return split
+
+
+class LongAlign10K(HFDataSource):
+    name = "THUDM/LongAlign-10k"
+
+
+class LongAlpaca12K(HFDataSource):
+    name = "Yukang/LongAlpaca-12k"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="instruction",
+                response_key="output",
+                source_name="LongAlpaca-12k",
+            ),
+            desc="Loading LongAlpaca-12K",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
 
 
 class SlimOrca(HFDataSource):

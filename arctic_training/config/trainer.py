@@ -139,7 +139,8 @@ class TrainerConfig(BaseConfig):
     @model_validator(mode="after")
     def init_dist(self) -> Self:
         get_accelerator().set_device(self.local_rank)
-        deepspeed.init_distributed()
+        import datetime
+        deepspeed.init_distributed(timeout=datetime.timedelta(seconds=60*60*10)) # 10h
         return self
 
     @property

@@ -158,5 +158,6 @@ class CallbackMixin:
     ) -> Tuple[Tuple, Dict]:
         for callback in self._initialized_callbacks:
             if callback.event == name:
+                logger.info(f"Running callback {callback.fn.__name__}")
                 args, kwargs = callback(self, args, kwargs)
         return args, kwargs

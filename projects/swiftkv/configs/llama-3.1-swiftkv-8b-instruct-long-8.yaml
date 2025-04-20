@@ -15,19 +15,17 @@ deepspeed:
     stage: 2
 data:
   sources:
-    - HuggingFaceH4/ultrachat_200k
     - lmsys/lmsys-chat-1m
-    - meta-math/MetaMathQA
-    - ise-uiuc/Magicoder-OSS-Instruct-75K
-    - THUDM/LongAlign-10k
-    - Yukang/LongAlpaca-12k
-  use_data_cache: true
+    - nvidia/AceMath-Instruct-Training-Data:general_sft_stage2
+    - storytracer/LoC-PD-Books
+  use_data_cache: false
   cache_processed_data: true
   cache_dir: /data-fast/data-cache
-  num_proc: 1 #6
+  num_proc: 16
   max_length: 131072
+  mask_inputs: false
 logger:
-  level: WARNING
+  level: INFO
   output_dir: "./"
   file_output_ranks: [0]
 scheduler:
@@ -39,5 +37,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-5
+    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-8
     save_end_of_training: true

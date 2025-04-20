@@ -205,6 +205,7 @@ class SwiftKVTrainer(SFTTrainer):
                 good_tokens_per_rank
             )
 
+        loss = loss * batch["input_ids"].numel() * 8 / 131072  # FIXME: generalize this
         return loss
 
     def loss_old(self, batch: Any) -> torch.Tensor:

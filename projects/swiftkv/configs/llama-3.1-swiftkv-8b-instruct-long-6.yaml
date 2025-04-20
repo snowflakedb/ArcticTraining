@@ -26,6 +26,7 @@ data:
   cache_dir: /data-fast/data-cache
   num_proc: 1 #6
   max_length: 131072
+  mask_inputs: false
 logger:
   level: WARNING
   output_dir: "./"
@@ -39,5 +40,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-5
+    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-6
     save_end_of_training: true

@@ -165,20 +165,14 @@ def packing_sft_dataset(
     # pack multiple samples into one sample
     # for data in dataset:
     # TODO: make it multi-process?
-    for data in tqdm(
-        dataset,
+    for input_ids, attention_mask, labels in tqdm(
+        zip(dataset["input_ids"], dataset["attention_mask"], dataset["labels"]),
         total=len(dataset),
         dynamic_ncols=True,
         file=sys.stdout,
         desc="Packing data",
         disable=rank != 0,
     ):
-        input_ids, attention_mask, labels = (
-            data["input_ids"],
-            data["attention_mask"],
-            data["labels"],
-        )
-
         if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
             example["input_ids"]
         ) > max_length:
@@ -219,17 +213,34 @@ class SFTDataConfig(DataConfig):
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
-    dataset = dataset.filter(
-        lambda x: len(x["input_ids"]) <= self.config.max_length,
-        num_proc=self.config.num_proc,
-        desc="Filtering dataset by max length",
-    )
-    if len(dataset) < 1:
-        raise ValueError(
-            f"No data left after filtering by max length {self.config.max_length} in"
-            f" {self.__class__.__name__}. Consider increasing the `max_length`."
-        )
-    return dataset
+    # indices = [
+    #     i for i, input_ids in tqdm(enumerate(dataset["input_ids"]),
+    #                                desc="Filtering dataset by max length",
+    #                                total=len(dataset))
+    #     if len(input_ids) <= self.config.max_length
+    # ]
+    # dataset = dataset.select(indices)
+    # if len(dataset) < 1:
+    #     raise ValueError(
+    #         f"No data left after filtering by max length {self.config.max_length} in"
+    #         f" {self.__class__.__name__}. Consider increasing the `max_length`."
+    #     )
+    # return dataset
+    train_dataset = {"input_ids": [], "attention_mask": [], "labels": []}
+    for input_ids, attention_mask, labels in tqdm(
+        zip(dataset["input_ids"], dataset["attention_mask"], dataset["labels"]),
+        total=len(dataset),
+        desc="Truncating dataset by max length",
+    ):
+        if len(input_ids) <= self.config.max_length:
+            train_dataset["input_ids"].append(input_ids)
+            train_dataset["attention_mask"].append(attention_mask)
+            train_dataset["labels"].append(labels)
+        else:
+            train_dataset["input_ids"].append(input_ids[: self.config.max_length])
+            train_dataset["attention_mask"].append(attention_mask[: self.config.max_length])
+            train_dataset["labels"].append(labels[: self.config.max_length])
+    return Dataset.from_dict(train_dataset)
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:

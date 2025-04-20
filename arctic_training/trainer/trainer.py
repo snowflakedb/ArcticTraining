@@ -349,7 +349,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         see_memory_usage("before forward", force=False)
 
         self.model.train()
+        if self.config.sequence_parallel_size > 1:
+            self.model.set_gradient_accumulation_boundary(False)
+
         loss = self.loss(batch)
+
+        if self.config.sequence_parallel_size > 1:
+        #    if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
+            # this breaks gas
+            self.model.set_gradient_accumulation_boundary(True)
+
         self.backward(loss)
 
         # XXX: do not delete until we get GAS working
@@ -376,7 +385,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
-        if self.global_step >= self.training_horizon:
+        if self.global_step >= self.training_horizon * 8:
             self.early_stop = True
 
         self.checkpoint()
