@@ -55,6 +55,10 @@ class DataSourceConfig(BaseConfig):
     https://huggingface.co/docs/datasets/en/loading#slice-splits.
     """
 
+    sample_ratio: Optional[float] = None
+
+    sample_count: Optional[int] = None
+
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
 

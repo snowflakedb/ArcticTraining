@@ -80,14 +80,6 @@ class LocPdBooks(HFDataSource):
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
 
-        import random
-        rng = random.Random(42)
-        indices = list(range(len(dataset)))
-        rng.shuffle(indices)
-        indices = list(sorted(indices[:1000]))
-
-        dataset = dataset.select(indices)
-
         def process_example(example):
             return {
                 "messages": [
@@ -229,6 +221,7 @@ class LMSysChat1M(HFDataSource):
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(self.vicuna_format_conversation, source_name="LMSYS-CHAT-1M"),
+            num_proc=self.data_factory.config.num_proc,
             desc="Loading lmsys",
         )
         return formatted_dataset

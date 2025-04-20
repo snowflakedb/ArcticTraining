@@ -165,14 +165,17 @@ def packing_sft_dataset(
     # pack multiple samples into one sample
     # for data in dataset:
     # TODO: make it multi-process?
-    for input_ids, attention_mask, labels in tqdm(
-        zip(dataset["input_ids"], dataset["attention_mask"], dataset["labels"]),
+    for data in tqdm(
+        dataset,
         total=len(dataset),
         dynamic_ncols=True,
         file=sys.stdout,
         desc="Packing data",
         disable=rank != 0,
     ):
+        input_ids = data["input_ids"]
+        labels = data["labels"]
+        attention_mask = data["attention_mask"]
         if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
             example["input_ids"]
         ) > max_length:
@@ -226,21 +229,17 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
     #         f" {self.__class__.__name__}. Consider increasing the `max_length`."
     #     )
     # return dataset
-    train_dataset = {"input_ids": [], "attention_mask": [], "labels": []}
-    for input_ids, attention_mask, labels in tqdm(
-        zip(dataset["input_ids"], dataset["attention_mask"], dataset["labels"]),
-        total=len(dataset),
+    def truncate(example):
+        if len(example["input_ids"]) <= self.config.max_length:
+            return example
+        for key in example.keys():
+            example[key] = example[key][: self.config.max_length]
+        return example
+    return dataset.map(
+        truncate,
+        num_proc=self.config.num_proc,
         desc="Truncating dataset by max length",
-    ):
-        if len(input_ids) <= self.config.max_length:
-            train_dataset["input_ids"].append(input_ids)
-            train_dataset["attention_mask"].append(attention_mask)
-            train_dataset["labels"].append(labels)
-        else:
-            train_dataset["input_ids"].append(input_ids[: self.config.max_length])
-            train_dataset["attention_mask"].append(attention_mask[: self.config.max_length])
-            train_dataset["labels"].append(labels[: self.config.max_length])
-    return Dataset.from_dict(train_dataset)
+    )
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
@@ -285,6 +284,7 @@ class SFTDataFactory(DataFactory):
                 )
             },
             num_proc=self.config.num_proc,
+            remove_columns=["messages"],
             desc="Tokenizing messages",
         )
 
