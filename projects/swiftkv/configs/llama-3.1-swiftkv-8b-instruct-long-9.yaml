@@ -17,14 +17,14 @@ data:
   sources:
     - type: lmsys/lmsys-chat-1m
       name_or_path: lmsys/lmsys-chat-1m
-      sample_count: 500000
+      sample_count: 1000000
     - type: nvidia/AceMath-Instruct-Training-Data
       name_or_path: nvidia/AceMath-Instruct-Training-Data
       split: general_sft_stage2
-      sample_count: 500000
+      sample_count: 1000000
     - type: storytracer/LoC-PD-Books
       name_or_path: storytracer/LoC-PD-Books
-      sample_count: 2500
+      sample_count: 5000
   use_data_cache: false
   cache_processed_data: true
   cache_dir: /data-fast/data-cache
@@ -44,5 +44,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-8
+    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-9
     save_end_of_training: true

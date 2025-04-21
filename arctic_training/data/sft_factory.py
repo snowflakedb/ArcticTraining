@@ -179,11 +179,10 @@ def packing_sft_dataset(
         if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
             example["input_ids"]
         ) > max_length:
-            for key in train_dataset.keys():
-                train_dataset[key].append(example[key])
-
+            if len(example["input_ids"]) >= 65536:
+                for key in train_dataset.keys():
+                    train_dataset[key].append(example[key])
             example = {key: [] for key in ds_keys}
-
         example["input_ids"].extend(input_ids)
         example["labels"].extend(labels)
         example["position_ids"].extend(list(range(len(input_ids))))
