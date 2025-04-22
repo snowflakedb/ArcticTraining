@@ -48,10 +48,20 @@ class SFTTrainer(Trainer):
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
+
         if self.config.sequence_parallel_size == 1:
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
         else:
+
+            # letting liger do fused logits+loss calculation
+            # XXX: update to the latest liger version and it can handle shift_labels
+            if 1:
+                batch["labels"] = batch.pop("shift_labels")
+                outputs = self.model(**batch, use_cache=False)
+                loss = outputs.loss
+                return loss
+
             # Ulysses SP
             # expectations:
             # 1. batch has labels replaced with shift_labels (which are already preshifted)

@@ -194,6 +194,26 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
             self.config.model.attn_implementation = "ulysses"
 
+        if self.config.sequence_parallel_size > 1:
+            # activation_checkpointing_cpu_offload becomes very benefitial at very long seqlen
+            # e.g., llama 8b at 800k (100k effective per gpu) will save 24GB per gpu: ((100_000*4096)*2*32/2**30)
+            # but for short sequence the offload will just slow things down,
+            # XXX: could parameterize or run a few lengths to see at which threshold it becomes beneficial - a user might still want this on even at shorter seqlen if they don't mind slower performance.
+            activation_checkpointing_cpu_offload_threshold = 300_000
+
+            if self.config.data.max_length > activation_checkpointing_cpu_offload_threshold:
+                # discussing adding this functionality to pytorch core (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
+                import torch.utils.checkpoint
+                from arctic_training.monkey_patches import CheckpointFunctionWithCPUOffload
+                torch.utils.checkpoint.CheckpointFunction = CheckpointFunctionWithCPUOffload
+
+            # XXX: this is probably too late to override, torch has been loaded
+            # but perhaps could give user a warning? but they will never see it
+            # import os
+            # PYTORCH_CUDA_ALLOC_CONF = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", None)
+            # if PYTORCH_CUDA_ALLOC_CONF is None:
+            #     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
         # see_memory_usage("after ulysses", force=True)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
