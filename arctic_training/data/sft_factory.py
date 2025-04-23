@@ -165,6 +165,7 @@ def packing_sft_dataset(
     # pack multiple samples into one sample
     # for data in dataset:
     # TODO: make it multi-process?
+    min_length = max_length // 2
     for data in tqdm(
         dataset,
         total=len(dataset),
@@ -179,7 +180,7 @@ def packing_sft_dataset(
         if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
             example["input_ids"]
         ) > max_length:
-            if len(example["input_ids"]) >= 65536:
+            if len(example["input_ids"]) >= min_length:
                 for key in train_dataset.keys():
                     train_dataset[key].append(example[key])
             example = {key: [] for key in ds_keys}
@@ -189,7 +190,7 @@ def packing_sft_dataset(
         example["attention_mask"].extend(attention_mask)
 
     # add the last example
-    if example["input_ids"]:
+    if len(example["input_ids"]) >= min_length:
         for key in train_dataset.keys():
             train_dataset[key].append(example[key])
 

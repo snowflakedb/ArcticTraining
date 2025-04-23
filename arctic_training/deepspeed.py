@@ -1147,11 +1147,13 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
         ctx.vocab_size = None
         ctx.shards = None
 
+        # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
+        shard_step = logits_shards[0].numel()
         for i in range(shards):
             logits_shard = logits_shards.pop(0)
             shift_labels_shard = shift_labels_shards.pop(0)
 
-            shard_offset = i * logits_shard.numel()
+            shard_offset = i * shard_step
             # this will enable gradual population of the pre-allocated `logits_shard.grad` during `torch.autograd.backward` calls
             logits_shard.grad = (
                 logits_grad.view(-1).narrow(0, shard_offset, logits_shard.numel()).view_as(logits_shard)

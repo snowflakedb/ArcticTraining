@@ -31,6 +31,7 @@ data:
   num_proc: 16
   max_length: 131072
   mask_inputs: false
+  seed: 43
 logger:
   level: INFO
   output_dir: "./"
