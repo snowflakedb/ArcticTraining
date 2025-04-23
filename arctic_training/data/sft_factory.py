@@ -256,6 +256,7 @@ class SFTDataFactory(DataFactory):
                     mask_inputs=self.config.mask_inputs,
                 )
             },
+            remove_columns=dataset.column_names,
             num_proc=self.config.num_proc,
             desc="Tokenizing messages",
         )
