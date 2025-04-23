@@ -20,7 +20,6 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from datasets import LazyBatch
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
 from transformers import BatchEncoding
@@ -147,7 +146,9 @@ class DataCollatorForCausalLM:
         }
 
 
-def pack_sft_batch(batch: LazyBatch, max_length: int, always_max_length: bool) -> Dict[str, List[List[int]]]:
+def pack_sft_batch(
+    batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
+) -> Dict[str, List[List[int]]]:
     keys = ("input_ids", "labels", "position_ids", "attention_mask")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
