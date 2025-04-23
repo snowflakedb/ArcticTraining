@@ -212,6 +212,7 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     batch_size = len(dataset) // self.config.num_proc + 1
+    dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
         lambda x: pack_sft_batch(
             x, max_length=self.config.max_length, always_max_length=self.config.always_max_length
