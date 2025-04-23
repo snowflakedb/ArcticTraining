@@ -49,6 +49,28 @@ class SFTTrainer(Trainer):
         batch = to_device(batch, self.device)
 
 
+        enable_tiling = False
+
+        if enable_tiling:
+            model_with_head = self.model_unwrapped
+            outputs = model_with_head.model(**batch, use_cache=False)
+            hidden_states = outputs.last_hidden_state
+
+            # logits_to_keep = 0
+            # # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
+            # slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
+            #logits = model_with_head.lm_head(hidden_states[:, slice_indices, :])
+            logits = model_with_head.lm_head(hidden_states)
+
+            labels = None # XXX: will generalize later
+            shift_labels = batch.pop("shift_labels") # XXX: will generalize later
+            loss = model_with_head.loss_function(logits=logits, labels=labels, vocab_size=model_with_head.config.vocab_size, shift_labels=shift_labels)
+
+            return loss
+
+
+
+
         if self.config.sequence_parallel_size == 1:
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
@@ -56,9 +78,17 @@ class SFTTrainer(Trainer):
 
             # letting liger do fused logits+loss calculation
             # XXX: update to the latest liger version and it can handle shift_labels
-            if 1:
+            if 0:
+                # This needs to be removed once liger new version is out track https://github.com/linkedin/Liger-Kernel/issues/675
                 batch["labels"] = batch.pop("shift_labels")
+                #batch["labels"] = None
                 outputs = self.model(**batch, use_cache=False)
+                # XXX: try to adapt this code to perform a faster and simpler activation checkpoint offloading instead of monkey patching torch's checkpoint mechanism
+                # watch this Issue:
+                # if experimenting with this disable activation_checkpointing_cpu_offload_threshold code branch
+                #from arctic_training.monkey_patches import OffloadActivations
+                #with OffloadActivations():
+                #    outputs = self.model(**batch, use_cache=False)
                 loss = outputs.loss
                 return loss
 
@@ -84,7 +114,7 @@ class SFTTrainer(Trainer):
 
             # XXX: parameterize
             num_loss_logit_shards: Any = "auto"
-            # num_loss_logit_shards: Any = 1
+            #num_loss_logit_shards: Any = 2
 
             if all((shift_labels == -100).squeeze()):
                 # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
@@ -100,13 +130,49 @@ class SFTTrainer(Trainer):
                     # print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
                 if num_loss_logit_shards > 1:
                     # if shards == 1 this will lead to a higher memory usage then calling the normal loss function, so don't do that.
-                    loss = ChunkedMemEfficientLoss.apply(
-                        self.model_unwrapped.loss_function,
-                        logits,
-                        self.model_unwrapped.config.vocab_size,
-                        shift_labels,
-                        num_loss_logit_shards,
+
+                    kwargs_to_shard = dict(
+                        logits=logits,
+                        shift_labels=shift_labels,
                     )
+                    kwargs_to_pass = dict(
+                        vocab_size=self.model_unwrapped.config.vocab_size
+                    )
+                    grad_requiring_tensor_key="logits"
+                    seqlen = shift_labels.shape[1]
+
+                    def loss_fn(logits=None, labels=None, shift_labels=None, vocab_size=0):
+                        if all((shift_labels == -100).squeeze()):
+                            # fake loss calculation, since CE will return nan, but grads will be set
+                            # a normal loss_fn upcasts logits to float so match it
+                            loss = (logits_shard.sum() * 0.0).float()
+                        else:
+                            loss = self.model_unwrapped.loss_function(
+                                logits=logits,
+                                labels=None,
+                                vocab_size=vocab_size,
+                                shift_labels=shift_labels,
+                            )
+                        return loss
+
+                    from arctic_training.deepspeed import sequence_tiling_compute
+                    loss = sequence_tiling_compute(
+                        loss_fn,
+                        seqlen,
+                        num_loss_logit_shards,
+                        kwargs_to_shard,
+                        kwargs_to_pass,
+                        grad_requiring_tensor_key, # XXX: multiple keys for the general case?
+                    )
+
+                    # # if shards == 1 this will lead to a higher memory usage then calling the normal loss function, so don't do that.
+                    # loss = ChunkedMemEfficientLoss.apply(
+                    #     self.model_unwrapped.loss_function,
+                    #     logits,
+                    #     self.model_unwrapped.config.vocab_size,
+                    #     shift_labels,
+                    #     num_loss_logit_shards,
+                    # )
                 else:
                     loss = self.model_unwrapped.loss_function(
                         logits=logits,
