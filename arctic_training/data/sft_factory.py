@@ -157,7 +157,7 @@ def pack_sft_batch(batch: LazyBatch, max_length: int, always_max_length: bool) -
         return total_len > max_length or (not always_max_length and total_len + len(input_ids) > max_length)
 
     def flush() -> None:
-        if current_sample["input_ids"]:
+        if len(current_sample["input_ids"]) > 0:
             for k in keys:
                 packed_batch[k].append(current_sample[k])
                 current_sample[k] = []
