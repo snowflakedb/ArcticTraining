@@ -18,7 +18,7 @@ from typing import List
 
 import pytest
 
-from .utils import create_sft_data_factory
+from .utils import create_data_factory
 
 
 @pytest.mark.parametrize(
@@ -35,7 +35,11 @@ from .utils import create_sft_data_factory
     ],
 )
 def test_generated_data(model_name: str, training_sources: List[str], expected_sum: int, tmp_path: Path):
-    sft_data_factory = create_sft_data_factory(model_name=model_name, sources=training_sources, cache_dir=tmp_path)
+    sft_data_factory = (
+        create_data_factory(
+            model_name=model_name, data_config_kwargs=dict(type="sft", sources=training_sources, cache_dir=tmp_path)
+        ),
+    )
     training_dataloader, _ = sft_data_factory()
 
     # Quick check that the data is the same as expected. The sum value was
@@ -52,12 +56,57 @@ def test_sft_factory_cache_path_uniqueness(model_name: str, tmp_path: Path):
         "HuggingFaceH4/ultrachat_200k",
         "Open-Orca/SlimOrca",
     ]
-    data_factory_1 = create_sft_data_factory(model_name=model_name, sources=data_sources, cache_dir=tmp_path)
+    data_factory_1 = create_data_factory(
+        model_name=model_name, data_config_kwargs=dict(type="sft", sources=data_sources, cache_dir=tmp_path)
+    )
 
     data_sources = data_sources[:1]
-    data_factory_2 = create_sft_data_factory(model_name=model_name, sources=data_sources, cache_dir=tmp_path)
+    data_factory_2 = create_data_factory(
+        model_name=model_name, data_config_kwargs=dict(type="sft", sources=data_sources, cache_dir=tmp_path)
+    )
 
     cache_path_1 = data_factory_1.cache_path(data_factory_1._get_data_sources(data_factory_1.config.sources))
     cache_path_2 = data_factory_2.cache_path(data_factory_2._get_data_sources(data_factory_2.config.sources))
 
     assert cache_path_1 != cache_path_2, "Cache paths were not unique"
+
+
+def test_pad_to_fail(model_name: str):
+    with pytest.raises(ValueError, match=r"You have requested padding sequences"):
+        create_data_factory(
+            model_name=model_name,
+            data_config_kwargs=dict(
+                type="sft", sources=["HuggingFaceH4/ultrachat_200k"], pad_to="max_length", max_length=13, div_length=7
+            ),
+        )
+
+
+def test_pad_to(model_name: str, tmp_path: Path):
+    data_factory = create_data_factory(
+        model_name=model_name,
+        data_config_kwargs=dict(
+            type="sft",
+            sources=["HuggingFaceH4/ultrachat_200k:train[:20]"],
+            pad_to="max_length",
+            max_length=1024,
+            cache_dir=tmp_path,
+        ),
+    )
+    dataloader, _ = data_factory()
+    for batch in dataloader:
+        assert batch["input_ids"].shape[1] == 1024, "Incorrect padded sequence length"
+
+    data_factory = create_data_factory(
+        model_name=model_name,
+        data_config_kwargs=dict(
+            type="sft",
+            sources=["HuggingFaceH4/ultrachat_200k:train[:20]"],
+            pad_to="div_length",
+            max_length=1000,
+            div_length=256,
+            cache_dir=tmp_path,
+        ),
+    )
+    dataloader, _ = data_factory()
+    for batch in dataloader:
+        assert batch["input_ids"].shape[1] % 256 == 0, "Incorrect padded sequence length"
