@@ -145,7 +145,7 @@ class SFTTrainer(Trainer):
                         if all((shift_labels == -100).squeeze()):
                             # fake loss calculation, since CE will return nan, but grads will be set
                             # a normal loss_fn upcasts logits to float so match it
-                            loss = (logits_shard.sum() * 0.0).float()
+                            loss = (logits.sum() * 0.0).float()
                         else:
                             loss = self.model_unwrapped.loss_function(
                                 logits=logits,
