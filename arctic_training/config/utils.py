@@ -64,9 +64,10 @@ def parse_human_val(value: Union[str, int, float]) -> float:
             base, exp = map(float, match_exp.groups())
             return base * 10**exp
 
-        # Handle suffixes like k, m, b
-        suffixes = {s: 10 ** (i * 3) for i, s in enumerate("kmbt", start=1)}
-        match_suffix = re.match(r"^(-?\d+\.?\d?)([kmbt])$", value)
+        # Handle suffixes like k, m, b (base 10) and ki, mi, gi (base 2)
+        suffixes = {s: 10 ** (i * 3) for i, s in enumerate(("k", "m", "b", "t"), start=1)}
+        suffixes.update({s: 2 ** (i * 10) for i, s in enumerate(("ki", "mi", "gi", "ti"), start=1)})
+        match_suffix = re.match(rf"^(-?\d+\.?\d?)({'|'.join(suffixes.keys())})$", value)
         if match_suffix:
             num, suffix = match_suffix.groups()
             return float(num) * suffixes[suffix]

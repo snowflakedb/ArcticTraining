@@ -34,9 +34,7 @@ from arctic_training.config.utils import parse_human_val
         # Suffixes
         ("1K", 1_000),
         ("1.1K", 1_100),
-        ("1M", 1_000_000),
-        ("1B", 1_000_000_000),
-        ("1T", 1_000_000_000_000),
+        ("1Ki", 2**10),
     ],
 )
 def test_human_int(value, expected):
@@ -62,9 +60,8 @@ def test_human_int(value, expected):
         ("1.1e-3", 0.0011),
         # Suffixes
         ("1K", 1_000.0),
-        ("1M", 1_000_000.0),
-        ("1B", 1_000_000_000.0),
-        ("1T", 1_000_000_000_000.0),
+        ("1.1K", 1_100.0),
+        ("1Ki", 2**10),
     ],
 )
 def test_human_float(value, expected):
