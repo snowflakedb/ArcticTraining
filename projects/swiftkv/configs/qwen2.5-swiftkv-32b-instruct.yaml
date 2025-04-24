@@ -20,7 +20,7 @@ data:
     - ise-uiuc/Magicoder-OSS-Instruct-75K
   use_data_cache: true
   cache_processed_data: true
-  cache_dir: /data-fast/data-cache
+  cache_dir: /data/data-cache
   num_proc: 16
   max_length: 8192
 logger:
@@ -36,5 +36,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /data-fast/qwen2.5-swiftkv-32b-instruct
+    output_dir: /data/qwen2.5-swiftkv-32b-instruct
     save_end_of_training: true
