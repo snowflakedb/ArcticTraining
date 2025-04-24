@@ -20,25 +20,24 @@ from typing import Type
 from pydantic import Field
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.config.utils import HumanFloat
+from arctic_training.registry import get_registered_optimizer_factory
 
 if TYPE_CHECKING:
     from arctic_training.optimizer.factory import OptimizerFactory
-
-
-from arctic_training.registry import get_registered_optimizer_factory
 
 
 class OptimizerConfig(BaseConfig):
     type: str = ""
     """ Optimizer factory type. Defaults to the `optimizer_factory_type` of the trainer. """
 
-    weight_decay: float = Field(default=0.1, ge=0.0)
+    weight_decay: HumanFloat = Field(default=0.1, ge=0.0)
     """ Coefficient for L2 regularization applied to the optimizer's weights. """
 
     betas: Tuple[float, float] = (0.9, 0.999)
     """ Tuple of coefficients used for computing running averages of gradient and its square (e.g., (beta1, beta2) for Adam). """
 
-    learning_rate: float = Field(default=5e-4, ge=0.0, alias="lr")
+    learning_rate: HumanFloat = Field(default=5e-4, ge=0.0, alias="lr")
     """ The initial learning rate. """
 
     @property
