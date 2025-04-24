@@ -1221,13 +1221,13 @@ def sequence_tiling_compute(fn, seqlen, shards, kwargs_to_shard, kwargs_to_pass,
 
         Args:
         [...]
-        - reduction: none, mean or sum
+        - reduction: None, "mean" or "sum"
 
         Returns:
         - unsharded output with an optional reduction applied, depending on the `reduction` value:
-            none - return the unsharded output tensor
-            mean - apply mean
-            sum - apply sum
+            None - return the unsharded output tensor
+            "mean" - apply mean
+            "sum" - apply sum
 
     """
     args_to_shard = kwargs_to_shard.values()
@@ -1263,6 +1263,9 @@ class SequenceTilingCompute(torch.autograd.Function):
         #print(f"{kwargs_to_shard=}")
         #print(f"{kwargs_to_pass=}")
 
+        shift_labels = kwargs_to_shard["shift_labels"]
+        total_good_items = sum((shift_labels != -100).squeeze())
+
         with torch.no_grad():
             shard_step = math.ceil(seqlen / shards)
             output_shards = []
@@ -1275,7 +1278,8 @@ class SequenceTilingCompute(torch.autograd.Function):
                 output_shards.append(output)
 
             output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=0)
-            if reduction == "none":
+
+            if reduction is None:
                 return output_unsharded
             elif reduction == "mean":
                 return output_unsharded.mean()
@@ -1301,12 +1305,12 @@ class SequenceTilingCompute(torch.autograd.Function):
         incoming_grad = grads[0]
         grad_requiring_tensor_grad = torch.zeros_like(grad_requiring_tensor)
 
-        kwargs_to_shard_shards = {k:list(torch.chunk(kwargs_to_shard[k], chunks=shards, dim=1)) for k in kwargs_to_shard}
+        kwargs_to_shard_shards = {k:list(torch.chunk(kwargs_to_shard[k], chunks=shards, dim=1)) for k in kwargs_to_shard.keys()}
 
         # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
         shard_step = kwargs_to_shard_shards[grad_requiring_tensor_key][0].numel()
         for i in range(shards):
-            kwargs_to_shard_shard = {k:kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards}
+            kwargs_to_shard_shard = {k:kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards.keys()}
             grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key].requires_grad_()
             # print(f"{i} {grad_requiring_tensor_shard.numel()=}")
 

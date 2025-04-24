@@ -141,29 +141,38 @@ class SFTTrainer(Trainer):
                     grad_requiring_tensor_key="logits"
                     seqlen = shift_labels.shape[1]
 
+                    # since -100s shift_labels are ignored we have to perform a weighted average on each loss slice as each slice may contribute a different number of non- -100 labels
                     def loss_fn(logits=None, labels=None, shift_labels=None, vocab_size=0):
+                        """
+                        will return loss*good_items so that weighted loss could be calculated at the end
+                        """
                         if all((shift_labels == -100).squeeze()):
                             # fake loss calculation, since CE will return nan, but grads will be set
                             # a normal loss_fn upcasts logits to float so match it
-                            loss = (logits.sum() * 0.0).float()
+                            loss_sum = (logits.sum() * 0.0).float()
                         else:
+                            good_items = sum((shift_labels != -100).squeeze())
                             loss = self.model_unwrapped.loss_function(
                                 logits=logits,
                                 labels=None,
                                 vocab_size=vocab_size,
                                 shift_labels=shift_labels,
                             )
-                        return loss
+                            loss_sum = loss*good_items
+                        return loss_sum
 
                     from arctic_training.deepspeed import sequence_tiling_compute
-                    loss = sequence_tiling_compute(
+                    total_loss_sum = sequence_tiling_compute(
                         loss_fn,
                         seqlen,
                         num_loss_logit_shards,
                         kwargs_to_shard,
                         kwargs_to_pass,
                         grad_requiring_tensor_key, # XXX: multiple keys for the general case?
+                        reduction="sum",
                     )
+                    total_good_items = sum((shift_labels != -100).squeeze())
+                    loss = total_loss_sum / total_good_items
 
                     # # if shards == 1 this will lead to a higher memory usage then calling the normal loss function, so don't do that.
                     # loss = ChunkedMemEfficientLoss.apply(
