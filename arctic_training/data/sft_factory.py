@@ -16,17 +16,20 @@
 import sys
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 
 import numpy as np
 import torch
 from datasets import Dataset
+from pydantic import model_validator
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
 from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
+from typing_extensions import Self
 
 from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
@@ -216,6 +219,24 @@ class SFTDataConfig(DataConfig):
     appending samples until the total length matches the max length. It might
     cause the last sample to be truncated.
     """
+
+    pad_to: Literal["max_length", "div_length"] = "div_length"
+    """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
+
+    @model_validator(mode="after")
+    def validate_padding(self) -> Self:
+        if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
+            if self.max_length % self.div_length != 0:
+                lower_val = (self.max_length // self.div_length) * self.div_length
+                higher_val = lower_val + self.div_length
+                raise ValueError(
+                    "You have requested padding sequences to 'max_length' with incompatible max_length"
+                    f" ({self.max_length}) and div_length ({self.div_length}). Either remove `div_length` from your"
+                    f" config or set `max_length` to {lower_val} or {higher_val}, the two closest values divisible by"
+                    f" {self.div_length}.max_length ({self.max_length}) must be divisible by div_length"
+                    f" ({self.div_length}) when pad_to is 'max_length'"
+                )
+        return self
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
