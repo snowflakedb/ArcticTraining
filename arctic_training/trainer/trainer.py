@@ -385,7 +385,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps
-        if self.global_step >= self.training_horizon * 8:
+        if self.global_step >= self.training_horizon * self.config.sequence_parallel_size:
             self.early_stop = True
 
         self.checkpoint()
