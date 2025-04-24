@@ -137,7 +137,7 @@ class SwiftKVTrainer(SFTTrainer):
         return loss
 
     def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
-        # Soften the student logits by applying softmax first and log() second
+        # Soften the student logits by applying softmax() first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)
 
