@@ -29,6 +29,7 @@ from transformers import PreTrainedTokenizerBase
 from typing_extensions import Self
 
 from arctic_training.config.data import DataConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
 
@@ -192,10 +193,10 @@ def pack_sft_batch(
 
 
 class SFTDataConfig(DataConfig):
-    max_length: int = 8192
+    max_length: HumanInt = 8192
     """ Maximum length of the input sequence. """
 
-    div_length: int = 256
+    div_length: HumanInt = 256
     """ The number that the length of the sequence should be divisible by. """
 
     mask_inputs: bool = True
