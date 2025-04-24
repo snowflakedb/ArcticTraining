@@ -46,6 +46,7 @@ from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.config.utils import HumanInt
 from arctic_training.config.utils import UniqueKeyLoader
+from arctic_training.config.utils import parse_human_val
 from arctic_training.config.wandb import WandBConfig
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
@@ -310,6 +311,25 @@ class TrainerConfig(BaseConfig):
 
         setup_logger(v)
         return v
+
+    @field_validator("deepspeed", mode="before")
+    @classmethod
+    def coerce_deepspeed_human_friendly_values(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        # Allow human friendly values for deepspeed config. This is a workaround
+        # until we upstream this feature to the DeepSpeed pydantic configs.
+        def coerce_dict_values(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+            coerced_dict: Dict[str, Any] = {}
+            for key, value in config_dict.items():
+                if isinstance(value, dict):
+                    coerced_dict[key] = coerce_dict_values(value)
+                else:
+                    try:
+                        coerced_dict[key] = parse_human_val(value)
+                    except Exception:
+                        coerced_dict[key] = value
+            return coerced_dict
+
+        return coerce_dict_values(v)
 
     @model_validator(mode="after")
     def build_deepspeed_config(self) -> Self:
