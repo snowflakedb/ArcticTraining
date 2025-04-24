@@ -15,15 +15,18 @@
 
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 
 import numpy as np
 import torch
+from pydantic import model_validator
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
+from typing_extensions import Self
 
 from arctic_training.config.data import DataConfig
 from arctic_training.data.factory import DataFactory
@@ -135,9 +138,18 @@ class DataCollatorForCausalLM:
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
 
-        input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
-        labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
-        position_ids = pad(position_ids, divisible_by=self.config.div_length, padding_value=0, is_position_id=True)
+        if self.config.pad_to == "max_length":
+            pad_kwargs = {"max_seq": self.config.max_length}
+        elif self.config.pad_to == "div_length":
+            pad_kwargs = {"divisible_by": self.config.div_length}
+        else:
+            raise ValueError(
+                f"Unknown pad_to value: {self.config.pad_to}. Valid values are 'max_length' and 'div_length'."
+            )
+
+        input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id, **pad_kwargs)
+        labels = pad(labels, padding_value=IGNORE_INDEX, **pad_kwargs)
+        position_ids = pad(position_ids, padding_value=0, is_position_id=True, **pad_kwargs)
 
         return {
             "input_ids": input_ids,
@@ -195,6 +207,24 @@ class SFTDataConfig(DataConfig):
     appending samples until the total length matches the max length. It might
     cause the last sample to be truncated.
     """
+
+    pad_to: Literal["max_length", "div_length"] = "div_length"
+    """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
+
+    @model_validator(mode="after")
+    def validate_padding(self) -> Self:
+        if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
+            if self.max_length % self.div_length != 0:
+                lower_val = (self.max_length // self.div_length) * self.div_length
+                higher_val = lower_val + self.div_length
+                raise ValueError(
+                    "You have requested padding sequences to 'max_length' with incompatible max_length"
+                    f" ({self.max_length}) and div_length ({self.div_length}). Either remove `div_length` from your"
+                    f" config or set `max_length` to {lower_val} or {higher_val}, the two closest values divisible by"
+                    f" {self.div_length}.max_length ({self.max_length}) must be divisible by div_length"
+                    f" ({self.div_length}) when pad_to is 'max_length'"
+                )
+        return self
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:

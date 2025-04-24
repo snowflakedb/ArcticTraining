@@ -13,29 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
 from types import SimpleNamespace
-from typing import List
+from typing import Dict
 
 from transformers import AutoTokenizer
 
 from arctic_training.config.tokenizer import TokenizerConfig
-from arctic_training.data.sft_factory import SFTDataConfig
-from arctic_training.data.sft_factory import SFTDataFactory
+from arctic_training.data.factory import DataFactory
+from arctic_training.registry import _get_class_attr_type_hints
+from arctic_training.registry import get_registered_data_factory
 
 
-def create_sft_data_factory(
+def create_data_factory(
     model_name: str,
-    sources: List[str],
-    cache_dir: Path,
-    eval_sources: List[str] = [],
-) -> SFTDataFactory:
-    data_config = SFTDataConfig(
-        type="sft",
-        sources=sources,
-        eval_sources=eval_sources,
-        cache_dir=cache_dir,
-    )
+    data_config_kwargs: Dict,
+) -> DataFactory:
+    # Default to "sft" type if not provided
+    data_config_kwargs["type"] = data_config_kwargs.get("type", "sft")
+
+    factory_cls = get_registered_data_factory(data_config_kwargs["type"])
+    data_config_cls = _get_class_attr_type_hints(factory_cls, "config")[0]
+    data_config = data_config_cls(**data_config_kwargs)
+
     tokenizer_config = TokenizerConfig(type="huggingface", name_or_path=model_name)
 
     dummy_trainer = SimpleNamespace(
