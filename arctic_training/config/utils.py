@@ -51,6 +51,10 @@ def parse_human_val(value: Union[str, int, float]) -> float:
         value = value.replace("_", "")
         value = value.lower().strip()
 
+        # Handle percentage values
+        if value.endswith("%"):
+            return float(value[:-1]) / 100
+
         # Handle X^Y expressions
         match_exp = re.match(r"^(-?\d+\.?\d?)\^(-?\d+\.?\d?)$", value)
         if match_exp:
