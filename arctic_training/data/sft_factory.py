@@ -141,9 +141,16 @@ class DataCollatorForCausalLM:
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
 
-        input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
-        labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
-        position_ids = pad(position_ids, divisible_by=self.config.div_length, padding_value=0, is_position_id=True)
+        if self.config.pad_to == "max_length":
+            pad_kwargs = {"max_seq": self.config.max_length}
+        elif self.config.pad_to == "div_length":
+            pad_kwargs = {"divisible_by": self.config.div_length}
+        else:
+            raise ValueError(f"Unknown pad_to value: {self.config.pad_to}")
+
+        input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id, **pad_kwargs)
+        labels = pad(labels, padding_value=IGNORE_INDEX, **pad_kwargs)
+        position_ids = pad(position_ids, padding_value=0, is_position_id=True, **pad_kwargs)
 
         return {
             "input_ids": input_ids,
