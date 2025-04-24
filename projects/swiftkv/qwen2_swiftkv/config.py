@@ -24,10 +24,9 @@ class Qwen2SwiftKVConfig(Qwen2Config):
         num_key_value_layers (int, optional):
             The number of layers, from the first layer, that have keys and
             values. If None, all layers have keys and values.
-        last_key_value_heads (int, optional):
-            The number of heads in the last layer that have keys and values.
-            If None, the number of heads in the last key-value layer is equal
-            to the number of heads in all the other key-value layers.
+        key_value_group_size (int, optional):
+            The number of layers in each group after num_key_value_layers
+            that will share a single KV cache.
     """
 
     model_type = "qwen2_swiftkv"
