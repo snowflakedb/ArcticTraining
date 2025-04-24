@@ -79,14 +79,7 @@ def test_human_float(value, expected):
     ), f"Failed for input '{neg_value}', expected parsed value: {-expected}"
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        "1.5",
-        "1e-3",
-        "1.00001K",
-    ],
-)
+@pytest.mark.parametrize("value", ["1.5", "1e-3", "1.00001K"])
 def test_human_int_invalid(value):
     class TestConfig(BaseConfig):
         val: HumanInt
