@@ -26,7 +26,7 @@ format: ## fix formatting
 		pre-commit clean; \
 		pre-commit uninstall; \
 		pre-commit install; \
-                deactivate; \
+		deactivate; \
 	fi
 	. venv/bin/activate && pre-commit run --all-files && deactivate
 
