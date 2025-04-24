@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -21,10 +20,8 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from datasets import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
-from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
@@ -149,55 +146,37 @@ class DataCollatorForCausalLM:
         }
 
 
-def packing_sft_dataset(
-    dataset: DatasetType,
-    seed: int,
-    rank: int,
-    max_length: int,
-    always_max_length: bool,
-) -> DatasetType:
-    # packing for sft / cpt are different
-    dataset = dataset.shuffle(seed=seed + rank)
-    ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
-    train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
-    example: Dict[str, List] = {key: [] for key in ds_keys}
+def pack_sft_batch(
+    batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
+) -> Dict[str, List[List[int]]]:
+    keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
+    current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
-    # pack multiple samples into one sample
-    # for data in dataset:
-    # TODO: make it multi-process?
-    for data in tqdm(
-        dataset,
-        total=len(dataset),
-        dynamic_ncols=True,
-        file=sys.stdout,
-        desc="Packing data",
-        disable=rank != 0,
-    ):
-        input_ids, attention_mask, labels = (
-            data["input_ids"],
-            data["attention_mask"],
-            data["labels"],
-        )
+    def should_flush() -> bool:
+        total_len = len(current_sample["input_ids"])
+        return total_len > max_length or (not always_max_length and total_len + len(input_ids) > max_length)
 
-        if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
-            example["input_ids"]
-        ) > max_length:
-            for key in train_dataset.keys():
-                train_dataset[key].append(example[key])
+    def flush() -> None:
+        if len(current_sample["input_ids"]) > 0:
+            for k in keys:
+                packed_batch[k].append(current_sample[k])
+                current_sample[k] = []
 
-            example = {key: [] for key in ds_keys}
+    # Pack multiple samples into one sample
+    for input_ids, labels, attention_mask in zip(batch["input_ids"], batch["labels"], batch["attention_mask"]):
+        if should_flush():
+            flush()
 
-        example["input_ids"].extend(input_ids)
-        example["labels"].extend(labels)
-        example["position_ids"].extend(list(range(len(input_ids))))
-        example["attention_mask"].extend(attention_mask)
+        current_sample["input_ids"].extend(input_ids)
+        current_sample["labels"].extend(labels)
+        current_sample["attention_mask"].extend(attention_mask)
+        current_sample["position_ids"].extend(range(len(input_ids)))
 
-    # add the last example
-    if example["input_ids"]:
-        for key in train_dataset.keys():
-            train_dataset[key].append(example[key])
+    # Add the last example
+    flush()
 
-    return Dataset.from_dict(train_dataset)
+    return packed_batch
 
 
 class SFTDataConfig(DataConfig):
@@ -233,12 +212,16 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
-    dataset = packing_sft_dataset(
-        dataset,
-        seed=self.config.seed,
-        rank=self.global_rank,
-        max_length=self.config.max_length,
-        always_max_length=self.config.always_max_length,
+    batch_size = len(dataset) // self.config.num_proc + 1
+    dataset = dataset.shuffle(seed=self.config.seed)
+    dataset = dataset.map(
+        lambda x: pack_sft_batch(
+            x, max_length=self.config.max_length, always_max_length=self.config.always_max_length
+        ),
+        batched=True,
+        batch_size=batch_size,
+        num_proc=self.config.num_proc,
+        desc="Packing dataset",
     )
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
@@ -273,6 +256,7 @@ class SFTDataFactory(DataFactory):
                     mask_inputs=self.config.mask_inputs,
                 )
             },
+            remove_columns=dataset.column_names,
             num_proc=self.config.num_proc,
             desc="Tokenizing messages",
         )
