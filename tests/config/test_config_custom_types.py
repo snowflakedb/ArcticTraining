@@ -85,7 +85,7 @@ def test_human_int_invalid(value):
         val: HumanInt
 
     with pytest.raises(Exception):
-        print(f"Value: {TestConfig(val=value).val}")
+        TestConfig(val=value)
 
 
 @pytest.mark.parametrize("value", ["err", "1Ke3", "1^10e2", "1K^2", "1K^2e3"])
