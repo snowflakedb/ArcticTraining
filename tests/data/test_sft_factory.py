@@ -35,10 +35,8 @@ from .utils import create_data_factory
     ],
 )
 def test_generated_data(model_name: str, training_sources: List[str], expected_sum: int, tmp_path: Path):
-    sft_data_factory = (
-        create_data_factory(
-            model_name=model_name, data_config_kwargs=dict(type="sft", sources=training_sources, cache_dir=tmp_path)
-        ),
+    sft_data_factory = create_data_factory(
+        model_name=model_name, data_config_kwargs=dict(type="sft", sources=training_sources, cache_dir=tmp_path)
     )
     training_dataloader, _ = sft_data_factory()
 
