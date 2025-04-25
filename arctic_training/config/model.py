@@ -22,7 +22,6 @@ from typing import Type
 from typing import Union
 
 import peft
-from peft import PeftConfig
 from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
@@ -52,7 +51,7 @@ class ModelConfig(BaseConfig):
     disable_activation_checkpoint: bool = False
     """ Disable the use of activation checkpointing. """
 
-    peft_config: Optional[PeftConfig] = None
+    peft_config: Optional[Dict] = None
     """ Configuration for Parameter Efficient Fine Tuning. """
 
     @property
@@ -61,7 +60,7 @@ class ModelConfig(BaseConfig):
 
     @field_validator("peft_config", mode="before")
     @classmethod
-    def get_peft_config_type(cls, value: Union[None, Dict[str, Any]]) -> Optional[PeftConfig]:
+    def get_peft_config_type(cls, value: Union[None, Dict[str, Any]]) -> Optional[Dict]:
         if value is None:
             return value
 
