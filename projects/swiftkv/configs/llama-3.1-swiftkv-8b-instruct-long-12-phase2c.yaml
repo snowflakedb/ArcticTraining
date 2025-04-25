@@ -28,6 +28,7 @@ data:
   cache_dir: /data-fast/data-cache
   num_proc: 16
   max_length: 8192
+  min_length: 4096
 logger:
   level: INFO
   output_dir: "./"

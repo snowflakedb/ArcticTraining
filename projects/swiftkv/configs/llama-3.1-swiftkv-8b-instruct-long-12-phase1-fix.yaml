@@ -23,6 +23,7 @@ data:
   cache_dir: /data-fast/data-cache
   num_proc: 16
   max_length: 131072
+  min_length: 65536
   mask_inputs: false
 logger:
   level: INFO
