@@ -1,0 +1,47 @@
+type: swiftkv
+code: ../train.py
+micro_batch_size: 1
+sequence_parallel_size: 8
+epochs: 1
+gradient_accumulation_steps: 1
+temperature: 2.0
+model:
+  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  num_key_value_layers: 16
+  key_value_group_size: 1
+  attn_implementation: flash_attention_2
+deepspeed:
+  zero_optimization:
+    stage: 2
+data:
+  sources:
+    - HuggingFaceH4/ultrachat_200k
+    - lmsys/lmsys-chat-1m
+    - meta-math/MetaMathQA
+    - ise-uiuc/Magicoder-OSS-Instruct-75K
+    - THUDM/LongAlign-10k
+    - Yukang/LongAlpaca-12k
+    - type: storytracer/LoC-PD-Books
+      name_or_path: storytracer/LoC-PD-Books
+      sample_count: 2500
+  use_data_cache: false
+  cache_processed_data: true
+  cache_dir: /data-fast/data-cache
+  num_proc: 16
+  max_length: 131072
+  mask_inputs: false
+logger:
+  level: INFO
+  output_dir: "./"
+  file_output_ranks: [0]
+scheduler:
+  warmup_ratio: 0.05
+optimizer:
+  betas: [0.9,0.999]
+  weight_decay: 0.0
+  lr: 0.0002
+checkpoint:
+  - type: huggingface
+    save_every_n_epochs: 1
+    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-10
+    save_end_of_training: true

@@ -94,6 +94,25 @@ class LocPdBooks(HFDataSource):
         )
 
 
+class ProjectGutenberg(HFDataSource):
+    name = "manu/project_gutenberg"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+
+        def process_example(example):
+            return {
+                "messages": [
+                    {"role": "user", "content": example["text"]}
+                ]
+            }
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading Project Gutenberg",
+        )
+
+
 class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
