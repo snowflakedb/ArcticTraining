@@ -15,14 +15,12 @@
 
 from pathlib import Path
 from typing import TYPE_CHECKING
-from typing import Any
 from typing import Dict
 from typing import Optional
 from typing import Type
 from typing import Union
 
 import peft
-from peft import PeftConfig
 from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
@@ -52,29 +50,33 @@ class ModelConfig(BaseConfig):
     disable_activation_checkpoint: bool = False
     """ Disable the use of activation checkpointing. """
 
-    peft_config: Optional[PeftConfig] = None
+    peft_config: Optional[Dict] = None
     """ Configuration for Parameter Efficient Fine Tuning. """
 
     @property
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(name=self.type)
 
+    @property
+    def peft_config_obj(self) -> peft.PeftConfig:
+        if self.peft_config is None:
+            raise ValueError("No PEFT config specified.")
+        peft_config_cls = getattr(peft, f"{self.peft_config['peft_type']}Config")
+        return peft_config_cls(**self.peft_config)
+
     @field_validator("peft_config", mode="before")
     @classmethod
-    def get_peft_config_type(cls, value: Union[None, Dict[str, Any]]) -> Optional[PeftConfig]:
-        if value is None:
-            return value
+    def validate_peft_config_type(cls, value: Optional[Dict]) -> Optional[Dict]:
+        if value is not None:
+            if "peft_type" not in value:
+                raise ValueError("No 'peft_type' specified in PEFT config.")
+            peft_type = value["peft_type"]
 
-        if "peft_type" not in value:
-            raise ValueError("No 'peft_type' specified in PEFT config.")
-        peft_type = value.pop("peft_type")
+            valid_peft_types = [key.removesuffix("Config") for key in peft.__dict__.keys() if key.endswith("Config")]
+            if peft_type not in valid_peft_types:
+                raise ValueError(f"PEFT type {peft_type} config not found. Valid PEFT types are: {valid_peft_types}")
 
-        valid_peft_types = [key.removesuffix("Config") for key in peft.__dict__.keys() if key.endswith("Config")]
-        if peft_type not in valid_peft_types:
-            raise ValueError(f"PEFT type {peft_type} config not found. Valid PEFT types are: {valid_peft_types}")
-
-        config_cls = getattr(peft, f"{peft_type}Config")
-        return config_cls(**value)
+        return value
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:

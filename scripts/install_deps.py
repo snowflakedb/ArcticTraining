@@ -16,9 +16,13 @@
 import argparse
 import subprocess
 import sys
-import tomllib
 from typing import Dict
 from typing import List
+
+try:
+    import tomllib
+except (ImportError, ModuleNotFoundError):
+    from pip._vendor import tomli as tomllib
 
 PYPROJECT_FILE = "pyproject.toml"
 
