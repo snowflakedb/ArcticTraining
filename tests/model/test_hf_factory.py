@@ -36,7 +36,7 @@ def test_peft_config(model_name: str, peft_type: str, config_cls: PeftConfig):
     config = ModelConfig(**config_dict)
 
     assert isinstance(
-        config.peft_config, config_cls
+        config.peft_configi_obj, config_cls
     ), f"Expected {config_cls} PEFT config type but got {type(config.peft_config)}"
 
 
