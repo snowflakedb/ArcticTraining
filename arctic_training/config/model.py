@@ -70,7 +70,7 @@ class ModelConfig(BaseConfig):
         if value is not None:
             if "peft_type" not in value:
                 raise ValueError("No 'peft_type' specified in PEFT config.")
-            peft_type = value.pop("peft_type")
+            peft_type = value["peft_type"]
 
             valid_peft_types = [key.removesuffix("Config") for key in peft.__dict__.keys() if key.endswith("Config")]
             if peft_type not in valid_peft_types:

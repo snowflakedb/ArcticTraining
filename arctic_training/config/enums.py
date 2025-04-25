@@ -50,8 +50,8 @@ class DType(Enum):
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type, _handler):
         return core_schema.no_info_after_validator_function(
-            lambda _: None,  # disable validation, handled by cls.__new__
-            core_schema.str_schema(),  # Let pydantic treat this as a string
+            lambda v: cls(v),
+            core_schema.any_schema(),  # Allow str or torch.dtype input
             serialization=core_schema.plain_serializer_function_ser_schema(cls.serialize),
         )
 
