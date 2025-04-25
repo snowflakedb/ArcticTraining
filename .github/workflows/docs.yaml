@@ -18,13 +18,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        id: setup_python
         with:
-          python-version: "3.13"
-
+          python-version: "3.10"
+      - name: Restore cached virtualenv
+        uses: actions/cache@v4
+        with:
+          key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          path: .venv
       - name: Setup environment
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
           python scripts/install_deps.py docs
-
+      - name: Environment print
+        run: pip list
       - name: Build docs
         run: |
           sphinx-build -b html -W docs/ _build/html
