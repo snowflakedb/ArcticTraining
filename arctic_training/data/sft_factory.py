@@ -193,9 +193,6 @@ def pack_sft_batch(
 
 
 class SFTDataConfig(DataConfig):
-    max_length: HumanInt = 8192
-    """ Maximum length of the input sequence. """
-
     div_length: HumanInt = 256
     """ The number that the length of the sequence should be divisible by. """
 
