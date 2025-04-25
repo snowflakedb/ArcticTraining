@@ -192,7 +192,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         for data_source in data_sources:
             dataset = data_source()
             datasets.append(dataset)
-        return concatenate_datasets(datasets)
+        dataset = concatenate_datasets(datasets)
+        return dataset
 
     @callback_wrapper("process")
     def process(self, dataset: DatasetType) -> DatasetType:
