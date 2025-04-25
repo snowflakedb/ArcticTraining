@@ -53,7 +53,7 @@ class HFModelFactory(ModelFactory):
 
     def post_create_model_callback(self, model):
         if self.config.peft_config is not None:
-            model = get_peft_model(model, self.config.peft_config)
+            model = get_peft_model(model, self.config.peft_config_obj)
             trainable_params, all_params = model.get_nb_trainable_parameters()
             logger.info(
                 f"Applied PEFT config to model: Total params: {all_params}, Trainable"
