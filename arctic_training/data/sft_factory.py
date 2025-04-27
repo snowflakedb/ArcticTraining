@@ -180,7 +180,7 @@ def packing_sft_dataset(
             data["labels"],
         )
 
-        if len(input_ids) > max_length:
+        if len(input_ids) > max_length and not always_max_length:
             continue
 
         pad_len = 0
@@ -206,7 +206,7 @@ def packing_sft_dataset(
         example["position_ids"].extend(list(range(len(input_ids))))
         example["attention_mask"].extend(attention_mask)
 
-    # add the last example
+    # Add the last example if it fits
     if len(example["input_ids"]) >= min_length:
         for key in train_dataset.keys():
             train_dataset[key].append(example[key])
