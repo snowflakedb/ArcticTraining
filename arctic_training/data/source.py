@@ -73,6 +73,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.sample_count is not None:
             sample_count = self.config.sample_count
         if sample_count is not None:
+            sample_count = min(sample_count, len(dataset))
             logger.info(f"Sampling {sample_count} rows from {self.name}")
             rng = random.Random(self.data_factory.config.seed)
             indices = rng.sample(range(len(dataset)), sample_count)

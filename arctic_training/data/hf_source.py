@@ -52,7 +52,7 @@ class HFDataSource(DataSource):
             if isinstance(dataset, DatasetDict):
                 dataset = dataset[split]
         else:
-            dataset = load_dataset(str(config.name_or_path), split=split, verification_mode="no_checks", **config.kwargs)
+            dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
 
         return dataset
 
@@ -110,6 +110,29 @@ class ProjectGutenberg(HFDataSource):
             process_example,
             num_proc=self.data_factory.config.num_proc,
             desc="Loading Project Gutenberg",
+        )
+
+
+class ProjectGutenbergLong400K(HFDataSource):
+    name = "ProjectGutenbergLong400K"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+
+        def process_example(example):
+            return {
+                "messages": [
+                    {"role": "user", "content": example["text"]}
+                ]
+            }
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading Project Gutenberg",
+        ).filter(
+            lambda x: len(x["text"]) > 400000,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Filtering examples (<400K chars)",
         )
 
 
