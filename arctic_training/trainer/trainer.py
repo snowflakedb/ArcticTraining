@@ -303,7 +303,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         for batch in self.train_batches:
             self.train_batch_idx += 1
-            self.metrics.record("seqlen", len(batch["input_ids"][0]))
+            if self.config.model.attn_implementation == "flash_attention_2" and "packed_seq_lens" in batch:
+                self.metrics.record("seqlen", batch["packed_seq_lens"])
+            else:
+                self.metrics.record("seqlen", [len(batch["input_ids"][0])])
 
             self.metrics.start_timer("step")
             self.step(batch)
