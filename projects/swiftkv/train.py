@@ -49,9 +49,9 @@ class SwiftKVModelFactory(HFModelFactory):
         config_dict = hf_config.to_dict()
 
         model_type = config_dict.get("model_type")
-        if model_type in ["llama", "llama_swiftkv"]:
+        if model_type == "llama":
             hf_config = llama_swiftkv.LlamaSwiftKVConfig.from_dict(config_dict)
-        elif model_type in ["qwen2", "qwen2_swiftkv"]:
+        elif model_type == "qwen2":
             hf_config = qwen2_swiftkv.Qwen2SwiftKVConfig.from_dict(config_dict)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -71,14 +71,12 @@ class SwiftKVModelFactory(HFModelFactory):
         for layer in model.model.layers[model.config.num_key_value_layers :]:
             # Initialize q_proj_swiftkv
             q_proj_swiftkv = layer.self_attn.q_proj_swiftkv
-            if not model.config.swiftkv:
-                with GatheredParameters(layer.parameters(), modifier_rank=0):
-                    q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
-                    if getattr(q_proj_swiftkv, "bias", None) is not None:
-                        q_proj_swiftkv.bias.data.copy_(layer.self_attn.q_proj.bias.data)
-            q_proj_swiftkv.weight.requires_grad = True
-            if getattr(q_proj_swiftkv, "bias", None) is not None:
-                q_proj_swiftkv.bias.requires_grad = True
+            with GatheredParameters(layer.parameters(), modifier_rank=0):
+                q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
+                q_proj_swiftkv.weight.requires_grad = True
+                if getattr(q_proj_swiftkv, "bias", None) is not None:
+                    q_proj_swiftkv.bias.data.copy_(layer.self_attn.q_proj.bias.data)
+                    q_proj_swiftkv.bias.requires_grad = True
         for layer_idx in range(
             model.config.num_key_value_layers,
             model.config.num_hidden_layers,
@@ -89,18 +87,16 @@ class SwiftKVModelFactory(HFModelFactory):
             for param in ("k_proj", "v_proj"):
                 kv_proj_swiftkv = getattr(this_attn, f"{param}_swiftkv")
                 # Initialize k_proj or v_proj weights
-                if not model.config.swiftkv:
-                    weights = [kv_proj_swiftkv.weight] + [getattr(attn, f"{param}").weight for attn in next_attn]
-                    with GatheredParameters(weights, modifier_rank=0):
-                        weights[0].data.copy_(sum(weights[1:]) / model.config.key_value_group_size)
-                    # Initialize k_proj or v_proj biases (if they exist)
-                    if getattr(kv_proj_swiftkv, "bias", None) is not None:
-                        biases = [kv_proj_swiftkv.bias] + [getattr(attn, f"{param}").bias for attn in next_attn]
-                        with GatheredParameters(biases, modifier_rank=0):
-                            biases[0].data.copy_(sum(biases[1:]) / model.config.key_value_group_size)
-                kv_proj_swiftkv.weight.requires_grad = True
+                weights = [kv_proj_swiftkv.weight] + [getattr(attn, f"{param}").weight for attn in next_attn]
+                with GatheredParameters(weights, modifier_rank=0):
+                    weights[0].data.copy_(sum(weights[1:]) / model.config.key_value_group_size)
+                    kv_proj_swiftkv.weight.requires_grad = True
+                # Initialize k_proj or v_proj biases (if they exist)
                 if getattr(kv_proj_swiftkv, "bias", None) is not None:
-                    kv_proj_swiftkv.bias.requires_grad = True
+                    biases = [kv_proj_swiftkv.bias] + [getattr(attn, f"{param}").bias for attn in next_attn]
+                    with GatheredParameters(biases, modifier_rank=0):
+                        biases[0].data.copy_(sum(biases[1:]) / model.config.key_value_group_size)
+                        kv_proj_swiftkv.bias.requires_grad = True
         model.gradient_checkpointing_enable()
         return model
 
