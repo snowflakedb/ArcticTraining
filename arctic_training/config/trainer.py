@@ -116,6 +116,9 @@ class TrainerConfig(BaseConfig):
     sequence_parallel_size: int = Field(default=1, ge=1)
     """ Sequence Parallelism Degree. Disabled if set to 1 """
 
+    activation_checkpoint_cpu_offload: bool = False
+    """ offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
+
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
 

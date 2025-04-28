@@ -26,6 +26,7 @@ from typing import Tuple
 import deepspeed
 import numpy as np
 import torch
+import torch.cuda
 import torch.distributed.nn
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
@@ -179,6 +180,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
+
         # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
             model_name_or_path=self.config.model.name_or_path,
@@ -189,23 +191,21 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             seq_length_is_variable=True,
         )
 
+
         self.core_attn_implementation = self.config.model.attn_implementation
         if self.config.sequence_parallel_size > 1:
             # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
             self.config.model.attn_implementation = "ulysses"
 
-        if self.config.sequence_parallel_size > 1:
+        # Important: this is most likely not beneficial under seqlen=64k
+        if self.config.activation_checkpoint_cpu_offload:
             # activation_checkpointing_cpu_offload becomes very benefitial at very long seqlen
             # e.g., llama 8b at 800k (100k effective per gpu) will save 24GB per gpu: ((100_000*4096)*2*32/2**30)
-            # but for short sequence the offload will just slow things down,
+            # but for short sequences the offload will just slow things down,
             # XXX: could parameterize or run a few lengths to see at which threshold it becomes beneficial - a user might still want this on even at shorter seqlen if they don't mind slower performance.
-            activation_checkpointing_cpu_offload_threshold = 300_000
-
-            if self.config.data.max_length > activation_checkpointing_cpu_offload_threshold:
-                # discussing adding this functionality to pytorch core (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
-                import torch.utils.checkpoint
-                from arctic_training.monkey_patches import CheckpointFunctionWithCPUOffload
-                torch.utils.checkpoint.CheckpointFunction = CheckpointFunctionWithCPUOffload
+            # discussing adding this functionality to pytorch core (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
+            from arctic_training.monkey_patches import monkey_patch_checkpoint_function_with_cpu_offload
+            monkey_patch_checkpoint_function_with_cpu_offload()
 
             # XXX: this is probably too late to override, torch has been loaded
             # but perhaps could give user a warning? but they will never see it
@@ -228,6 +228,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             sequence_parallel_size=self.config.sequence_parallel_size,
         )
 
+        # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to override this properly - apparently there is a plan to do so in the future versions of transformers.
+        # 1. definitely needed for SP
+        # 2. but it also should benefit a single gpu use case
+        if self.config.sequence_parallel_size > 1:
+            # prevent from causal mask being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
+            model_without_head = self.model_unwrapped.model
+            if hasattr(model_without_head, "_update_causal_mask"):
+                model_without_head._update_causal_mask = lambda *args: None
+
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
 
@@ -245,6 +254,24 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         )
 
         see_memory_usage("after ds", force=True)
+
+        if self.config.sequence_parallel_size > 1:
+            # deepspeed.initialize needs to run first
+            from deepspeed.utils import groups
+
+            # set trainer attributes to be used later
+            self.sp_group = groups._get_sequence_parallel_group()
+            self.sp_world_size = groups._get_sequence_parallel_world_size()
+            self.sp_rank = groups._get_sequence_parallel_rank()
+
+            # wrap the DL with Ulysses one
+            self.train_dataloader = UlyssesSPDataLoaderWrapper(
+                self.train_dataloader,
+                sp_rank=self.sp_rank,
+                sp_group=self.sp_group,
+                sp_world_size=self.sp_world_size,
+                device=self.device,
+            )
 
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
@@ -426,37 +453,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.metrics.start_timer("iter")
 
         see_memory_usage("entered epoch", force=True)
-        # exit()
 
         # enable memory history, which will add tracebacks and event history to snapshots
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
-        train_batches = self.train_batches
-        if self.config.sequence_parallel_size > 1:
-            from deepspeed.utils import groups
-
-            self.sp_group = groups._get_sequence_parallel_group()
-            self.sp_world_size = groups._get_sequence_parallel_world_size()
-            self.sp_rank = groups._get_sequence_parallel_rank()
-
-            train_batches = UlyssesSPDataLoaderWrapper(
-                train_batches,
-                sp_rank=self.sp_rank,
-                sp_group=self.sp_group,
-                sp_world_size=self.sp_world_size,
-                device=self.device,
-            )
-            # this will break on epoch 2+ as it'd continue multiplying the previous value from epoch 1
-            # self.config.exit_iteration *= self.sp_world_size
-            # self.training_horizon *= self.sp_world_size
-            # self.metrics.max_iter *= self.sp_world_size
-
         # XXX: this counter must not be reset between epochs
         self.train_batch_idx = 0
-        for batch in train_batches:
+        for batch in self.train_batches:
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
+
+            #print(f"{len(batch['input_ids'][0])}")
+            #print(f"{self.config.exit_iteration=}")
+            #print(f"{self.training_horizon=}")
 
             # seqlens = batch.pop("packed_sample_seqlens")
             # print(seqlens)
