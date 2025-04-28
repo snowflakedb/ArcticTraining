@@ -274,6 +274,7 @@ class SFTDataFactory(DataFactory):
                 )
             },
             num_proc=self.config.num_proc,
+            remove_columns=["messages"],
             desc="Tokenizing messages",
         )
 
