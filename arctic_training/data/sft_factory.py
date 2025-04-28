@@ -357,3 +357,17 @@ class SFTDataFactory(DataFactory):
             num_workers=self.config.num_proc,
             drop_last=True,
         )
+
+class RawDataFactory(DataFactory):
+    name = 'raw'
+    config: SFTDataConfig
+
+    def create_dataloader(self, dataset: DatasetType) -> DataLoader:
+        return DataLoader(
+            dataset,
+            collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config),
+            batch_size=self.micro_batch_size,
+            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
+            num_workers=self.config.num_proc,
+            drop_last=True,
+        )

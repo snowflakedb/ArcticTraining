@@ -1,0 +1,42 @@
+# Tested with 8xH100 x 2 nodes
+
+DATA_GEN=1
+TRAIN=1
+data_save_folder_name="qwen25_32b_tmp"
+vllm_tensor_parallel=4
+script_save_path="qwen25_32b_data_gen_scripts"
+total_num_of_scripts=8
+
+train_config_file="qwen2.5-32b.yaml"
+# must be aligned with the config file
+model_name="Qwen/Qwen2.5-32B-Instruct"
+data_concat_folder_name="qwen25_32b_data"  # This should be shared, or copied later, to other node as well
+spec_drafter_name="spec-decode-qwen25_32b"
+num_speculative_tokens=3
+
+
+# data generation
+if [ "$DATA_GEN" -eq "1" ]; then
+  pip install vllm
+  rm -r $script_save_path ${script_save_path}_tmp
+  python mlp_speculator/data_generation/data_gen_script_maker.py --model_name=$model_name \
+    --data_save_folder_name=$data_save_folder_name \
+    --vllm_tensor_parallel=$vllm_tensor_parallel \
+    --script_save_path=$script_save_path \
+    --total_num_of_scripts=$total_num_of_scripts
+  python multigpu_runner.py $script_save_path --max_gpus=8 -n $vllm_tensor_parallel
+  python mlp_speculator/data_generation/concat_generated_datasets.py --data_save_folder_name=$data_save_folder_name --data_concat_folder_name=$data_concat_folder_name
+fi
+
+# run ArcticTraining
+if [ "$TRAIN" -eq "1" ]; then
+  arctic_training $train_config_file
+fi
+
+
+vllm serve \
+    --disable-log-requests \
+    --tensor-parallel-size 8 \
+    --enable-chunked-prefill \
+    --speculative-config "{\"model\": \"$spec_drafter_name\", \"num_speculative_tokens\": $num_speculative_tokens, \"draft_tensor_parallel_size\": 8, \"method\": \"mlp_speculator\"}" \
+    --gpu_memory_utilization 0.9
