@@ -154,6 +154,7 @@ def packing_sft_dataset(
     seed: int,
     rank: int,
     max_length: int,
+    min_length: int,
     always_max_length: bool,
 ) -> DatasetType:
     # packing for sft / cpt are different
@@ -179,21 +180,34 @@ def packing_sft_dataset(
             data["labels"],
         )
 
-        if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
-            example["input_ids"]
-        ) > max_length:
-            for key in train_dataset.keys():
-                train_dataset[key].append(example[key])
+        if len(input_ids) > max_length and not always_max_length:
+            continue
 
+        pad_len = 0
+        if len(example["input_ids"]) + len(input_ids) > max_length:
+            if always_max_length and len(example["input_ids"]) < max_length:
+                # Pad the packed example using the current sequence
+                pad_len = max_length - len(example["input_ids"])
+                example["input_ids"].extend(input_ids[:pad_len])
+                example["labels"].extend(labels[:pad_len])
+                example["position_ids"].extend(list(range(pad_len)))
+                example["attention_mask"].extend(attention_mask[:pad_len])
+            if len(example["input_ids"]) >= min_length:
+                for key in train_dataset.keys():
+                    train_dataset[key].append(example[key])
             example = {key: [] for key in ds_keys}
+
+        if pad_len:
+            # Current input_ids were used for padding, so skip them
+            continue
 
         example["input_ids"].extend(input_ids)
         example["labels"].extend(labels)
         example["position_ids"].extend(list(range(len(input_ids))))
         example["attention_mask"].extend(attention_mask)
 
-    # add the last example
-    if example["input_ids"]:
+    # Add the last example if it fits
+    if len(example["input_ids"]) >= min_length:
         for key in train_dataset.keys():
             train_dataset[key].append(example[key])
 
@@ -203,6 +217,9 @@ def packing_sft_dataset(
 class SFTDataConfig(DataConfig):
     max_length: int = 8192
     """ Maximum length of the input sequence. """
+
+    min_length: int = 1
+    """ Minimum length of the input sequence. """
 
     div_length: int = 256
     """ The number that the length of the sequence should be divisible by. """
@@ -218,26 +235,13 @@ class SFTDataConfig(DataConfig):
     """
 
 
-def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
-    dataset = dataset.filter(
-        lambda x: len(x["input_ids"]) <= self.config.max_length,
-        num_proc=self.config.num_proc,
-        desc="Filtering dataset by max length",
-    )
-    if len(dataset) < 1:
-        raise ValueError(
-            f"No data left after filtering by max length {self.config.max_length} in"
-            f" {self.__class__.__name__}. Consider increasing the `max_length`."
-        )
-    return dataset
-
-
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     dataset = packing_sft_dataset(
         dataset,
         seed=self.config.seed,
         rank=self.global_rank,
         max_length=self.config.max_length,
+        min_length=self.config.min_length,
         always_max_length=self.config.always_max_length,
     )
     if len(dataset) < 1:
@@ -249,7 +253,6 @@ class SFTDataFactory(DataFactory):
     name = "sft"
     config: SFTDataConfig
     callbacks = [
-        ("post-load", filter_dataset_length),
         ("post-load", pack_dataset),
     ]
 

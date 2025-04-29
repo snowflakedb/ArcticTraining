@@ -1,4 +1,4 @@
-# From long-21, add back train.py
+# From long-22, add back sft_factory.py
 type: swiftkv
 code: ../train.py
 micro_batch_size: 1
@@ -41,5 +41,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-22
+    output_dir: /checkpoint/aqiao/swiftkv-long/llama-3.1-swiftkv-8b-instruct-long-23
     save_end_of_training: true
