@@ -219,7 +219,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """Epochs iterator."""
         total_epochs = self.config.epochs
         if self.config.train_iters:
-            total_epochs = math.ceil(self.config.train_iters / len(self.train_dataloader))
+            total_epochs = math.ceil(
+                self.config.train_iters * self.config.gradient_accumulation_steps / len(self.train_dataloader)
+            )
 
         return tqdm(
             range(self.epoch_idx, total_epochs),
