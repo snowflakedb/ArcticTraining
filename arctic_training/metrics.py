@@ -101,6 +101,7 @@ class Metrics:
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model."""
+        return (6 * seq_len * self.model_size + 12 * self.model_num_layers * self.model_hidden_size * (seq_len**2)) / 1e12
         return (
             seq_len * self.model_size * 2 * 4
             + self.model_num_layers * seq_len * seq_len * self.model_hidden_size * 2 * 2 * 4
