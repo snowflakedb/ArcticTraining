@@ -30,7 +30,7 @@ class RandomWeightHFModelFactory(HFModelFactory):
         return AutoModelForCausalLM.from_config(
             model_config,
             attn_implementation=self.config.attn_implementation,
-            torch_dtype=self.config.dtype,
+            torch_dtype=self.config.dtype.value,
         )
 
 

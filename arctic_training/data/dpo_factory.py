@@ -35,9 +35,6 @@ IGNORE_INDEX = -100
 
 
 class DPODataConfig(DataConfig):
-    max_length: HumanInt = 8192
-    """ Maximum length of the input sequence. """
-
     max_prompt_length: HumanInt = 4096
     """ Maximum prompt length of the input sequence. """
 
