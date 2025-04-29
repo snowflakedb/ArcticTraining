@@ -113,7 +113,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
 def get_mem_metrics():
 
     gc.collect()
-    #torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
     nv_mem = get_nvml_mem()
 

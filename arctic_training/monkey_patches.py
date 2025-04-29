@@ -19,13 +19,22 @@ A module to place monkey patches until they are upstreamed
 """
 
 
-if 1: # CheckpointFunctionWithCPUOffload imports
-    import torch
-    from torch.utils.checkpoint import _infer_device_type, _get_autocast_kwargs, check_backward_validity, _get_device_module, get_device_states, set_device_states, detach_variable
+if 1:  # CheckpointFunctionWithCPUOffload imports
     import contextlib
     import inspect
+
+    import torch
+    from torch.utils.checkpoint import _get_autocast_kwargs
+    from torch.utils.checkpoint import _get_device_module
+    from torch.utils.checkpoint import _infer_device_type
+    from torch.utils.checkpoint import check_backward_validity
+    from torch.utils.checkpoint import detach_variable
+    from torch.utils.checkpoint import get_device_states
+    from torch.utils.checkpoint import set_device_states
+
     # support different pytorch versions
     has_device_type = "device_type" in inspect.signature(set_device_states).parameters
+
 
 class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
     """
@@ -40,9 +49,7 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
         ctx.preserve_rng_state = preserve_rng_state
         # Accommodates the (remote) possibility that autocast is enabled for cpu AND gpu.
         ctx.device_type = _infer_device_type(*args)
-        ctx.device_autocast_kwargs, ctx.cpu_autocast_kwargs = _get_autocast_kwargs(
-            ctx.device_type
-        )
+        ctx.device_autocast_kwargs, ctx.cpu_autocast_kwargs = _get_autocast_kwargs(ctx.device_type)
         if preserve_rng_state:
             ctx.fwd_cpu_state = torch.get_rng_state()
             # Don't eagerly initialize the cuda context by accident.
@@ -110,9 +117,7 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
         rng_devices = []
         if ctx.preserve_rng_state and ctx.had_device_in_fwd:
             rng_devices = ctx.fwd_devices
-        with torch.random.fork_rng(
-            devices=rng_devices, enabled=ctx.preserve_rng_state, device_type=ctx.device_type
-        ):
+        with torch.random.fork_rng(devices=rng_devices, enabled=ctx.preserve_rng_state, device_type=ctx.device_type):
             if ctx.preserve_rng_state:
                 torch.set_rng_state(ctx.fwd_cpu_state)
                 if ctx.had_device_in_fwd:
@@ -124,9 +129,11 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
                         set_device_states(ctx.fwd_devices, ctx.fwd_device_states)
             detached_inputs = detach_variable(tuple(inputs))
 
-            device_autocast_ctx = torch.amp.autocast(
-                device_type=ctx.device_type, **ctx.device_autocast_kwargs
-            ) if torch.amp.is_autocast_available(ctx.device_type) else contextlib.nullcontext()
+            device_autocast_ctx = (
+                torch.amp.autocast(device_type=ctx.device_type, **ctx.device_autocast_kwargs)
+                if torch.amp.is_autocast_available(ctx.device_type)
+                else contextlib.nullcontext()
+            )
             with torch.enable_grad(), device_autocast_ctx, torch.amp.autocast("cpu", **ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
                 outputs = ctx.run_function(*detached_inputs)
 
@@ -141,15 +148,9 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
                 outputs_with_grad.append(outputs[i])
                 args_with_grad.append(args[i])
         if len(outputs_with_grad) == 0:
-            raise RuntimeError(
-                "none of output has requires_grad=True,"
-                " this checkpoint() is not necessary"
-            )
+            raise RuntimeError("none of output has requires_grad=True, this checkpoint() is not necessary")
         torch.autograd.backward(outputs_with_grad, args_with_grad)
-        grads = tuple(
-            inp.grad if isinstance(inp, torch.Tensor) else None
-            for inp in detached_inputs
-        )
+        grads = tuple(inp.grad if isinstance(inp, torch.Tensor) else None for inp in detached_inputs)
 
         return (None, None) + grads
 
@@ -160,7 +161,9 @@ def noop_context_fn():
 
 def monkey_patch_checkpoint_function_with_cpu_offload():
     import torch.utils.checkpoint
+
     torch.utils.checkpoint.CheckpointFunction = CheckpointFunctionWithCPUOffload
+
 
 # # from https://github.com/pytorch/torchtune/blob/8fd697188f25832343cc013b89b354f0f8368b78/torchtune/training/_activation_offloading.py#L24-L374
 # if 1:

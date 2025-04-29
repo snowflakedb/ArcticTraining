@@ -15,11 +15,11 @@
 
 ### Ulysses ###
 
+import copy
 from typing import Any
 from typing import Optional
 from typing import Tuple
 
-import copy
 import deepspeed.comm as dist
 import torch
 import torch.distributed.nn
@@ -614,7 +614,7 @@ class UlyssesSPDataLoaderWrapper:
         self.micro_batches: list[Any] = []
 
     def __len__(self):
-        return len(self.dl)*self.sp_world_size
+        return len(self.dl) * self.sp_world_size
 
     def __iter__(self):
         return self
@@ -653,11 +653,10 @@ class UlyssesSPDataLoaderWrapper:
 
         #     print(seqlens)
         #     batch["sample_sequence_lengths"] = seqlens
-            #if self.sp_rank == 0:
-            #    print(f'{batch["position_ids"].tolist()}\n\n')
-            #exit()
-            #batch["seqlens"] =
-
+        # if self.sp_rank == 0:
+        #    print(f'{batch["position_ids"].tolist()}\n\n')
+        # exit()
+        # batch["seqlens"] =
 
         # batch sharding
         for k in batch.keys():
@@ -1215,19 +1214,28 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
         return None, logits_grad, None, None, None
 
 
-def sequence_tiling_compute(fn, seqlen, shards, kwargs_to_shard, kwargs_to_pass, grad_requiring_tensor_key, sub_module_params=None, reduction="mean"):
+def sequence_tiling_compute(
+    fn,
+    seqlen,
+    shards,
+    kwargs_to_shard,
+    kwargs_to_pass,
+    grad_requiring_tensor_key,
+    sub_module_params=None,
+    reduction="mean",
+):
     """
-        This is a wrapper for SequenceTilingCompute which we need since torch.autograd.Function can't work with dicts of tensors (in backward it has to return a grad value and not a dict that may have a non-None grad value). It's also useful for setting default values which we can't do either in torch.autograd.Function.
+    This is a wrapper for SequenceTilingCompute which we need since torch.autograd.Function can't work with dicts of tensors (in backward it has to return a grad value and not a dict that may have a non-None grad value). It's also useful for setting default values which we can't do either in torch.autograd.Function.
 
-        Args:
-        [...]
-        - reduction: None, "mean" or "sum"
+    Args:
+    [...]
+    - reduction: None, "mean" or "sum"
 
-        Returns:
-        - unsharded output with an optional reduction applied, depending on the `reduction` value:
-            None - return the unsharded output tensor
-            "mean" - apply mean
-            "sum" - apply sum
+    Returns:
+    - unsharded output with an optional reduction applied, depending on the `reduction` value:
+        None - return the unsharded output tensor
+        "mean" - apply mean
+        "sum" - apply sum
 
     """
     args_to_shard = kwargs_to_shard.values()
@@ -1235,11 +1243,34 @@ def sequence_tiling_compute(fn, seqlen, shards, kwargs_to_shard, kwargs_to_pass,
     args_to_pass = kwargs_to_pass.values()
     keys_to_pass = list(kwargs_to_pass.keys())
 
-    return SequenceTilingCompute.apply(fn, seqlen, shards, keys_to_shard, keys_to_pass, grad_requiring_tensor_key, sub_module_params, reduction, *args_to_shard, *args_to_pass)
+    return SequenceTilingCompute.apply(
+        fn,
+        seqlen,
+        shards,
+        keys_to_shard,
+        keys_to_pass,
+        grad_requiring_tensor_key,
+        sub_module_params,
+        reduction,
+        *args_to_shard,
+        *args_to_pass,
+    )
+
 
 class SequenceTilingCompute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, fn, seqlen, shards, keys_to_shard, keys_to_pass, grad_requiring_tensor_key, sub_module_params, reduction, *args) -> torch.Tensor:
+    def forward(
+        ctx,
+        fn,
+        seqlen,
+        shards,
+        keys_to_shard,
+        keys_to_pass,
+        grad_requiring_tensor_key,
+        sub_module_params,
+        reduction,
+        *args,
+    ) -> torch.Tensor:
         """
         XXX: currently assuming that all kwargs_to_shard values have a shape of `[bs, seqlen, ...]` and we shard on seqlen dimension
         """
@@ -1249,20 +1280,20 @@ class SequenceTilingCompute(torch.autograd.Function):
         ctx.grad_requiring_tensor_key = grad_requiring_tensor_key
         ctx.sub_module_params = sub_module_params
 
-        #print(args)
+        # print(args)
 
         args = list(args)
         ctx.total_args = len(args)
         ctx.grad_requiring_tensor_key_index = (keys_to_shard + keys_to_pass).index(grad_requiring_tensor_key)
-        #print(f"{grad_requiring_tensor_key=} {grad_requiring_tensor_key_index=} ")
+        # print(f"{grad_requiring_tensor_key=} {grad_requiring_tensor_key_index=} ")
 
-        kwargs_to_shard = {k:args.pop(0) for k in keys_to_shard}
-        kwargs_to_pass  = {k:args.pop(0) for k in keys_to_pass}
+        kwargs_to_shard = {k: args.pop(0) for k in keys_to_shard}
+        kwargs_to_pass = {k: args.pop(0) for k in keys_to_pass}
         ctx.kwargs_to_shard = kwargs_to_shard
         ctx.kwargs_to_pass = kwargs_to_pass
 
-        #print(f"{kwargs_to_shard=}")
-        #print(f"{kwargs_to_pass=}")
+        # print(f"{kwargs_to_shard=}")
+        # print(f"{kwargs_to_pass=}")
 
         with torch.no_grad():
             shard_step = math.ceil(seqlen / shards)
@@ -1273,7 +1304,7 @@ class SequenceTilingCompute(torch.autograd.Function):
             # with deepspeed.zero.GatheredParameters(model_with_head.lm_head.weight, modifier_rank=0):
             for i in range(shards):
                 output = fn(
-                    **{k:v[:, i * shard_step : (i + 1) * shard_step] for k,v in kwargs_to_shard.items()},
+                    **{k: v[:, i * shard_step : (i + 1) * shard_step] for k, v in kwargs_to_shard.items()},
                     **kwargs_to_pass,
                 )
                 output_shards.append(output)
@@ -1302,12 +1333,14 @@ class SequenceTilingCompute(torch.autograd.Function):
         # XXX: rename to generic name
         grad_requiring_tensor = kwargs_to_shard[grad_requiring_tensor_key]
 
-        #print(f"{grad_requiring_tensor.numel()=}")
+        # print(f"{grad_requiring_tensor.numel()=}")
 
         incoming_grad = grads[0]
         grad_requiring_tensor_grad = torch.zeros_like(grad_requiring_tensor)
 
-        kwargs_to_shard_shards = {k:list(torch.chunk(kwargs_to_shard[k], chunks=shards, dim=1)) for k in kwargs_to_shard.keys()}
+        kwargs_to_shard_shards = {
+            k: list(torch.chunk(kwargs_to_shard[k], chunks=shards, dim=1)) for k in kwargs_to_shard.keys()
+        }
         # for v in kwargs_to_shard.values():
         #     v.resize_(0)
 
@@ -1320,7 +1353,7 @@ class SequenceTilingCompute(torch.autograd.Function):
 
             # when fn calls a sub-module it'll normally push a grad to reduce per sub-module call, so since we only want it to add a grad for the last shard's call, we signal to zero not to add new gradients to reduce until the last shard when all gradients have been accumulated. an example for a sub-module call is `model.lm_head(hidden_states)`
             if sub_module_params is not None:
-                if i+1 < shards:
+                if i + 1 < shards:
                     for param in sub_module_params:
                         param.ds_grad_not_ready = True
                 else:
@@ -1328,13 +1361,17 @@ class SequenceTilingCompute(torch.autograd.Function):
                     for param in sub_module_params:
                         param.ds_grad_not_ready = False
 
-            kwargs_to_shard_shard = {k:kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards.keys()}
+            kwargs_to_shard_shard = {k: kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards.keys()}
             grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key].requires_grad_()
             # print(f"{i} {grad_requiring_tensor_shard.numel()=}")
 
             shard_offset = i * shard_step
             # this will enable gradual population of the pre-allocated `grad_requiring_tensor_shard.grad` during `torch.autograd.backward` calls
-            grad_requiring_tensor_shard.grad = grad_requiring_tensor_grad.view(-1).narrow(0, shard_offset, grad_requiring_tensor_shard.numel()).view_as(grad_requiring_tensor_shard)
+            grad_requiring_tensor_shard.grad = (
+                grad_requiring_tensor_grad.view(-1)
+                .narrow(0, shard_offset, grad_requiring_tensor_shard.numel())
+                .view_as(grad_requiring_tensor_shard)
+            )
 
             grad_requiring_tensor_shard.requires_grad_()
 
@@ -1362,9 +1399,10 @@ class SequenceTilingCompute(torch.autograd.Function):
         # inject the grad for the position of forward input that is grad-requiring
         arg_outputs = [None] * ctx.total_args
         arg_outputs[grad_requiring_tensor_key_index] = grad_requiring_tensor_grad
-        #print(arg_outputs)
+        # print(arg_outputs)
 
-        return tuple(grad_outputs+arg_outputs)
+        return tuple(grad_outputs + arg_outputs)
+
 
 class UlyssesSPAttentionHFNoFrag(torch.nn.Module):
     """Re-Implementation of DistributedAttention. This implementation enforces the input shape

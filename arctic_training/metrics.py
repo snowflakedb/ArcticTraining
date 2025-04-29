@@ -126,7 +126,7 @@ class Metrics:
             if isinstance(self.values["seqlen"], list):
                 # deal correctly with packed samples under FA2
                 tflos = sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.values["seqlen"])
-                self.values["seqlen"] =  sum(self.values["seqlen"])
+                self.values["seqlen"] = sum(self.values["seqlen"])
 
             else:
                 tflos = self._estimate_decoder_transformer_tflos(self.values["seqlen"])
@@ -137,7 +137,9 @@ class Metrics:
             # in the case of FA2 which decides what it attends to sections based on position ids, we should run the estimator for each sample's length and then sum it up, otherwise the compute will be estimated to be much much bigger than it is.
 
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
-            tflos_total = sum(gather_object(tflos, self.trainer.world_size)) / self.trainer.config.sequence_parallel_size
+            tflos_total = (
+                sum(gather_object(tflos, self.trainer.world_size)) / self.trainer.config.sequence_parallel_size
+            )
 
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size

@@ -180,7 +180,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
-
         # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
             model_name_or_path=self.config.model.name_or_path,
@@ -190,7 +189,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             micro_batch_size=self.config.micro_batch_size,
             seq_length_is_variable=True,
         )
-
 
         self.core_attn_implementation = self.config.model.attn_implementation
         if self.config.sequence_parallel_size > 1:
@@ -205,6 +203,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # XXX: could parameterize or run a few lengths to see at which threshold it becomes beneficial - a user might still want this on even at shorter seqlen if they don't mind slower performance.
             # discussing adding this functionality to pytorch core (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
             from arctic_training.monkey_patches import monkey_patch_checkpoint_function_with_cpu_offload
+
             monkey_patch_checkpoint_function_with_cpu_offload()
 
             # XXX: this is probably too late to override, torch has been loaded
@@ -259,7 +258,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # deepspeed.initialize needs to run first
             from deepspeed.utils import groups
 
-            # set trainer attributes to be used later
+            # set SP-trainer attributes to be used later
             self.sp_group = groups._get_sequence_parallel_group()
             self.sp_world_size = groups._get_sequence_parallel_world_size()
             self.sp_rank = groups._get_sequence_parallel_rank()
@@ -464,9 +463,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            #print(f"{len(batch['input_ids'][0])}")
-            #print(f"{self.config.exit_iteration=}")
-            #print(f"{self.training_horizon=}")
+            # print(f"{len(batch['input_ids'][0])}")
+            # print(f"{self.config.exit_iteration=}")
+            # print(f"{self.training_horizon=}")
 
             # seqlens = batch.pop("packed_sample_seqlens")
             # print(seqlens)
