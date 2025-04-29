@@ -21,7 +21,6 @@ import math
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 # from .configs import MLPSpeculatorConfig
 
@@ -93,48 +92,19 @@ class LayerNormParameterized(nn.Module):
         return x
 
 
-class MLPVariantSpeculator(nn.Module):
-    """
-    This is a simple MLP-based speculator that functions similarly to Medusa
-    (https://arxiv.org/abs/2401.10774), ingesting context via the final embedding
-    vector from the base model. However, this model also conditions on previously
-    predicted tokens, similarly to an RNN, allowing it to generate better-quality n-grams.
-
-    The architecture is as flat and simple as possible: for each prediction head,
-    the current state vector is projected into a new latent space and added to the
-    previous token's embedding. This sum goes through layernorm and activation, forming
-    the new state vector. This state predicts the next token (or set of candidate tokens)
-    for the current head, and then is passed on to the next.
-    ...
-    Args
-    ----
-    emb_dim : int
-        Dimensionality of the input vector from the base model.
-    inner_dim : int
-        Latent dimensionality of the speculator model.
-    vocab_size : int
-        Number of entries in the tokenizer associated with the base model.
-    n_predict : int
-        Number of heads / number of tokens to guess ahead. Model size and speed scale with this value.
-    tie_weights : bool
-        If true, use a single set of weights for every model head/stage after the first.
-        The initial projection from the base model may have a different size, so that stays separate.
-    scale_input: bool
-        If true, apply an extra layernorm to the initial state vector input.
-        Helps training dynamics, particularly when base model output has unusual scale.
-    """
-
-    def __init__(self, config):
+class ArcticLSTMSpeculator(nn.Module):
+    def __init__(self, config):  # noqa: C901
         super().__init__()
 
         self.config = config
         self.n_predict = config.n_predict
         self.input_hidden_dim = config.input_hidden_dim
+
         def parse_dim(s):
             if isinstance(s, int):
                 return [s]
             elif isinstance(s, str):
-                [int(i) for i in s.split(".")]
+                return [int(i) for i in s.split(".")]
             else:
                 raise NotImplementedError
 
@@ -164,9 +134,7 @@ class MLPVariantSpeculator(nn.Module):
                             )
                         )
                         seqs.append(self.activation)
-                        seqs.append(
-                            nn.Linear(self.emb_dim[i - 1], self.emb_dim[i], bias=False)
-                        )
+                        seqs.append(nn.Linear(self.emb_dim[i - 1], self.emb_dim[i], bias=False))
                     embs.append(nn.Sequential(*seqs))
             self.emb = nn.ModuleList(embs)
 
@@ -190,11 +158,7 @@ class MLPVariantSpeculator(nn.Module):
                             )
                         )
                         seqs.append(self.activation)
-                        seqs.append(
-                            nn.Linear(
-                                self.proj_dim[i - 1], self.proj_dim[i], bias=False
-                            )
-                        )
+                        seqs.append(nn.Linear(self.proj_dim[i - 1], self.proj_dim[i], bias=False))
                     projs.append(nn.Sequential(*seqs))
             self.proj = nn.ModuleList(projs)
 
@@ -211,11 +175,7 @@ class MLPVariantSpeculator(nn.Module):
                     for i in range(1, len(self.inner_dim)):
                         print(f"ADDING ANOTHER LN {i}")
                         seqs.append(self.activation)
-                        seqs.append(
-                            nn.Linear(
-                                self.inner_dim[i - 1], self.inner_dim[i], bias=False
-                            )
-                        )
+                        seqs.append(nn.Linear(self.inner_dim[i - 1], self.inner_dim[i], bias=False))
                         seqs.append(
                             LayerNormParameterized(
                                 self.inner_dim[i],
@@ -228,22 +188,13 @@ class MLPVariantSpeculator(nn.Module):
 
         elif self.method == "sum_lstm":
             assert self.tie_weights
-            self.forget_emb = nn.ModuleList(
-                [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-            )
+            self.forget_emb = nn.ModuleList([nn.Embedding(self.vocab_size, self.emb_dim[0])])
             if self.tie_lstm_embs:
-                print("TYING LSTM EMBS!!!!!")
                 self.input_emb = self.cell_emb = self.output_emb = self.forget_emb
             else:
-                self.input_emb = nn.ModuleList(
-                    [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-                )
-                self.cell_emb = nn.ModuleList(
-                    [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-                )
-                self.output_emb = nn.ModuleList(
-                    [nn.Embedding(self.vocab_size, self.emb_dim[0])]
-                )
+                self.input_emb = nn.ModuleList([nn.Embedding(self.vocab_size, self.emb_dim[0])])
+                self.cell_emb = nn.ModuleList([nn.Embedding(self.vocab_size, self.emb_dim[0])])
+                self.output_emb = nn.ModuleList([nn.Embedding(self.vocab_size, self.emb_dim[0])])
             self.forget_proj = nn.ModuleList(
                 [
                     nn.Linear(self.input_hidden_dim, self.proj_dim[0], bias=False),
@@ -288,15 +239,10 @@ class MLPVariantSpeculator(nn.Module):
             )
 
         if self.scale_input:
-            self.ln0 = LayerNormParameterized(
-                self.input_hidden_dim, elementwise_shift=False, elementwise_scale=False
-            )
+            self.ln0 = LayerNormParameterized(self.input_hidden_dim, elementwise_shift=False, elementwise_scale=False)
 
         self.head = nn.ModuleList(
-            [
-                nn.Linear(self.inner_dim[-1], self.vocab_size, bias=False)
-                for _ in range(self.n_predict)
-            ]
+            [nn.Linear(self.inner_dim[-1], self.vocab_size, bias=False) for _ in range(self.n_predict)]
         )
 
         # Weights ensure that state_0 accounts for 50% of state magnitude by final head in expectation
@@ -349,9 +295,7 @@ class MLPVariantSpeculator(nn.Module):
         state_shapes = list(state.shape)
         state_shapes[-1] = self.inner_dim[-1]
         if self.method == "sum_lstm":
-            cell_state = torch.zeros(
-                state_shapes, device=state.device, dtype=state.dtype
-            )
+            cell_state = torch.zeros(state_shapes, device=state.device, dtype=state.dtype)
             for i in range(self.n_predict):
                 prev_state = state
                 actual_i = 0 if self.tie_weights else i
@@ -359,31 +303,21 @@ class MLPVariantSpeculator(nn.Module):
 
                 z = self.forget_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
                 state = self.forget_proj[actual_proj_i](prev_state)
-                forget_gate = torch.sigmoid(
-                    torch.add(state, z, alpha=self.emb_weight / self.state_weight)
-                )
+                forget_gate = torch.sigmoid(torch.add(state, z, alpha=self.emb_weight / self.state_weight))
 
                 z = self.input_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
                 state = self.input_proj[actual_proj_i](prev_state)
-                input_gate = torch.sigmoid(
-                    torch.add(state, z, alpha=self.emb_weight / self.state_weight)
-                )
+                input_gate = torch.sigmoid(torch.add(state, z, alpha=self.emb_weight / self.state_weight))
 
                 z = self.cell_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
                 state = self.cell_proj[actual_proj_i](prev_state)
-                cell_candidate = torch.add(
-                    state, z, alpha=self.emb_weight / self.state_weight
-                )
-                cell_candidate = self.activation(
-                    self.cell_ln[actual_i](cell_candidate)
-                )  # b n d
+                cell_candidate = torch.add(state, z, alpha=self.emb_weight / self.state_weight)
+                cell_candidate = self.activation(self.cell_ln[actual_i](cell_candidate))  # b n d
                 cell_candidate = cell_candidate * input_gate
 
                 z = self.output_emb[actual_i](inds[:, i : i + state.size(1)])  # b n d
                 state = self.output_proj[actual_proj_i](prev_state)
-                output_gate = torch.sigmoid(
-                    torch.add(state, z, alpha=self.emb_weight / self.state_weight)
-                )
+                output_gate = torch.sigmoid(torch.add(state, z, alpha=self.emb_weight / self.state_weight))
 
                 cell_state = cell_state * forget_gate
                 cell_state = cell_state + cell_candidate

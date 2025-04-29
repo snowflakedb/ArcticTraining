@@ -20,26 +20,26 @@ import transformers
 
 
 # Configs used for savings model checkpoint for inference
-class MLPVariantSpeculatorConfig:
+class ArcticLSTMSpeculatorConfig:
     """
     This is a simple MLP-based speculator Config.
     """
 
     def __init__(
-            self,
-            base_model_name_or_path,
-            input_hidden_dim,
-            inner_dim,
-            proj_dim,
-            emb_dim,
-            vocab_size,
-            n_predict,
-            tie_weights=False,
-            scale_input=False,
-            method="sum_rnn",
-            tie_lstm_embs=False,
+        self,
+        base_model_name_or_path,
+        input_hidden_dim,
+        inner_dim,
+        proj_dim,
+        emb_dim,
+        vocab_size,
+        n_predict,
+        tie_weights=False,
+        scale_input=False,
+        method="sum_rnn",
+        tie_lstm_embs=False,
     ):
-        self.architectures = ["MLPSpeculatorPreTrainedModel"]
+        self.architectures = ["ArcticLSTMSpeculatorPreTrainedModel"]
         self.base_model_name_or_path = base_model_name_or_path
 
         self.input_hidden_dim = input_hidden_dim

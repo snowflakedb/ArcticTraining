@@ -2,17 +2,18 @@
 
 DATA_GEN=1
 TRAIN=1
-data_save_folder_name="llama31_8b_tmp"
-vllm_tensor_parallel=1
-script_save_path="llama31_8b_data_gen_scripts"
+data_save_folder_name="llama31_70b_tmp"
+vllm_tensor_parallel=4
+script_save_path="llama31_70b_data_gen_scripts"
 total_num_of_scripts=8
 
-train_config_file="llama3.1-8b.yaml"
+train_config_file="llama3.1-70b.yaml"
 # must be aligned with the config file
-model_name="meta-llama/Llama-3.1-8B-Instruct"
-data_concat_folder_name="llama31_8b_data"
-spec_drafter_name="spec-decode-llama31-8b"
+model_name="meta-llama/Llama-3.1-70B-Instruct"
+data_concat_folder_name="llama31_70b_data"
+spec_drafter_name="spec-decode-llama-31-70b"
 num_speculative_tokens=3
+
 
 # data generation
 if [ "$DATA_GEN" -eq "1" ]; then
@@ -33,9 +34,10 @@ if [ "$TRAIN" -eq "1" ]; then
 fi
 
 
-vllm serve \
+export VLLM_USE_V1=1
+vllm serve $model_name \
     --disable-log-requests \
     --tensor-parallel-size 8 \
     --enable-chunked-prefill \
-    --speculative-config "{\"model\": \"$spec_drafter_name\", \"num_speculative_tokens\": $num_speculative_tokens, \"draft_tensor_parallel_size\": 8, \"method\": \"mlp_speculator\"}" \
+    --speculative-config "{\"model\": \"$spec_drafter_name\", \"num_speculative_tokens\": $num_speculative_tokens, \"draft_tensor_parallel_size\": 8, \"method\": \"arctic\"}" \
     --gpu_memory_utilization 0.9

@@ -1,17 +1,17 @@
-# Tested with 8xH100 x 2 nodes
+# Tested with 8xH100 node
 
 DATA_GEN=1
 TRAIN=1
-data_save_folder_name="qwen25_32b_tmp"
+data_save_folder_name="llama33_70b_tmp"
 vllm_tensor_parallel=4
-script_save_path="qwen25_32b_data_gen_scripts"
+script_save_path="llama33_70b_data_gen_scripts"
 total_num_of_scripts=8
 
-train_config_file="qwen2.5-32b.yaml"
+train_config_file="llama3.3-70b.yaml"
 # must be aligned with the config file
-model_name="Qwen/Qwen2.5-32B-Instruct"
-data_concat_folder_name="qwen25_32b_data"  # This should be shared, or copied later, to other node as well
-spec_drafter_name="spec-decode-qwen25_32b"
+model_name="meta-llama/Llama-3.3-70B-Instruct"
+data_concat_folder_name="llama33_70b_data"
+spec_drafter_name="spec-decode-llama-31-70b"
 num_speculative_tokens=3
 
 
@@ -34,9 +34,10 @@ if [ "$TRAIN" -eq "1" ]; then
 fi
 
 
-vllm serve \
+export VLLM_USE_V1=1
+vllm serve $model_name \
     --disable-log-requests \
     --tensor-parallel-size 8 \
     --enable-chunked-prefill \
-    --speculative-config "{\"model\": \"$spec_drafter_name\", \"num_speculative_tokens\": $num_speculative_tokens, \"draft_tensor_parallel_size\": 8, \"method\": \"mlp_speculator\"}" \
+    --speculative-config "{\"model\": \"$spec_drafter_name\", \"num_speculative_tokens\": $num_speculative_tokens, \"draft_tensor_parallel_size\": 8, \"method\": \"arctic\"}" \
     --gpu_memory_utilization 0.9

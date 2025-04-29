@@ -358,8 +358,9 @@ class SFTDataFactory(DataFactory):
             drop_last=True,
         )
 
+
 class RawDataFactory(DataFactory):
-    name = 'raw'
+    name = "raw"
     config: SFTDataConfig
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:

@@ -15,22 +15,17 @@
 
 import copy
 import os
-import sys
 import types
 from typing import Optional
+from typing import Union
 
 import torch
 import torch.distributed as dist
-import torch.nn.functional as F
-import tqdm
+from deepspeed.runtime.zero import GatheredParameters
 from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
-from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
-from typing import Union
-from mlp_speculator.configs import MLPVariantSpeculatorConfig
-from mlp_speculator.speculator import MLPVariantSpeculator
-from pydantic import model_validator
+from speculator.configs import ArcticLSTMSpeculatorConfig
+from speculator.speculator import ArcticLSTMSpeculator
 from torch.nn import CrossEntropyLoss
-from arctic_training.data.sft_factory import RawDataFactory
 
 from arctic_training import CheckpointEngine
 from arctic_training import HFModelFactory
@@ -38,30 +33,31 @@ from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
 from arctic_training import logger
+from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
+from arctic_training.data.sft_factory import RawDataFactory
 from arctic_training.trainer.sft_trainer import to_device
-from deepspeed.runtime.zero import GatheredParameters
 
 
-class MLPVariantSpeculatorModelConfig(ModelConfig):
+class ArcticLSTMSpeculatorModelConfig(ModelConfig):
     n_speculator_heads: int = 3
-    speculator_width: Union[int, str] = "4096"
-    proj_dim: Union[int, str] = "4096"
-    emb_dim: Union[int, str] = "4096"
+    speculator_width: str = "4096"
+    proj_dim: str = "4096"
+    emb_dim: str = "4096"
     speculator_tie_weights: bool = False
     speculator_scale_input: bool = False
     method: str = "sum_rnn"
     tie_lstm_embs: bool = False
 
 
-class MLPVariantSpeculatorModelFactory(HFModelFactory):
-    name = "mlp-variant-spec-decode"
-    config: MLPVariantSpeculatorModelConfig
+class ArcticLSTMSpeculatorModelFactory(HFModelFactory):
+    name = "arctic-lstm-speculator"
+    config: ArcticLSTMSpeculatorModelConfig
 
     def post_create_model_callback(self, model):
         hidden_size = model.lm_head.in_features
         vocab_size = model.lm_head.out_features
 
-        speculator_config = MLPVariantSpeculatorConfig(
+        speculator_config = ArcticLSTMSpeculatorConfig(
             self.config.name_or_path,
             hidden_size,
             self.config.speculator_width,
@@ -75,7 +71,7 @@ class MLPVariantSpeculatorModelFactory(HFModelFactory):
             tie_lstm_embs=self.config.tie_lstm_embs,
         )
 
-        model.speculator = MLPVariantSpeculator(speculator_config)
+        model.speculator = ArcticLSTMSpeculator(speculator_config)
 
         model.speculator.to(model.dtype).to(model.device)
 
@@ -146,8 +142,8 @@ class MLPVariantSpeculatorModelFactory(HFModelFactory):
         return model
 
 
-class MLPVariantSpeculatorCheckpointEngine(CheckpointEngine):
-    name = "mlp-variant-spec-decode"
+class ArcticLSTMSpeculatorCheckpointEngine(CheckpointEngine):
+    name = "arctic-lstm-speculator"
 
     def load(self, model) -> None:
         if dist.get_rank() == 0:
@@ -157,11 +153,12 @@ class MLPVariantSpeculatorCheckpointEngine(CheckpointEngine):
         is_z3 = self.trainer.model.zero_optimization_stage() == 3
         dist.barrier()
 
-        assert len(state_dict.keys()) == len(model.speculator.named_paramters().keys()), \
-            "Checkpoint has different parameters than the module"
+        assert len(state_dict.keys()) == len(
+            model.speculator.named_paramters().keys()
+        ), "Checkpoint has different parameters than the module"
 
         for name, param in model.speculator.named_parameters():
-            if is_z3 and hasattr(param, 'ds_id'):
+            if is_z3 and hasattr(param, "ds_id"):
                 with GatheredParameters([param], modifier_rank=0):
                     if dist.get_rank() == 0:
                         param.copy_(state_dict[name])
@@ -169,7 +166,7 @@ class MLPVariantSpeculatorCheckpointEngine(CheckpointEngine):
     def save(self, model) -> None:
         if dist.get_rank() == 0:
             model_config = copy.deepcopy(model.speculator.config)
-            model_to_save = MLPVariantSpeculator(model_config)
+            model_to_save = ArcticLSTMSpeculator(model_config)
             parameters_to_save = model_to_save.parameters()
         else:
             parameters_to_save = [None for param in model.speculator.parameters()]
@@ -180,14 +177,12 @@ class MLPVariantSpeculatorCheckpointEngine(CheckpointEngine):
         dist.barrier()
 
         # Gather final model.
-        for parameter_to_save, (name, ds_param) in zip(
-                parameters_to_save, model.speculator.named_parameters()
-        ):
+        for parameter_to_save, (name, ds_param) in zip(parameters_to_save, model.speculator.named_parameters()):
             # Using gathered parameter does not work.
             # Parameters tracking is messed up at this point
             # So we need to be selective when partitioning
             # This should oes not affect correctness.
-            if is_z3 and hasattr(ds_param, 'ds_id'):
+            if is_z3 and hasattr(ds_param, "ds_id"):
                 ds_param.all_gather(param_list=[ds_param])
                 if dist.get_rank() == 0:
                     parameter_to_save.data.copy_(ds_param.data)
@@ -207,12 +202,12 @@ class MLPVariantSpeculatorCheckpointEngine(CheckpointEngine):
         dist.barrier()
 
 
-class MLPVariantSpeculatorTrainer(SFTTrainer):
-    name = "mlp-variant-spec-decode"
+class ArcticLSTMSpeculatorTrainer(SFTTrainer):
+    name = "arctic-lstm-speculator"
     data_factory: RawDataFactory
     config: TrainerConfig
-    model_factory: MLPVariantSpeculatorModelFactory
-    checkpoint_engine: Union[DSCheckpointEngine, MLPVariantSpeculatorCheckpointEngine]
+    model_factory: ArcticLSTMSpeculatorModelFactory
+    checkpoint_engine: Union[DSCheckpointEngine, ArcticLSTMSpeculatorCheckpointEngine]
 
     def loss(self, batch) -> float:
         inputs = to_device(batch, self.device)

@@ -1,3 +1,18 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import json
 import os
@@ -10,9 +25,7 @@ from vllm import SamplingParams
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description="Process UltraChat dataset configuration."
-    )
+    parser = argparse.ArgumentParser(description="Process UltraChat dataset configuration.")
 
     # Add command-line arguments
     parser.add_argument(
@@ -57,12 +70,8 @@ def parse_arguments():
         default=1,
         help="Total number of data generation splits",
     )
-    parser.add_argument(
-        "--max_tokens", type=int, default=256, help="Max tokens to generate"
-    )
-    parser.add_argument(
-        "--gen_prompt_length", type=int, default=64, help="Max tokens to generate"
-    )
+    parser.add_argument("--max_tokens", type=int, default=256, help="Max tokens to generate")
+    parser.add_argument("--gen_prompt_length", type=int, default=64, help="Max tokens to generate")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -107,7 +116,7 @@ def load_hf_dataset(dataset):
         )
         return result
 
-    elif 'aya' in dataset:
+    elif "aya" in dataset:
         language = dataset.split("_")[-1]
         result = load_dataset("CohereLabs/aya_collection_language_split", language, split="test", num_proc=32)
 
@@ -133,9 +142,8 @@ def load_hf_dataset(dataset):
         )
         return result
 
-
     elif dataset == "trans":
-        result = load_dataset("trans", num_proc=32)['train']
+        result = load_dataset("trans", num_proc=32)["train"]
 
         def instruct_format_conversation(example, query_key, response_key, source_name):
             conversation = [
@@ -167,10 +175,7 @@ def load_hf_dataset(dataset):
 # Save responses as a Hugging Face dataset
 def save_as_huggingface_dataset(prompts, responses, output_path):
     assert output_path is not None, "Please provide an output_path"
-    data = [
-        {"prompt": prompt, "response": response}
-        for prompt, response in zip(prompts, responses)
-    ]
+    data = [{"prompt": prompt, "response": response} for prompt, response in zip(prompts, responses)]
     dataset = Dataset.from_dict(
         {
             "prompt": [d["prompt"] for d in data],
@@ -214,12 +219,8 @@ def generate(args):
 
     def preproc(d):
         message = d["messages"]
-        tokenized_message = tokenizer.apply_chat_template(
-            conversation=message, tokenize=False
-        )
-        tokenized_message = tokenizer(
-            tokenized_message, add_special_tokens=False, return_tensors="pt"
-        )
+        tokenized_message = tokenizer.apply_chat_template(conversation=message, tokenize=False)
+        tokenized_message = tokenizer(tokenized_message, add_special_tokens=False, return_tensors="pt")
         input_ids = tokenized_message["input_ids"][0]
         max_len = len(input_ids) // gen_prompt_length * gen_prompt_length
         input_ids = input_ids[:max_len].reshape(-1, gen_prompt_length)
@@ -229,9 +230,7 @@ def generate(args):
     dataset = dataset.map(preproc, num_proc=4)
     all_prompts = sum(dataset["messages"], [])
 
-    outputs = llm.generate(
-        sampling_params=sampling_params, prompt_token_ids=all_prompts
-    )
+    outputs = llm.generate(sampling_params=sampling_params, prompt_token_ids=all_prompts)
     for o in outputs:
         new_data = {"input": o.prompt_token_ids, "output": o.outputs[0].token_ids}
         f.write(json.dumps(new_data) + "\n")

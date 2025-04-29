@@ -1,3 +1,18 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import glob
 import multiprocessing
@@ -7,7 +22,8 @@ import subprocess
 import sys
 import time
 from functools import partial
-from multiprocessing import Queue, Process
+from multiprocessing import Process
+from multiprocessing import Queue
 
 
 def rm_ext(filename):
@@ -16,7 +32,7 @@ def rm_ext(filename):
 
 
 def get_filename(file: str, remove_ext=True):
-    if file.endswith('/'):
+    if file.endswith("/"):
         file = file[:-1]
     name = os.path.split(file)[1]
     if remove_ext:
@@ -42,13 +58,13 @@ def start(sh, gpu, gpu_queue, end_queue):
 
 
 def get_shs(folder):
-    return sorted(glob.glob(os.path.join(folder, '*.sh')))
+    return sorted(glob.glob(os.path.join(folder, "*.sh")))
 
 
 def run_multigpu(sh_folder, gpu_queue):
     end_queue = Queue()
 
-    tmp_folder = sh_folder + '_tmp'
+    tmp_folder = sh_folder + "_tmp"
     os.makedirs(tmp_folder, exist_ok=True)
 
     procs = []
@@ -70,7 +86,7 @@ def run_multigpu(sh_folder, gpu_queue):
                     proc = Process(target=start, args=(sh_path, gpu, gpu_queue, end_queue))
                     procs.append(proc)
                     proc.start()
-                except:
+                except Exception:
                     if proc is not None:
                         proc.join()
                     else:
@@ -79,7 +95,9 @@ def run_multigpu(sh_folder, gpu_queue):
 
         shs = get_shs(sh_folder)
         dummy_shs = get_shs(tmp_folder)
-        if not args.inf and (end_queue.qsize() == len(procs) and set(map(get_filename, shs)) == set(map(get_filename, dummy_shs))):
+        if not args.inf and (
+            end_queue.qsize() == len(procs) and set(map(get_filename, shs)) == set(map(get_filename, dummy_shs))
+        ):
             break
         else:
             time.sleep(wait_interval)
@@ -90,24 +108,24 @@ def run_multigpu(sh_folder, gpu_queue):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('sh_folder', type=str)
-    parser.add_argument('--max_gpus', default=1, type=int)
-    parser.add_argument('-s', '--start_gpu', default=0, type=int)
-    parser.add_argument('--gpus', default=None, type=str)
-    parser.add_argument('--inf', default=False, action="store_true", help="watch folder infinitely")
-    parser.add_argument('-j', '--proc_num_for_each_gpu', default=1, type=int)
-    parser.add_argument('-n', '--gpus_per_each_proc', default=1, type=int)
+    parser.add_argument("sh_folder", type=str)
+    parser.add_argument("--max_gpus", default=1, type=int)
+    parser.add_argument("-s", "--start_gpu", default=0, type=int)
+    parser.add_argument("--gpus", default=None, type=str)
+    parser.add_argument("--inf", default=False, action="store_true", help="watch folder infinitely")
+    parser.add_argument("-j", "--proc_num_for_each_gpu", default=1, type=int)
+    parser.add_argument("-n", "--gpus_per_each_proc", default=1, type=int)
     args = parser.parse_args()
 
-    multiprocessing.set_start_method('spawn')
+    multiprocessing.set_start_method("spawn")
     gpu_queue = Queue()
 
     if args.gpus is not None:
-        total_gpus = args.gpus.split(',')
+        total_gpus = args.gpus.split(",")
     else:
         try:
             gpu_nums = args.max_gpus
-        except:
+        except Exception:
             print("nvidia-smi not found. Setting CUDA_VISIBLE_DEVICES as -1")
             args.start_gpu = -1
             gpu_nums = args.max_gpus = 1
@@ -115,14 +133,14 @@ if __name__ == "__main__":
 
     assert len(total_gpus) % args.gpus_per_each_proc == 0
     n = args.gpus_per_each_proc
-    chunked_gpus = [total_gpus[i:i+n] for i in range(0, len(total_gpus), n)]
+    chunked_gpus = [total_gpus[i : i + n] for i in range(0, len(total_gpus), n)]
 
     for _ in range(args.proc_num_for_each_gpu):
         for gpus_list in chunked_gpus:
-            gpu_queue.put(','.join(gpus_list))
+            gpu_queue.put(",".join(gpus_list))
 
     sh_folder = args.sh_folder
     if sh_folder.endswith(os.sep):
-        sh_folder = sh_folder[:-len(os.sep)]
+        sh_folder = sh_folder[: -len(os.sep)]
 
     run_multigpu(sh_folder, gpu_queue)

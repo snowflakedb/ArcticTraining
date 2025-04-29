@@ -1,4 +1,4 @@
-# MLPVariantSpeculator
+# ArcticLSTMSpeculator
 
 Please refer to our general [ArcticTraining quickstart](https://github.com/snowflakedb/ArcticTraining/tree/main?tab=readme-ov-file#quickstart) if you haven't already to understanding launching training jobs.
 

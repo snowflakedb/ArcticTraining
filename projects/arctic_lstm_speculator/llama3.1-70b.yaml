@@ -1,20 +1,20 @@
-type: mlp-variant-spec-decode
-micro_batch_size: 64
-gradient_accumulation_steps: 4
-train_iters: 12000
+type: arctic-lstm-speculator
+micro_batch_size: 16
+gradient_accumulation_steps: 16
+train_iters: 3000
 model:
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  name_or_path: meta-llama/Llama-3.1-70B-Instruct
   disable_activation_checkpoint: true
   method: sum_lstm
-  proj_dim: 4096
-  emb_dim: 4096
-  speculator_width: 4096
+  proj_dim: "4096"
+  emb_dim: "4096"
+  speculator_width: "4096"
   speculator_tie_weights: true
   speculator_scale_input: true
   tie_lstm_embs: true
   n_speculator_heads: 3
 tokenizer:
-  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  name_or_path: meta-llama/Llama-3.1-70B-Instruct
 deepspeed:
   zero_optimization:
     stage: 3
@@ -27,9 +27,9 @@ deepspeed:
 data:
   sources:
     - type: huggingface
-      name_or_path: llama31_8b_data
+      name_or_path: llama31_70b_data
       process: false
-  cache_dir: data-cache-llama31-8b
+  cache_dir: data-cache-llama31-70b
   num_proc: 16
 logger:
   output_dir: "./"
@@ -43,9 +43,8 @@ optimizer:
   lr: 1e-3
 checkpoint:
   - type: deepspeed
-    save_every_n_steps: 3000
-    output_dir: spec-decode-llama31-8b/checkpoints
-  - type: mlp-variant-spec-decode
-    save_every_n_steps: 12000
-    output_dir: spec-decode-llama31-8b
-
+    save_every_n_steps: 600
+    output_dir: spec-decode-llama31-70b/checkpoints
+  - type: arctic-lstm-speculator
+    save_end_of_training: true
+    output_dir: spec-decode-llama31-70b
