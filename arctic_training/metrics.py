@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Union
-from typing import cast
+from typing import cast, Literal
 
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
@@ -36,6 +36,35 @@ def gather_object(number: Union[float, int], world_size: int) -> List[Union[floa
     torch.distributed.all_gather_object(output, number)
     return cast(List[Union[float, int]], output)
 
+class Metric:
+    def __init__(self, name: str, mode: Literal["sum", "mean"]="sum", fmt: str = "{name}: {value:.2f}") -> None:
+        self.name = name
+        self.mode = mode
+        self.fmt = fmt
+        self._sum = 0.0
+        self._count = 0
+
+    def reset(self) -> None:
+        self._sum = 0.0
+        self._count = 0
+
+    def update(self, value: float) -> None:
+        self._sum += value
+        self._count += 1
+
+    @property
+    def value(self) -> float:
+        if self.mode == "sum":
+            return self._sum
+        elif self.mode == "mean":
+            if self._count == 0:
+                raise ValueError("No values have been recorded")
+            return self._sum / self._count
+        else:
+            raise ValueError(f"Invalid mode: {self.mode}")
+
+    def __str__(self) -> str:
+        return self.fmt.format(name=self.name, value=self.value)
 
 class Metrics:
     """Class for measuring, tracking, and reporting training metrics."""
