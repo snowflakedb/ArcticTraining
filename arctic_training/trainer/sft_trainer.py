@@ -31,10 +31,6 @@ from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 
-# XXX: this will be moved to deepspeed
-if 1:
-    from arctic_training.deepspeed import TiledLoss
-
 
 class SFTTrainer(Trainer):
     name = "sft"
@@ -72,42 +68,22 @@ class SFTTrainer(Trainer):
 
         shift_labels = batch["shift_labels"]
 
-        # XXX: I'm not sure what to do about this - as these 3 demonstrate 3 different ways of doing efficient chunked loss:
-        # - `liger_fused_logits_loss` is the most efficient but depends on liger enabled
-        # - `tiled_fused_logits_loss` is very close to the former
-        # - `tiled_loss` is useful if one already has logits and wants to save memory on cross-entropy
-        # XXX: Parameterize`
-        #loss_variant = "tiled_loss"
-        loss_variant = "tiled_fused_logits_loss"
-        #loss_variant = "liger_fused_logits_loss" # this is the fastest/most memory efficient way
-
-        if loss_variant == "liger_fused_logits_loss":
-
-            if self.config.model.type != "liger":
-                raise ValueError("configure model.type=liger to use liger_fused_logits_loss")
-
+        # We have 2 implementation of efficient tiled logits+loss computation.
+        # 1. Liger fused cross-entropy is the fastest/most memory efficient way - liger-kernel doesn't recompute forward inside backward, instead it computes the gradients in the forward path.
+        # 2. But liger kernel isn't implemented for all HF Transformers models, so then we fall back onto our tiled logits+loss compute implementation that is almost as efficient memory-wise, but which has more compute overhead before backward re-runs forward. The total memory usage is very similar, but cuda cache flushes earlier if pushing close to OOM than liger.
+        if self.config.model.type == "liger":
             # letting liger do fused logits+loss calculation
             # XXX: update to the latest liger version and it can handle shift_labels
-
             # This needs to be removed once liger new version is out - track https://github.com/linkedin/Liger-Kernel/issues/675
             # batch["labels"] = batch.pop("shift_labels")
             # batch["labels"] = None
             outputs = self.model(**batch, use_cache=False)
-
-            # XXX: try to adapt this code to perform a faster and simpler activation checkpoint offloading instead of monkey patching torch's checkpoint mechanism
-            # watch this Issue:
-            # if experimenting with this disable activation_checkpointing_cpu_offload_threshold code branch
-            # from arctic_training.monkey_patches import OffloadActivations
-            # with OffloadActivations():
-            #    outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
 
-        elif loss_variant == "tiled_fused_logits_loss":
-            shift_labels = batch.pop("shift_labels")
-
-            # XXX: parameterize! but probably to the logits shard size - and not how many shards
+        else:
+            # Currently relying on an automatic num_shards derivation based on the goal that it'll take approximately 1GB of fp32 logits in a shard, could make this configurable if desired later.
+            # Less than 1GB doesn't seem to make much of an impact, but perhaps a higher number will be more efficient as it'll run less shards.
             num_shards = "auto"
-
             if num_shards == "auto":
                 # parameterize to about 1GB fp32 logits shards
                 slice_size_in_gb = 1  # XXX: make configurable?
@@ -159,52 +135,11 @@ class SFTTrainer(Trainer):
                 kwargs_to_pass,
                 grad_requiring_tensor_key,
                 compute_params,
-                output_unshard_dimension=0, # loss
-                output_reduction="mean",
+                output_unshard_dimension=0, # loss is a scalar
+                output_reduction="sum",
             )
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
-
-        elif loss_variant == "tiled_loss":
-            shift_labels = batch.pop("shift_labels")
-            outputs = self.model(**batch, use_cache=False)
-            logits = outputs.logits
-
-            if all((shift_labels == -100).squeeze()):
-                # this is the case where all labels in a micro-batch are -100 (very common for SFT if the seqlen is short) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
-                # XXX: should this be float and not the original dtype?
-                loss = (logits.sum() * 0.0).float()
-
-            # XXX: parameterize
-            num_shards: Any = "auto"
-            # num_shards: Any = 2
-
-            if num_shards == "auto":
-                # parameterize to about 1GB fp32 logits shards
-                slice_size_in_gb = 1  # XXX: make configurable?
-                size_in_gb = logits.numel() * 4 / 2**30  # fp32
-                # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
-                num_shards = math.ceil(size_in_gb / slice_size_in_gb)
-                # print(f"derived {num_shards} shards for size {size_in_gb}GB")
-            if num_shards > 1:
-                # if shards == 1 this will lead to a higher memory usage then calling the normal loss function, so don't do that.
-                loss = TiledLoss.apply(
-                    self.model_unwrapped.loss_function,
-                    logits,
-                    self.model_unwrapped.config.vocab_size,
-                    shift_labels,
-                    num_shards,
-                )
-            else:
-                loss = self.model_unwrapped.loss_function(
-                    logits=logits,
-                    labels=None,
-                    vocab_size=self.model_unwrapped.config.vocab_size,
-                    shift_labels=shift_labels,
-                )
-        else:
-            raise ValueError(f"unknown {loss_variant} loss variant")
-
 
         # differentiable weighted per-shard-loss aggregation across ranks
         import torch.distributed.nn.functional
