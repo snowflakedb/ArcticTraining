@@ -205,7 +205,6 @@ class ArcticLSTMSpeculatorCheckpointEngine(CheckpointEngine):
 class ArcticLSTMSpeculatorTrainer(SFTTrainer):
     name = "arctic-lstm-speculator"
     data_factory: RawDataFactory
-    config: TrainerConfig
     model_factory: ArcticLSTMSpeculatorModelFactory
     checkpoint_engine: Union[DSCheckpointEngine, ArcticLSTMSpeculatorCheckpointEngine]
 
