@@ -38,9 +38,14 @@ class LigerModelFactory(HFModelFactory):
                 f"liger-kernel>={liger_version_min} is required, but you have liger-kernel=={liger_version_have}"
             )
 
+        # Disable liger's mlp override if we are using our mlp override
+        # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
+        swiglu = False if self.trainer.config.tiled_mlp_compute else True
+
         return AutoLigerKernelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,
             attn_implementation=self.config.attn_implementation,
             torch_dtype=self.config.dtype,
+            swiglu=swiglu,
         )

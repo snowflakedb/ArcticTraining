@@ -33,7 +33,7 @@ from arctic_training.trainer.utils import to_device
 
 # XXX: this will be moved to deepspeed
 if 1:
-    from arctic_training.deepspeed import ChunkedMemEfficientLoss
+    from arctic_training.deepspeed import TiledLoss
 
 
 class SFTTrainer(Trainer):
@@ -56,7 +56,7 @@ class SFTTrainer(Trainer):
 
         # Ulysses SP
         # expectations:
-        # 1. batch has `labels`` replaced with `shift_labels`` (which are already preshifted)
+        # 1. batch has `labels`` replaced with `shift_labels`` (which are already preshifted in DataLoader)
         # 2. this rank deals with a seqlen dimension shard so once the loss is calculated it needs to do a differentiable weighted loss average to get the grads right
 
         if "labels" in batch:
@@ -70,13 +70,16 @@ class SFTTrainer(Trainer):
                 " applied to the original DataLoader object"
             )
 
+        shift_labels = batch["shift_labels"]
 
-
-
-        # XXX: Parameterize
-        #loss_variant = "chunked_loss"
-        #loss_variant = "tiling_fused_logits_loss"
-        loss_variant = "liger_fused_logits_loss"
+        # XXX: I'm not sure what to do about this - as these 3 demonstrate 3 different ways of doing efficient chunked loss:
+        # - `liger_fused_logits_loss` is the most efficient but depends on liger enabled
+        # - `tiled_fused_logits_loss` is very close to the former
+        # - `tiled_loss` is useful if one already has logits and wants to save memory on cross-entropy
+        # XXX: Parameterize`
+        #loss_variant = "tiled_loss"
+        loss_variant = "tiled_fused_logits_loss"
+        #loss_variant = "liger_fused_logits_loss" # this is the fastest/most memory efficient way
 
         if loss_variant == "liger_fused_logits_loss":
 
@@ -99,7 +102,7 @@ class SFTTrainer(Trainer):
             #    outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
 
-        elif loss_variant == "tiling_fused_logits_loss":
+        elif loss_variant == "tiled_fused_logits_loss":
             shift_labels = batch.pop("shift_labels")
 
             # XXX: parameterize! but probably to the logits shard size - and not how many shards
@@ -126,43 +129,43 @@ class SFTTrainer(Trainer):
             )
             kwargs_to_pass = dict(model_with_head=model_with_head, vocab_size=self.model_unwrapped.config.vocab_size)
             grad_requiring_tensor_key = "hidden_states"
-            sub_module_params = [model_with_head.lm_head.weight]
+            compute_params = [model_with_head.lm_head.weight]
             seqlen = shift_labels.shape[1]
 
             # since -100s shift_labels are ignored we have to perform a weighted average on each loss slice as each slice may contribute a different number of non- -100 labels
             def fused_logits_loss_fn(
                 model_with_head=None, hidden_states=None, labels=None, shift_labels=None, vocab_size=0
             ):
+                logits = model_with_head.lm_head(hidden_states)
                 if all((shift_labels == -100).squeeze()):
                     # fake loss calculation, since CE will return nan, but grads will be set
                     # a normal loss_fn upcasts logits to float so match it
                     loss_sum = (logits.sum() * 0.0).float()
                 else:
                     good_items = sum((shift_labels != -100).squeeze())
-                    logits = model_with_head.lm_head(hidden_states)
-
                     loss = model_with_head.loss_function(
                         logits=logits, labels=labels, vocab_size=vocab_size, shift_labels=shift_labels
                     )
                     loss_sum = loss * good_items
                 return loss_sum
 
-            from arctic_training.deepspeed import sequence_tiling_compute
+            from arctic_training.deepspeed import sequence_tiled_compute
 
-            total_loss_sum = sequence_tiling_compute(
+            total_loss_sum = sequence_tiled_compute(
                 fused_logits_loss_fn,
                 seqlen,
                 num_shards,
                 kwargs_to_shard,
                 kwargs_to_pass,
                 grad_requiring_tensor_key,
-                sub_module_params,
-                reduction="mean",
+                compute_params,
+                output_unshard_dimension=0, # loss
+                output_reduction="mean",
             )
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
 
-        elif loss_variant == "chunked_loss":
+        elif loss_variant == "tiled_loss":
             shift_labels = batch.pop("shift_labels")
             outputs = self.model(**batch, use_cache=False)
             logits = outputs.logits
@@ -185,7 +188,7 @@ class SFTTrainer(Trainer):
                 # print(f"derived {num_shards} shards for size {size_in_gb}GB")
             if num_shards > 1:
                 # if shards == 1 this will lead to a higher memory usage then calling the normal loss function, so don't do that.
-                loss = ChunkedMemEfficientLoss.apply(
+                loss = TiledLoss.apply(
                     self.model_unwrapped.loss_function,
                     logits,
                     self.model_unwrapped.config.vocab_size,

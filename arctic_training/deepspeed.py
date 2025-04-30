@@ -948,7 +948,7 @@ class UlyssesSPFwdLossBwdWithLogits:
             #     #loss = self.model_unwrapped.loss_function(logits=logits, labels=None, vocab_size=self.model_unwrapped.config.vocab_size, shift_labels=shift_labels)
 
             #     shards = 8
-            #     loss = ChunkedMemEfficientLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
+            #     loss = TiledLoss.apply(self.model_unwrapped.loss_function, logits, self.model_unwrapped.config.vocab_size, shift_labels, shards)
 
             # see_memory_usage(f"{sub_step_id=} after loss", force=True)
 
@@ -1095,7 +1095,7 @@ class UlyssesSPFwdLossBwdWithLogits:
                 self.num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
                 # print(f"derived {self.num_loss_logit_shards} shards for size {size_in_gb}GB")
             if self.num_loss_logit_shards > 1:
-                loss = ChunkedMemEfficientLoss.apply(
+                loss = TiledLoss.apply(
                     self.model_unwrapped.loss_function,
                     self.logits,
                     self.model_unwrapped.config.vocab_size,
@@ -1118,7 +1118,7 @@ class UlyssesSPFwdLossBwdWithLogits:
         self.model.backward(self.loss)
 
 
-class ChunkedMemEfficientLoss(torch.autograd.Function):
+class TiledLoss(torch.autograd.Function):
     @staticmethod
     def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
         """
@@ -1214,25 +1214,33 @@ class ChunkedMemEfficientLoss(torch.autograd.Function):
         return None, logits_grad, None, None, None
 
 
-def sequence_tiling_compute(
+def sequence_tiled_compute(
     fn,
     seqlen,
     shards,
     kwargs_to_shard,
     kwargs_to_pass,
     grad_requiring_tensor_key,
-    sub_module_params=None,
-    reduction="mean",
+    compute_params=None,
+    output_unshard_dimension=1,
+    output_reduction="mean",
 ):
     """
-    This is a wrapper for SequenceTilingCompute which we need since torch.autograd.Function can't work with dicts of tensors (in backward it has to return a grad value and not a dict that may have a non-None grad value). It's also useful for setting default values which we can't do either in torch.autograd.Function.
+    This is a wrapper for SequenceTiledCompute which we need since torch.autograd.Function can't work with dicts of tensors (in backward it has to return a grad value and not a dict that may have a non-None grad value). It's also useful for setting default values which we can't do either in torch.autograd.Function.
 
     Args:
-    [...]
-    - reduction: None, "mean" or "sum"
+    - fn: the function to call on sharded inputs
+    - seqlen: total seqlen of the seqlen dimension
+    - shards: how many shards to use
+    - kwargs_to_shard: this dict will be passed to `fn` as `**kwargs` after sharding on seqlen dimension
+    - kwargs_to_pass: this dict will be passed to `fn` as is, as `**kwargs`
+    - grad_requiring_tensor_key: which main key requires grads
+    - compute_params: a list of weights engaged in the compute Default: `None`
+    - output_reduction: None, "mean" or "sum": Default: "mean"
+    - output_unshard_dimension: the dimension to concat the outputs on: Default: 1 (seqlen dim)
 
     Returns:
-    - unsharded output with an optional reduction applied, depending on the `reduction` value:
+    - unsharded output with an optional reduction applied, depending on the `output_reduction` value:
         None - return the unsharded output tensor
         "mean" - apply mean
         "sum" - apply sum
@@ -1243,21 +1251,22 @@ def sequence_tiling_compute(
     args_to_pass = kwargs_to_pass.values()
     keys_to_pass = list(kwargs_to_pass.keys())
 
-    return SequenceTilingCompute.apply(
+    return SequenceTiledCompute.apply(
         fn,
         seqlen,
         shards,
         keys_to_shard,
         keys_to_pass,
         grad_requiring_tensor_key,
-        sub_module_params,
-        reduction,
+        compute_params,
+        output_unshard_dimension,
+        output_reduction,
         *args_to_shard,
         *args_to_pass,
     )
 
 
-class SequenceTilingCompute(torch.autograd.Function):
+class SequenceTiledCompute(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
@@ -1267,18 +1276,22 @@ class SequenceTilingCompute(torch.autograd.Function):
         keys_to_shard,
         keys_to_pass,
         grad_requiring_tensor_key,
-        sub_module_params,
-        reduction,
+        compute_params,
+        output_unshard_dimension,
+        output_reduction,
         *args,
     ) -> torch.Tensor:
         """
+        for args and return values see `sequence_tiled_compute`'s doc
+
         XXX: currently assuming that all kwargs_to_shard values have a shape of `[bs, seqlen, ...]` and we shard on seqlen dimension
         """
         ctx.fn = fn
         ctx.seqlen = seqlen
         ctx.shards = shards
         ctx.grad_requiring_tensor_key = grad_requiring_tensor_key
-        ctx.sub_module_params = sub_module_params
+        ctx.compute_params = compute_params
+        ctx.output_unshard_dimension = output_unshard_dimension
 
         # print(args)
 
@@ -1307,18 +1320,25 @@ class SequenceTilingCompute(torch.autograd.Function):
                     **{k: v[:, i * shard_step : (i + 1) * shard_step] for k, v in kwargs_to_shard.items()},
                     **kwargs_to_pass,
                 )
+                #print(f"{output.shape=}")
                 output_shards.append(output)
 
-            output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=0)
+            if output_unshard_dimension == 0:
+                # this is just the shape=[1] loss use-case, not sure if it's generic enough
+                output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=output_unshard_dimension)
+            else:
+                output_unsharded = torch.cat(output_shards, dim=output_unshard_dimension)
 
-            if reduction is None:
+            #print(f"{output_unsharded.shape=}")
+
+            if output_reduction is None:
                 return output_unsharded
-            elif reduction == "mean":
+            elif output_reduction == "mean":
                 return output_unsharded.mean()
-            elif reduction == "sum":
+            elif output_reduction == "sum":
                 return output_unsharded.sum()
             else:
-                raise ValueError(f"unknown value {reduction}: valid values are: none/mean/sum")
+                raise ValueError(f"unknown value {output_reduction}: valid values are: none/mean/sum")
 
     @staticmethod
     def backward(ctx, *grads) -> torch.Tensor:
@@ -1328,7 +1348,8 @@ class SequenceTilingCompute(torch.autograd.Function):
         kwargs_to_pass = ctx.kwargs_to_pass
         grad_requiring_tensor_key = ctx.grad_requiring_tensor_key
         grad_requiring_tensor_key_index = ctx.grad_requiring_tensor_key_index
-        sub_module_params = ctx.sub_module_params
+        compute_params = ctx.compute_params
+        output_unshard_dimension = ctx.output_unshard_dimension
 
         # XXX: rename to generic name
         grad_requiring_tensor = kwargs_to_shard[grad_requiring_tensor_key]
@@ -1351,15 +1372,15 @@ class SequenceTilingCompute(torch.autograd.Function):
         shard_step = kwargs_to_shard_shards[grad_requiring_tensor_key][0].numel()
         for i in range(shards):
 
-            # when fn calls a sub-module it'll normally push a grad to reduce per sub-module call, so since we only want it to add a grad for the last shard's call, we signal to zero not to add new gradients to reduce until the last shard when all gradients have been accumulated. an example for a sub-module call is `model.lm_head(hidden_states)`
-            if sub_module_params is not None:
+            # when fn involves one or more model weights deepspeed will normally push a grad to reduce per sub-module call, so since we only want it to add a grad for the last shard's call , we signal to zero not to add new gradients to reduce until the last shard when all gradients have been accumulated. An example for such a call is `model.lm_head(hidden_states)`
+            if compute_params is not None:
                 if i + 1 < shards:
-                    for param in sub_module_params:
-                        param.ds_grad_not_ready = True
+                    for param in compute_params:
+                        param.ds_grad_is_ready = False
                 else:
                     # last shard, can add the grad
-                    for param in sub_module_params:
-                        param.ds_grad_not_ready = False
+                    for param in compute_params:
+                        param.ds_grad_is_ready = True
 
             kwargs_to_shard_shard = {k: kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards.keys()}
             grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key].requires_grad_()
@@ -1386,7 +1407,12 @@ class SequenceTilingCompute(torch.autograd.Function):
             # print(f"{i} {incoming_grad=}")
             # exit()
 
-            torch.autograd.backward(output, incoming_grad)
+            if output_unshard_dimension == 0:
+                # loss use-case
+                torch.autograd.backward(output, incoming_grad)
+            else:
+                incoming_grad_shard = incoming_grad.view(-1).narrow(0, shard_offset, grad_requiring_tensor_shard.numel()).view_as(grad_requiring_tensor_shard)
+                torch.autograd.backward(output, incoming_grad_shard)
             # print(f"{i} {grad_requiring_tensor_shard.grad.numel()=}")
             # print(f"{i} {grad_requiring_tensor_grad.numel()=}")
             # print(f"{i} {grad_requiring_tensor_shard.grad=}")
@@ -1395,392 +1421,13 @@ class SequenceTilingCompute(torch.autograd.Function):
         grad_requiring_tensor_grad /= shards
 
         # positional args
-        grad_outputs = [None] * 8
+        grad_outputs = [None] * 9
         # inject the grad for the position of forward input that is grad-requiring
         arg_outputs = [None] * ctx.total_args
         arg_outputs[grad_requiring_tensor_key_index] = grad_requiring_tensor_grad
         # print(arg_outputs)
 
         return tuple(grad_outputs + arg_outputs)
-
-
-class UlyssesSPAttentionHFNoFrag(torch.nn.Module):
-    """Re-Implementation of DistributedAttention. This implementation enforces the input shape
-    to be standard [sl, bs, hc, hs] form. Any deviation from this shape will raise an error.
-
-    The primary reason for the re-implementation is to make this less error prone, and remove what seemed like
-    bugs in scenarios where batch size > 1 and when using different versions of
-    flash attention each of which takes different input shape. Those should be handled by
-    the actual attn implementation, and not by this module.
-
-    Dimension annotation:
-        bs   = bs
-        hc   = head count
-        hc_l = head count local
-        hs   = head_size
-        sl   = seqlen
-        sl_l = seqlen local
-        ws   = world_size
-        em    = embedding (hidden size)
-        em_l  = embedding (hidden size) local
-
-    Arguments:
-        attn: normal attention implementation from transformers.modeling_utils.ALL_ATTENTION_FUNCTIONS
-        local_seq_length (int): local sequence length per GPU
-        global_seq_length (int): actual sequence length
-        batch_size (int): batch size
-        attn_head_size (int): size of each attention head
-        attn_head_count (int): total number of attention heads
-        kv_head_count (int): total number of kv heads
-        process_group (dist.ProcessGroup): Ulysses process group
-        seq_length_is_variable (bool): whether global seqlen may change between batches
-    """
-
-    def __init__(
-        self,
-        attn,
-        local_seq_length: int,
-        global_seq_length: int,
-        batch_size: int,
-        attn_head_count: int,
-        attn_head_size: int,
-        kv_head_count: int,
-        device,
-        process_group: dist.ProcessGroup,
-        seq_length_is_variable: bool = False,
-    ) -> None:
-        super().__init__()
-        self.attn = attn
-        self.process_group = process_group
-        self.world_size = dist.get_world_size(process_group)
-        self.sp_rank = dist.get_rank(process_group)
-        self.device = device
-
-        self.local_seq_length = local_seq_length
-        self.global_seq_length = global_seq_length
-        self.batch_size = batch_size
-        self.seq_length_is_variable = seq_length_is_variable
-
-        self.attn_head_size = attn_head_size
-        self.attn_head_count = attn_head_count
-        self.global_kv_head_count = kv_head_count
-
-        self.local_q_head_count = attn_head_count // self.world_size
-
-        # if we have 4 kv heads and sp 8, we need to replicate kv heads 2x
-        self.kv_replication_factor = self.world_size // kv_head_count
-        if self.kv_replication_factor > 1:
-            self.local_kv_head_count = 1
-        else:
-            self.local_kv_head_count = kv_head_count // self.world_size
-
-        # XXX: hardcoded dtype
-        buffer_size_kv = batch_size * kv_head_count * local_seq_length * attn_head_size
-        buffer_size_q = batch_size * attn_head_count * local_seq_length * attn_head_size
-        self.nf_k = torch.empty(buffer_size_kv, dtype=torch.bfloat16, device=device)
-        self.nf_v = torch.empty(buffer_size_kv, dtype=torch.bfloat16, device=device)
-        self.nf_q = torch.empty(buffer_size_q, dtype=torch.bfloat16, device=device)
-
-        print_rank0(f"{self.local_q_head_count=}", skip=False)
-        print_rank0(f"{self.local_kv_head_count=}", skip=False)
-        print_rank0(f"{self.kv_replication_factor=}", skip=False)
-        # exit()
-
-        if self.attn_head_count % self.world_size != 0:
-            raise ValueError(f"Attention head count {attn_head_count} is not divisible by SP size {self.world_size}")
-        if not (self.global_kv_head_count % self.world_size == 0 or self.world_size % self.global_kv_head_count == 0):
-            raise ValueError(
-                f"KV attention head count {self.global_kv_head_count} is not divisible by SP size {self.world_size} or"
-                " vice versa"
-            )
-
-        # XXX: working on this feature MQA and some cases of GQA
-        # if self.global_kv_head_count < self.world_size:
-        #     raise ValueError(f"KV attention head count < sp size ({self.global_kv_head_count} < {self.world_size}) is currently not supported but it can be implemented by replicating heads")
-
-        # XXX: add more constraints (some might have to go outside of this module or change the API to add more arguments if they are needed here, or perhaps add a special class method that validates the outside things)
-        # - global_seq_length is divisible by SP? but probably has to be sorted out before this module
-        # - more?
-
-        # [sl_l bs hc hs]
-        self.required_query_shape = torch.Size([local_seq_length, batch_size, attn_head_count, attn_head_size])
-        self.required_key_value_shape = torch.Size([local_seq_length, batch_size, kv_head_count, attn_head_size])
-
-        # [sl bs em_l]
-        self.required_context_shape = torch.Size(
-            [global_seq_length, batch_size, attn_head_size * attn_head_count // self.world_size]
-        )
-
-    def _combine_local_sequences(self, query, key, value) -> Tuple[Tensor, Tensor, Tensor]:
-
-        def combine_sequence(input, head_type):
-            """
-            expects inputs in shape: [sl_l bs hc hs]
-            returns output in shape: [sl bs hc_l hs]
-
-            local_head_count could be different for k,v vs q if it's not an MHA situation
-            """
-
-            print_rank0("")
-            print_rank0(f"combine {head_type}: before reshape:  {input.shape=}", skip=False)
-
-            if head_type == "q":
-                local_head_count = self.local_q_head_count
-            else:  # kv
-                local_head_count = self.local_kv_head_count
-
-                # MQA and some GQA cases:
-                if self.kv_replication_factor > 1:
-                    # local_head_count *= self.kv_replication_factor
-                    # replicate heads to the kv_replication_factor on hc dimension [sl_l bs hc hs] - so dim=2
-                    input = input.repeat_interleave(self.kv_replication_factor, dim=2)
-                    print_rank0(f"combine {head_type}: after repeat interleave:  {input.shape=}", skip=False)
-
-            # [sl_l bs hc hs] -> [sl_l bs ws hc_l hs]
-            input = input.reshape(
-                [self.local_seq_length, self.batch_size, self.world_size, local_head_count, self.attn_head_size]
-            )
-
-            print_rank0(f"combine {head_type}: after reshape:   {input.shape=}", skip=False)
-
-            input = rearrange(input, "sl_l bs ws hc_l hs -> ws sl_l bs hc_l hs").contiguous()
-            # print_rank0(f"combine {head_type}: after rearrange: {input.shape=}", skip=False)
-
-            output = _DimZeroAllToAll.apply(self.process_group, input)
-            # output = input
-            print_rank0(f"combine {head_type}: after all2all:   {output.shape=}", skip=False)
-
-            # [ws sl_l bs hc_l hs] -> [sl bs hc_l hs]
-            output = output.reshape([self.global_seq_length, *output.shape[2:]]).contiguous()
-            print_rank0(f"combine {head_type}: after reshape:   {output.shape=}", skip=False)
-
-            # [sl bs hc_l hs]
-            return output
-
-        return (
-            combine_sequence(query, head_type="q"),
-            combine_sequence(key, head_type="kv"),
-            combine_sequence(value, head_type="kv"),
-        )
-
-    def _partition_global_sequence(self, input) -> Tensor:
-        """
-        expects input in shape:  [sl bs em_l]
-        returns output in shape: [sl_l bs em]
-        """
-
-        # print_rank0(f"partition: before reshape:  {input.shape=}")
-
-        # [sl bs em_l] -> [ws sl_l bs em_l]
-        input = input.reshape(
-            [
-                self.world_size,
-                self.local_seq_length,
-                self.batch_size,
-                self.attn_head_size * self.attn_head_count // self.world_size,
-            ]
-        ).contiguous()
-
-        # print_rank0(f"partition: after reshape:   {input.shape=}", skip=False)
-        output = _DimZeroAllToAll.apply(self.process_group, input)
-        # output = input
-        # print_rank0(f"partition: after all2all:   {output.shape=}", skip=False)
-        output = rearrange(output, "ws sl_l bs em_l -> sl_l bs ws em_l")
-        # output = rearrange(output, 'ws sl_l bs ... -> sl_l bs ws ...')
-        # print_rank0(f"partition: after rearrange: {output.shape=}")
-
-        # [sl_l bs ws em_l] -> [sl_l bs em]
-        output = output.reshape([*output.shape[:2], -1]).contiguous()
-        # print_rank0(f"partition: after reshape:   {output.shape=}")
-
-        # [sl_l bs em]
-        return output
-
-    def forward(
-        self,
-        module: torch.nn.Module,
-        query: Tensor,
-        key: Tensor,
-        value: Tensor,
-        attention_mask: Tensor,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Tensor:
-        """forward
-
-        Arguments:
-            query (Tensor): query input to the layer
-            key (Tensor): key input to the layer
-            value (Tensor): value input to the layer
-            attention_mask (Tensor): Attention mask
-            args: other args
-
-        Returns:
-            * output (Tensor): context output
-        """
-        # HF incoming shapes are:
-        # [batch_size, num_heads, seqlen, head_size]
-        # UlyssesSPAttentionHF expects:
-        # [seqlen, batch_size, num_heads, head_size]
-        # print_rank0(f"{query.shape=}")
-        # print_rank0(f"{key.shape=}")
-        # print_rank0(f"{value.shape=}")
-        # print_rank0(f"{self.required_input_shape=}")
-        # print(f"XXXX {query.shape=}")
-        # die
-        current_local_seq_length = query.shape[2]
-        if self.seq_length_is_variable and current_local_seq_length != self.required_query_shape[0]:
-            self.local_seq_length = current_local_seq_length
-            self.global_seq_length = current_local_seq_length * self.world_size
-            # update the required seqlen shapes
-            self.required_query_shape = torch.Size([self.local_seq_length] + list(self.required_query_shape)[1:])
-            self.required_key_value_shape = torch.Size(
-                [self.local_seq_length] + list(self.required_key_value_shape)[1:]
-            )
-            self.required_context_shape = torch.Size([self.global_seq_length] + list(self.required_context_shape)[1:])
-
-        # print_rank0(f"forward 1 {query.shape=}")
-        # print_rank0(f"forward 1 {key.shape=}")
-        # print_rank0(f"forward 1 {value.shape=}")
-
-        see_memory_usage(f"enter attn forward", force=False)
-
-        # make the blocks contiguous as early as possible to minimize fragmentation
-        query = rearrange(query, "bs hc sl hs -> sl bs hc hs")  # .contiguous()
-        self.nf_q = self.nf_q.narrow(0, 0, query.numel())
-        self.nf_q.copy_(query.view(-1))
-        query.data = self.nf_q.data.view_as(query)
-
-        key = rearrange(key, "bs hc sl hs -> sl bs hc hs")  # .contiguous()
-        value = rearrange(value, "bs hc sl hs -> sl bs hc hs")  # .contiguous()
-
-        # print_rank0(f"forward 2 {query.shape=}")
-        # print_rank0(f"forward 2 {key.shape=}")
-        # print_rank0(f"forward 2 {value.shape=}")
-        # print_rank0(f"forward 2 {self.required_query_shape=}")
-        # print_rank0(f"forward 2 {self.required_key_value_shape=}")
-
-        # print_rank0(f"{attention_mask.shape=}")
-        # please don't remove the white-space vertical alignment in the error message
-        assert query.shape == self.required_query_shape, (
-            f"[{dist.get_rank()}]: query input tensor does not match the required shape\n            "
-            f" {self.required_query_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
-        )
-        assert key.shape == value.shape == self.required_key_value_shape, (
-            f"[{dist.get_rank()}]: key or value input tensor does not match the required shape\n            "
-            f" {self.required_key_value_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
-        )
-        # assert query.shape == key.shape == value.shape == self.required_input_shape, \
-        #     f"[{dist.get_rank()}]: One of the input tensors does not match the required shape\n             {self.required_input_shape}:\n {query.shape=}\n   {key.shape=}\n {value.shape=}"
-
-        see_memory_usage(f"before combine", force=False)
-
-        # expects: [sl_l bs hc hs]
-        query_layer, key_layer, value_layer = self._combine_local_sequences(query, key, value)
-        # returns: [sl bs hc_l hs]
-
-        see_memory_usage(f"after combine", force=False)
-
-        query_layer = rearrange(query_layer, "sl bs hc_l hs -> bs hc_l sl hs").contiguous()
-        key_layer = rearrange(key_layer, "sl bs hc_l hs -> bs hc_l sl hs").contiguous()
-        value_layer = rearrange(value_layer, "sl bs hc_l hs -> bs hc_l sl hs").contiguous()
-
-        # query_layer = query_layer.reshape(query_layer.shape).contiguous()
-
-        # print_rank0(f"{query_layer.shape=}")
-        # print_rank0(f"{key_layer.shape=}")
-        # print_rank0(f"{value_layer.shape=}")
-
-        # if attention_mask is not None:
-        #     print_rank0(f"{attention_mask.shape=}")
-        #     #print_rank0(f"{attention_mask=}")
-
-        # XXX: stick into the trainer object
-        from deepspeed.utils import groups
-
-        sp_group = groups._get_sequence_parallel_group()
-        sp_world_size = groups._get_sequence_parallel_world_size()
-
-        # debug_gathered_tensor(query_layer, sp_group, name="query_layer")
-        # debug_gathered_tensor(key_layer, sp_group, name="key_layer")
-        # debug_gathered_tensor(value_layer, sp_group, name="value_layer")
-
-        print_rank0(f"HF before real attn: {query_layer.shape=}", skip=False)
-        print_rank0(f"HF before real attn: {key_layer.shape=}", skip=False)
-        print_rank0(f"HF before real attn: {value_layer.shape=}", skip=False)
-        print_rank0(f"HF before real attn: {torch.norm(query_layer)=}")
-        print_rank0(f"HF before real attn: {torch.norm(key_layer)=}")
-        print_rank0(f"HF before real attn: {torch.norm(value_layer)=}")
-
-        # pr0(f"HF before real attn: {query_layer.shape=}", skip=False)
-        # pr0(f"HF before real attn: {key_layer.shape=}", skip=False)
-        # pr0(f"HF before real attn: {value_layer.shape=}", skip=False)
-        # pr0(f"HF before real attn: {torch.norm(query_layer)=}", skip=False)
-        # pr0(f"HF before real attn: {torch.norm(key_layer)=}", skip=False)
-        # pr0(f"HF before real attn: {torch.norm(value_layer)=}", skip=False)
-
-        # exit()
-
-        see_memory_usage(f"before core attn", force=False)
-
-        # crucial in the case of MQA and some GQA cases we need to fix `module.num_key_value_groups`
-        # see:
-        # XXX: could move this somewhere to do it only once per run
-        if self.kv_replication_factor > 1:
-            print_rank0(f"before: {module.num_key_value_groups=}", skip=False)
-            module.num_key_value_groups = query_layer.size(-3) // key_layer.size(-3)
-            print_rank0(f"after: {module.num_key_value_groups=}", skip=False)
-
-        # expects: [bs hc_l sl hs]
-        context_layer, attn_weights = self.attn(
-            module, query_layer, key_layer, value_layer, attention_mask, *args, **kwargs
-        )
-        # returns [bs sl hc_l hs]
-
-        see_memory_usage(f"after core attn", force=False)
-
-        # debug_gathered_tensor(context_layer, sp_group, name="context_layer")
-
-        # print_rank0(f"HF after real attn: {context_layer.shape=}")
-        # print_rank0(f"HF after real attn: {torch.norm(context_layer)=}")
-
-        # print_rank0(f"1 {context_layer.shape=}")
-        # [bs sl hc_l hs] -> [sl bs hc_l hs]'
-        context_layer = rearrange(context_layer, "bs sl ... -> sl bs ...")
-        # print_rank0(f"2 {context_layer.shape=}")
-        context_layer = context_layer.reshape([*context_layer.shape[:2], -1])
-        # print_rank0(f"3 {context_layer.shape=}")
-        # print_rank0(f"{self.required_context_shape=}")
-
-        assert (
-            context_layer.shape == self.required_context_shape
-        ), f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
-
-        see_memory_usage(f"before partition", force=False)
-
-        # expects: [sl bs em_l]
-        output = self._partition_global_sequence(context_layer)
-        # returns: [sl_l bs em]
-
-        see_memory_usage(f"after partition", force=False)
-
-        # print_rank0(f"1 {output.shape=}")
-        output = rearrange(output, "sl_l bs ... -> bs sl_l ...")
-        # print_rank0(f"2 {output.shape=}")
-
-        output = output.reshape([*output.shape[:2], -1])
-        # print_rank0(f"3 {output.shape=}")
-        # if attn_weights is not None:
-        #     print_rank0(f"{attn_weights.shape=}")
-
-        # debug_gathered_tensor(output, sp_group, name="output")
-
-        see_memory_usage(f"exit attn forward", force=False)
-
-        # exit()
-
-        # expects [bs sl em]
-        return output, attn_weights
 
 
 from typing import Optional

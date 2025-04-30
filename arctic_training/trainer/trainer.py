@@ -55,6 +55,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
+from arctic_training.model.tiled_compute import enable_tiled_mlp_compute
 
 # XXX: this will be moved to deepspeed
 if 1:
@@ -214,6 +215,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             #     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
         # see_memory_usage("after ulysses", force=True)
+
+        # MLP tiling - has to happen before model is instantiated
+        if self.config.tiled_mlp_compute:
+            enable_tiled_mlp_compute(self.config.model.name_or_path)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         # print(self.config.deepspeed)
