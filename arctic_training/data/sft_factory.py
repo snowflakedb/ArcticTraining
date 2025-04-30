@@ -13,22 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 
 import numpy as np
 import torch
-from datasets import Dataset
+from pydantic import model_validator
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
-from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
+from typing_extensions import Self
 
 from arctic_training.config.data import DataConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
 
@@ -138,9 +139,18 @@ class DataCollatorForCausalLM:
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
 
-        input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
-        labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
-        position_ids = pad(position_ids, divisible_by=self.config.div_length, padding_value=0, is_position_id=True)
+        if self.config.pad_to == "max_length":
+            pad_kwargs = {"max_seq": self.config.max_length}
+        elif self.config.pad_to == "div_length":
+            pad_kwargs = {"divisible_by": self.config.div_length}
+        else:
+            raise ValueError(
+                f"Unknown pad_to value: {self.config.pad_to}. Valid values are 'max_length' and 'div_length'."
+            )
+
+        input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id, **pad_kwargs)
+        labels = pad(labels, padding_value=IGNORE_INDEX, **pad_kwargs)
+        position_ids = pad(position_ids, padding_value=0, is_position_id=True, **pad_kwargs)
 
         return {
             "input_ids": input_ids,
@@ -149,62 +159,41 @@ class DataCollatorForCausalLM:
         }
 
 
-def packing_sft_dataset(
-    dataset: DatasetType,
-    seed: int,
-    rank: int,
-    max_length: int,
-    always_max_length: bool,
-) -> DatasetType:
-    # packing for sft / cpt are different
-    dataset = dataset.shuffle(seed=seed + rank)
-    ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
-    train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
-    example: Dict[str, List] = {key: [] for key in ds_keys}
+def pack_sft_batch(
+    batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
+) -> Dict[str, List[List[int]]]:
+    keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
+    current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
-    # pack multiple samples into one sample
-    # for data in dataset:
-    # TODO: make it multi-process?
-    for data in tqdm(
-        dataset,
-        total=len(dataset),
-        dynamic_ncols=True,
-        file=sys.stdout,
-        desc="Packing data",
-        disable=rank != 0,
-    ):
-        input_ids, attention_mask, labels = (
-            data["input_ids"],
-            data["attention_mask"],
-            data["labels"],
-        )
+    def should_flush() -> bool:
+        total_len = len(current_sample["input_ids"])
+        return total_len > max_length or (not always_max_length and total_len + len(input_ids) > max_length)
 
-        if (not always_max_length and len(example["input_ids"]) + len(input_ids) > max_length) or len(
-            example["input_ids"]
-        ) > max_length:
-            for key in train_dataset.keys():
-                train_dataset[key].append(example[key])
+    def flush() -> None:
+        if len(current_sample["input_ids"]) > 0:
+            for k in keys:
+                packed_batch[k].append(current_sample[k])
+                current_sample[k] = []
 
-            example = {key: [] for key in ds_keys}
+    # Pack multiple samples into one sample
+    for input_ids, labels, attention_mask in zip(batch["input_ids"], batch["labels"], batch["attention_mask"]):
+        if should_flush():
+            flush()
 
-        example["input_ids"].extend(input_ids)
-        example["labels"].extend(labels)
-        example["position_ids"].extend(list(range(len(input_ids))))
-        example["attention_mask"].extend(attention_mask)
+        current_sample["input_ids"].extend(input_ids)
+        current_sample["labels"].extend(labels)
+        current_sample["attention_mask"].extend(attention_mask)
+        current_sample["position_ids"].extend(range(len(input_ids)))
 
-    # add the last example
-    if example["input_ids"]:
-        for key in train_dataset.keys():
-            train_dataset[key].append(example[key])
+    # Add the last example
+    flush()
 
-    return Dataset.from_dict(train_dataset)
+    return packed_batch
 
 
 class SFTDataConfig(DataConfig):
-    max_length: int = 8192
-    """ Maximum length of the input sequence. """
-
-    div_length: int = 256
+    div_length: HumanInt = 256
     """ The number that the length of the sequence should be divisible by. """
 
     mask_inputs: bool = True
@@ -216,6 +205,24 @@ class SFTDataConfig(DataConfig):
     appending samples until the total length matches the max length. It might
     cause the last sample to be truncated.
     """
+
+    pad_to: Literal["max_length", "div_length"] = "div_length"
+    """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
+
+    @model_validator(mode="after")
+    def validate_padding(self) -> Self:
+        if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
+            if self.max_length % self.div_length != 0:
+                lower_val = (self.max_length // self.div_length) * self.div_length
+                higher_val = lower_val + self.div_length
+                raise ValueError(
+                    "You have requested padding sequences to 'max_length' with incompatible max_length"
+                    f" ({self.max_length}) and div_length ({self.div_length}). Either remove `div_length` from your"
+                    f" config or set `max_length` to {lower_val} or {higher_val}, the two closest values divisible by"
+                    f" {self.div_length}.max_length ({self.max_length}) must be divisible by div_length"
+                    f" ({self.div_length}) when pad_to is 'max_length'"
+                )
+        return self
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
@@ -233,12 +240,16 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
-    dataset = packing_sft_dataset(
-        dataset,
-        seed=self.config.seed,
-        rank=self.global_rank,
-        max_length=self.config.max_length,
-        always_max_length=self.config.always_max_length,
+    batch_size = len(dataset) // self.config.num_proc + 1
+    dataset = dataset.shuffle(seed=self.config.seed)
+    dataset = dataset.map(
+        lambda x: pack_sft_batch(
+            x, max_length=self.config.max_length, always_max_length=self.config.always_max_length
+        ),
+        batched=True,
+        batch_size=batch_size,
+        num_proc=self.config.num_proc,
+        desc="Packing dataset",
     )
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
@@ -273,6 +284,7 @@ class SFTDataFactory(DataFactory):
                     mask_inputs=self.config.mask_inputs,
                 )
             },
+            remove_columns=dataset.column_names,
             num_proc=self.config.num_proc,
             desc="Tokenizing messages",
         )

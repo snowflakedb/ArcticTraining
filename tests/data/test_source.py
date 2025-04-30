@@ -15,7 +15,7 @@
 
 from pathlib import Path
 
-from .utils import create_sft_data_factory
+from .utils import create_data_factory
 
 
 def test_data_source_cache_path_uniqueness(model_name: str, tmp_path: Path):
@@ -23,11 +23,14 @@ def test_data_source_cache_path_uniqueness(model_name: str, tmp_path: Path):
         "HuggingFaceH4/ultrachat_200k",
         "Open-Orca/SlimOrca",
     ]
-    data_factory = create_sft_data_factory(
+    data_factory = create_data_factory(
         model_name=model_name,
-        sources=data_sources,
-        eval_sources=data_sources,
-        cache_dir=tmp_path,
+        data_config_kwargs=dict(
+            type="sft",
+            sources=data_sources,
+            eval_sources=data_sources,
+            cache_dir=tmp_path,
+        ),
     )
 
     cache_paths = [s.cache_path for s in data_factory._get_data_sources(data_factory.config.sources)] + [
