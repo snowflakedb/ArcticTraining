@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import random
 from abc import ABC
 from abc import abstractmethod
@@ -216,8 +217,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def epochs(self) -> tqdm:
         """Epochs iterator."""
+        total_epochs = self.config.epochs
+        if self.config.train_iters:
+            total_epochs = math.ceil(
+                self.config.train_iters * self.config.gradient_accumulation_steps / len(self.train_dataloader)
+            )
+
         return tqdm(
-            range(self.epoch_idx, self.config.epochs),
+            range(self.epoch_idx, total_epochs),
             desc="Epochs",
             unit="epoch",
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
