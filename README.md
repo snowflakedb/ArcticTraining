@@ -9,6 +9,8 @@
 <!--| <a href="#"><b>Discourse</b></a> | -->
 
 ## Latest News
+
+* [2025/05] - [Fastest Speculative Decoding in vLLM with Arctic Inference and Arctic Training](https://www.snowflake.com/en/engineering-blog/fast-speculative-decoding-vllm-arctic/)
 * [2025/03] [Snowflake Arctic Embed Joins ArcticTraining: Simple And Scalable Embedding Model Training](https://www.snowflake.com/en/engineering-blog/arctic-embed-joins-arctictraining/)
 * [2025/01] [ArcticTraining: Simplifying and Accelerating Post-Training for LLMs](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/)
 * [2024/12] [SwiftKV: Accelerating Enterprise LLM Workloads with Knowledge Preserving Compute Reduction](https://www.snowflake.com/en/engineering-blog/swiftkv-llm-compute-reduction/)
