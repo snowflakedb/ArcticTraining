@@ -209,8 +209,11 @@ class SFTDataConfig(DataConfig):
     pad_to: Literal["max_length", "div_length"] = "div_length"
     """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
 
-    disable_post_load_callbacks: bool = False
-    """ Whether to disable the post-load callbacks. """
+    filter_samples: bool = True
+    """ Whether to filter loaded dataset to have maximum sequence length of `max_length`. """
+    
+    pack_samples: bool = True
+    """ Whether to pack multiple samples into samples up to size `max_length`. """
 
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
