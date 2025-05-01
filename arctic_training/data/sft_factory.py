@@ -246,7 +246,7 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
-    if self.config.disable_post_load_callbacks:
+    if not self.config.pack_samples:
         return dataset
 
     batch_size = len(dataset) // self.config.num_proc + 1
