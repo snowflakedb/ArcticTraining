@@ -209,6 +209,9 @@ class SFTDataConfig(DataConfig):
     pad_to: Literal["max_length", "div_length"] = "div_length"
     """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
 
+    disable_post_load_callbacks: bool = False
+    """ Whether to disable the post-load callbacks. """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -226,6 +229,9 @@ class SFTDataConfig(DataConfig):
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
+    if self.config.disable_post_load_callbacks:
+        return dataset
+
     dataset = dataset.filter(
         lambda x: len(x["input_ids"]) <= self.config.max_length,
         num_proc=self.config.num_proc,
@@ -240,6 +246,9 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
+    if self.config.disable_post_load_callbacks:
+        return dataset
+
     batch_size = len(dataset) // self.config.num_proc + 1
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
@@ -359,21 +368,6 @@ class SFTDataFactory(DataFactory):
                     pre_output = IGNORE_INDEX
                     output.append(IGNORE_INDEX)
         return output
-
-    def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        return DataLoader(
-            dataset,
-            collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config),
-            batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
-            num_workers=self.config.num_proc,
-            drop_last=True,
-        )
-
-
-class RawDataFactory(DataFactory):
-    name = "raw"
-    config: SFTDataConfig
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         return DataLoader(

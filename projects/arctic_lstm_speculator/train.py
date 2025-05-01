@@ -33,7 +33,7 @@ from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import logger
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
-from arctic_training.data.sft_factory import RawDataFactory
+from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.trainer.sft_trainer import to_device
 
 
@@ -203,7 +203,7 @@ class ArcticLSTMSpeculatorCheckpointEngine(CheckpointEngine):
 
 class ArcticLSTMSpeculatorTrainer(SFTTrainer):
     name = "arctic-lstm-speculator"
-    data_factory: RawDataFactory
+    data_factory: SFTDataFactory
     model_factory: ArcticLSTMSpeculatorModelFactory
     checkpoint_engine: Union[DSCheckpointEngine, ArcticLSTMSpeculatorCheckpointEngine]
 

@@ -31,6 +31,7 @@ data:
       process: false
   cache_dir: data-cache-llama33-70b
   num_proc: 16
+  disable_post_load_callbacks: true
 logger:
   output_dir: "./"
   file_output_ranks: [0]
