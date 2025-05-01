@@ -211,7 +211,7 @@ class SFTDataConfig(DataConfig):
 
     filter_samples: bool = True
     """ Whether to filter loaded dataset to have maximum sequence length of `max_length`. """
-    
+
     pack_samples: bool = True
     """ Whether to pack multiple samples into samples up to size `max_length`. """
 
