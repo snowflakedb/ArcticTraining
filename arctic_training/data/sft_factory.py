@@ -229,7 +229,7 @@ class SFTDataConfig(DataConfig):
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
-    if self.config.disable_post_load_callbacks:
+    if not self.config.filter_samples:
         return dataset
 
     dataset = dataset.filter(
