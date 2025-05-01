@@ -371,7 +371,7 @@ class UlyssesSPAttentionHF(torch.nn.Module):
         #     print_rank0(f"{attention_mask.shape=}")
         #     #print_rank0(f"{attention_mask=}")
 
-        # XXX: stick into the trainer object
+        # XXX: stick into the trainer object? but it's going to be a part of deepspeed
         from deepspeed.utils import groups
 
         sp_group = groups._get_sequence_parallel_group()
@@ -453,7 +453,7 @@ class UlyssesSPAttentionHF(torch.nn.Module):
 
         assert (
             context_layer.shape == self.required_context_shape
-        ), f"The context shape {context_layer.shape} is not as expected shape {self.required_context_shape}"
+        ), f"The context shape {context_layer.shape} is not of the expected shape {self.required_context_shape}"
 
         see_memory_usage(f"before partition", force=False)
 
@@ -571,13 +571,20 @@ class UlyssesSPAttentionHF(torch.nn.Module):
             )
             return attn_output, attn_weights
 
-        ALL_ATTENTION_FUNCTIONS.register("ulysses", uattn_wrapper)
+        # ALL_ATTENTION_FUNCTIONS.register("ulysses", uattn_wrapper)
+        # The problem with this approach is that we are missing on all the special use cases in HF Transformers that do things like: if self.config._attn_implementation == "flash_attention_2": ...
+        # So instead we hack `ALL_ATTENTION_FUNCTIONS` to override all existing keys with our implementation, since it only gets used at the point of calling the attention and that's what we want, all other code branches relying on the original core `attn_implementation` will still be executed. This is what we called "Being John Malkovich"
+        for key in ALL_ATTENTION_FUNCTIONS.keys():
+            ALL_ATTENTION_FUNCTIONS[key] = uattn_wrapper
+
         # see_memory_usage("ulysses: 4", force=True)
         # exit()
         return mpu
 
     @classmethod
     def validate_model(cls, model, sequence_parallel_size):
+        # XXX: no longer using it
+        return
         if sequence_parallel_size > 1:
             if model.config._attn_implementation != "ulysses":
                 raise ValueError(

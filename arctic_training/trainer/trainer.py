@@ -191,10 +191,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             seq_length_is_variable=True,
         )
 
-        self.core_attn_implementation = self.config.model.attn_implementation
-        if self.config.sequence_parallel_size > 1:
-            # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
-            self.config.model.attn_implementation = "ulysses"
+        # self.core_attn_implementation = self.config.model.attn_implementation
+        # if self.config.sequence_parallel_size > 1:
+        #     # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
+        #     self.config.model.attn_implementation = "ulysses"
 
         # Important: this is most likely not beneficial under seqlen=64k
         if self.config.activation_checkpoint_cpu_offload:
@@ -227,15 +227,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         see_memory_usage("after model", force=True)
 
-        UlyssesSPAttentionHF.validate_model(
-            model=self.model,
-            sequence_parallel_size=self.config.sequence_parallel_size,
-        )
+        # UlyssesSPAttentionHF.validate_model(
+        #     model=self.model,
+        #     sequence_parallel_size=self.config.sequence_parallel_size,
+        # )
 
         # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to override this properly - apparently there is a plan to do so in the future versions of transformers.
         # 1. definitely needed for SP
         # 2. but it also should benefit a single gpu use case
-        if self.config.sequence_parallel_size > 1:
+        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation != "flash_attention_2":
             # prevent from causal mask being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
             model_without_head = self.model_unwrapped.model
             if hasattr(model_without_head, "_update_causal_mask"):
@@ -481,7 +481,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # print(tflos)
             # exit()
 
-            if "packed_sample_seqlens" in batch and self.core_attn_implementation == "flash_attention_2":
+            if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # XXX: fix me: double list
                 self.metrics.record("seqlen", batch.pop("packed_sample_seqlens")[0])
             else:
