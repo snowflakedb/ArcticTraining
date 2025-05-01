@@ -49,7 +49,7 @@ dependencies = [
     "pydantic>=2.10",
     "pynvml",
     "tabulate",
-    "torch<2.7",
+    "torch",
     "tqdm",
     "transformers>=4.47.0",
     "wandb",
