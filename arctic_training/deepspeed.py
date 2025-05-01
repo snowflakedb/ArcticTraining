@@ -491,12 +491,16 @@ class UlyssesSPAttentionHF(torch.nn.Module):
         from transformers import AutoConfig
         from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-        import arctic_training.trainer.parallel_state as mpu
+        import arctic_training.trainer.simple_parallel_state as mpu
+        mpu.initialize_sequence_parallel(sequence_parallel_size=sequence_parallel_size)
+        
+        # import arctic_training.trainer.parallel_state as mpu
+        # mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
 
         # see_memory_usage("ulysses: 1.1", force=True)
         # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
         # print_rank0(f"MBS  {micro_batch_size}")
-        mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
+        
         # see_memory_usage("ulysses: 1.2", force=True)
         # we don't have the model yet at this stage
         hf_model_config = AutoConfig.from_pretrained(model_name_or_path)
