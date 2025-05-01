@@ -43,9 +43,9 @@ class ArcticLSTMSpeculatorConfig:
         self.base_model_name_or_path = base_model_name_or_path
 
         self.input_hidden_dim = input_hidden_dim
-        self.inner_dim = inner_dim
-        self.proj_dim = proj_dim
-        self.emb_dim = emb_dim
+        self.inner_dim = str(inner_dim)
+        self.proj_dim = str(proj_dim)
+        self.emb_dim = str(emb_dim)
         self.model_type = "mlp_speculator"
 
         self.n_candidates = n_predict

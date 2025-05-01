@@ -6,9 +6,9 @@ model:
   name_or_path: Qwen/Qwen2.5-32B-Instruct
   disable_activation_checkpoint: true
   method: sum_lstm
-  proj_dim: "5120"
-  emb_dim: "5120"
-  speculator_width: "5120"
+  proj_dim: 5120
+  emb_dim: 5120
+  speculator_width: 5120
   speculator_tie_weights: true
   speculator_scale_input: true
   tie_lstm_embs: true

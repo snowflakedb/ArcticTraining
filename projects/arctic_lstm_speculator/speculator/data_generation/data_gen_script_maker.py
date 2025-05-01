@@ -37,7 +37,7 @@ for i in range(total_num_of_scripts):
     output_dir = f"{data_save_folder_name}/ultrachat"
     json_save_path = f"{output_dir}/{i}_{total_num_of_scripts}.jsonl"
     script = f"""
-python mlp_speculator/data_generation/vllm_data_generation.py --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
+python speculator/data_generation/vllm_data_generation.py --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
     """
     with open(f"{script_save_path}/{data_save_folder_name}_{i:02}.sh", "w") as f:
         f.write(script)
@@ -47,7 +47,7 @@ for i in range(total_num_of_scripts):
     output_dir = f"{data_save_folder_name}/magicoder"
     json_save_path = f"{output_dir}/{i}_{total_num_of_scripts}.jsonl"
     script = f"""
-python mlp_speculator/data_generation/vllm_data_generation.py --hf_dataset magicoder --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
+python speculator/data_generation/vllm_data_generation.py --hf_dataset magicoder --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
     """
     with open(f"{script_save_path}/{data_save_folder_name}_magic_{i:02}.sh", "w") as f:
         f.write(script)

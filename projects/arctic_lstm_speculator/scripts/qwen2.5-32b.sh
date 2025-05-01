@@ -9,23 +9,23 @@ total_num_of_scripts=8
 
 train_config_file="qwen2.5-32b.yaml"
 # must be aligned with the config file
-model_name="Qwen/Qwen2.5-32B-Instruct"
-data_concat_folder_name="qwen25_32b_data"
-spec_drafter_name="spec-decode-qwen25_32b"
-num_speculative_tokens=3
+model_name=$(yq .model.name_or_path $train_config_file)
+data_concat_folder_name=$(yq '.data.sources[0].name_or_path' $train_config_file)
+spec_drafter_name=$(yq '.checkpoint[1].output_dir' $train_config_file)
+num_speculative_tokens=$(yq .model.n_speculator_heads $train_config_file)
 
 
 # data generation
 if [ "$DATA_GEN" -eq "1" ]; then
   pip install vllm
   rm -r $script_save_path ${script_save_path}_tmp
-  python mlp_speculator/data_generation/data_gen_script_maker.py --model_name=$model_name \
+  python speculator/data_generation/data_gen_script_maker.py --model_name=$model_name \
     --data_save_folder_name=$data_save_folder_name \
     --vllm_tensor_parallel=$vllm_tensor_parallel \
     --script_save_path=$script_save_path \
     --total_num_of_scripts=$total_num_of_scripts
   python multigpu_runner.py $script_save_path --max_gpus=8 -n $vllm_tensor_parallel
-  python mlp_speculator/data_generation/concat_generated_datasets.py --data_save_folder_name=$data_save_folder_name --data_concat_folder_name=$data_concat_folder_name
+  python speculator/data_generation/concat_generated_datasets.py --data_save_folder_name=$data_save_folder_name --data_concat_folder_name=$data_concat_folder_name
 fi
 
 # run ArcticTraining

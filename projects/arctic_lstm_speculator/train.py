@@ -31,7 +31,6 @@ from arctic_training import CheckpointEngine
 from arctic_training import HFModelFactory
 from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
-from arctic_training import TrainerConfig
 from arctic_training import logger
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.data.sft_factory import RawDataFactory
@@ -40,9 +39,9 @@ from arctic_training.trainer.sft_trainer import to_device
 
 class ArcticLSTMSpeculatorModelConfig(ModelConfig):
     n_speculator_heads: int = 3
-    speculator_width: str = "4096"
-    proj_dim: str = "4096"
-    emb_dim: str = "4096"
+    speculator_width: Union[int, str] = "4096"
+    proj_dim: Union[int, str] = "4096"
+    emb_dim: Union[int, str] = "4096"
     speculator_tie_weights: bool = False
     speculator_scale_input: bool = False
     method: str = "sum_rnn"

@@ -16,6 +16,7 @@
 import argparse
 import json
 import os
+from functools import partial
 
 from datasets import Dataset
 from datasets import load_dataset
@@ -104,8 +105,6 @@ def load_hf_dataset(dataset):
                 "messages": conversation,
             }
 
-        from functools import partial
-
         result = result.map(
             partial(
                 instruct_format_conversation,
@@ -130,8 +129,6 @@ def load_hf_dataset(dataset):
                 "messages": conversation,
             }
 
-        from functools import partial
-
         result = result.map(
             partial(
                 instruct_format_conversation,
@@ -154,8 +151,6 @@ def load_hf_dataset(dataset):
                 "source": source_name,
                 "messages": conversation,
             }
-
-        from functools import partial
 
         result = result.map(
             partial(

@@ -6,9 +6,9 @@ model:
   name_or_path: meta-llama/Llama-3.1-8B-Instruct
   disable_activation_checkpoint: true
   method: sum_lstm
-  proj_dim: "4096"
-  emb_dim: "4096"
-  speculator_width: "4096"
+  proj_dim: 4096
+  emb_dim: 4096
+  speculator_width: 4096
   speculator_tie_weights: true
   speculator_scale_input: true
   tie_lstm_embs: true
