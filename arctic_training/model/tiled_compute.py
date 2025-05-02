@@ -14,8 +14,8 @@ def get_model_type(model_name_or_path):
     config = AutoConfig.from_pretrained(model_name_or_path)
     return config.model_type
 
-def tiled_mlp_forward_llama(self, x):
-    """  a monkey patch to replace modeling_llama.LlamaMLP.forward to performed a tiled compute of the same """
+def tiled_mlp_forward_common(self, x):
+    """  a monkey patch to replace modeling_llama.LlamaMLP.forward and other identical MLP implementations to perform a tiled compute of the same """
     # import os
     # rank = int(os.getenv("LOCAL_RANK", 0))
     # if rank == 0:
@@ -64,7 +64,10 @@ def enable_tiled_mlp_compute(model_name_or_path):
     model_type = get_model_type(model_name_or_path)
     if model_type == "llama":
         from transformers.models.llama import modeling_llama
-        modeling_llama.LlamaMLP.forward = tiled_mlp_forward_llama
+        modeling_llama.LlamaMLP.forward = tiled_mlp_forward_common
+    elif model_type == "qwen2":
+        from transformers.models.qwen2 import modeling_qwen2
+        modeling_qwen2.Qwen2MLP.forward = tiled_mlp_forward_common
     else:
         raise ValueError(f"model type {model_type} is currently not supported. Please open an issue and ask to add Tiled MLP support for {model_type}.")
 
