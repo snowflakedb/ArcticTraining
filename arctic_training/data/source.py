@@ -81,7 +81,9 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 )
 
         logger.info(f"Saving data source to cache path {self.cache_path.as_posix()}")
-        dataset.save_to_disk(self.cache_path.as_posix())
+        tmp_cache_path = self.cache_path.with_suffix(".incomplete")
+        dataset.save_to_disk(tmp_cache_path.as_posix())
+        tmp_cache_path.rename(self.cache_path)
 
         return dataset
 
