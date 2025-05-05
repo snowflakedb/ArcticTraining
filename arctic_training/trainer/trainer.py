@@ -333,6 +333,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         step=self.model.global_steps,
                     )
 
+            if self.config.kill_switch_path.exists():
+                self.early_stop = True
+
             if self.early_stop:
                 break
         self.metrics.stop_timer("iter")
