@@ -140,6 +140,7 @@ class SwiftKVTrainer(SFTTrainer):
                 student_outputs.logits,
                 teacher_outputs.logits,
                 temperature=self.config.temperature,
+                mask=(batch["labels"] != -100),
             )
 
             logger.info(
@@ -238,20 +239,20 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
+    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1, mask=None):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)
 
         # Calculate the soft targets loss. Scaled by T**2 as suggested by the
         # authors of the paper "Distilling the knowledge in a neural network"
-        return torch.mean(
-            torch.sum(
-                soft_targets * (soft_targets.log() - soft_prob),
-                dim=dim,
-            )
-            * temperature**2
+        loss = torch.sum(
+            soft_targets * (soft_targets.log() - soft_prob),
+            dim=dim,
         )
+        if mask is not None:
+            loss = loss * mask
+        return torch.mean(loss * temperature**2)
 
     def distillation_loss_sp(self, logits, labels=None, vocab_size=None, shift_labels=None):
         student_logits, teacher_logits = torch.chunk(logits, 2, dim=-1)
@@ -260,4 +261,5 @@ class SwiftKVTrainer(SFTTrainer):
             student_logits,
             teacher_logits,
             temperature=self.config.temperature,
+            mask=(shift_labels != -100),
         )

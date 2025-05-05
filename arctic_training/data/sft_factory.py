@@ -149,69 +149,60 @@ class DataCollatorForCausalLM:
         }
 
 
-def packing_sft_dataset(
-    dataset: DatasetType,
-    seed: int,
-    rank: int,
+def pack_sft_batch(
+    batch: Dict[str, List[List[int]]],
     max_length: int,
     min_length: int,
     always_max_length: bool,
-) -> DatasetType:
-    # packing for sft / cpt are different
-    dataset = dataset.shuffle(seed=seed + rank)
-    ds_keys = ("input_ids", "labels", "position_ids", "attention_mask")
-    train_dataset: Dict[str, List] = {key: [] for key in ds_keys}
-    example: Dict[str, List] = {key: [] for key in ds_keys}
+    fuse_position_ids: bool,
+) -> Dict[str, List[List[int]]]:
+    keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
+    current_sample: Dict[str, List[int]] = {k: [] for k in keys}
+
+    def flush() -> None:
+        if len(current_sample["input_ids"]) > 0:
+            for k in keys:
+                packed_batch[k].append(current_sample[k])
+                current_sample[k] = []
 
     # pack multiple samples into one sample
-    # for data in dataset:
-    # TODO: make it multi-process?
-    for data in tqdm(
-        dataset,
-        total=len(dataset),
-        dynamic_ncols=True,
-        file=sys.stdout,
-        desc="Packing data",
-        disable=rank != 0,
-    ):
-        input_ids, attention_mask, labels = (
-            data["input_ids"],
-            data["attention_mask"],
-            data["labels"],
-        )
+    for input_ids, labels, attention_mask in zip(batch["input_ids"], batch["labels"], batch["attention_mask"]):
 
         if len(input_ids) > max_length and not always_max_length:
             continue
 
         pad_len = 0
-        if len(example["input_ids"]) + len(input_ids) > max_length:
-            if always_max_length and len(example["input_ids"]) < max_length:
+        if len(current_sample["input_ids"]) + len(input_ids) > max_length:
+            if always_max_length and len(current_sample["input_ids"]) < max_length:
                 # Pad the packed example using the current sequence
-                pad_len = max_length - len(example["input_ids"])
-                example["input_ids"].extend(input_ids[:pad_len])
-                example["labels"].extend(labels[:pad_len])
-                example["position_ids"].extend(list(range(pad_len)))
-                example["attention_mask"].extend(attention_mask[:pad_len])
-            if len(example["input_ids"]) >= min_length:
-                for key in train_dataset.keys():
-                    train_dataset[key].append(example[key])
-            example = {key: [] for key in ds_keys}
+                pad_len = max_length - len(current_sample["input_ids"])
+                current_sample["input_ids"].extend(input_ids[:pad_len])
+                current_sample["labels"].extend(labels[:pad_len])
+                current_sample["position_ids"].extend(list(range(pad_len)))
+                current_sample["attention_mask"].extend(attention_mask[:pad_len])
+            if len(current_sample["input_ids"]) >= min_length:
+                if fuse_position_ids:
+                    current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
+                flush()
+            current_sample = {key: [] for key in keys}
 
         if pad_len:
             # Current input_ids were used for padding, so skip them
             continue
 
-        example["input_ids"].extend(input_ids)
-        example["labels"].extend(labels)
-        example["position_ids"].extend(list(range(len(input_ids))))
-        example["attention_mask"].extend(attention_mask)
+        current_sample["input_ids"].extend(input_ids)
+        current_sample["labels"].extend(labels)
+        current_sample["position_ids"].extend(list(range(len(input_ids))))
+        current_sample["attention_mask"].extend(attention_mask)
 
     # Add the last example if it fits
-    if len(example["input_ids"]) >= min_length:
-        for key in train_dataset.keys():
-            train_dataset[key].append(example[key])
+    if len(current_sample["input_ids"]) >= min_length and not always_max_length:
+        if fuse_position_ids:
+            current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
+        flush()
 
-    return Dataset.from_dict(train_dataset)
+    return packed_batch
 
 
 class SFTDataConfig(DataConfig):
@@ -234,15 +225,23 @@ class SFTDataConfig(DataConfig):
     cause the last sample to be truncated.
     """
 
+    fuse_position_ids: bool = False
+
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
-    dataset = packing_sft_dataset(
-        dataset,
-        seed=self.config.seed,
-        rank=self.global_rank,
-        max_length=self.config.max_length,
-        min_length=self.config.min_length,
-        always_max_length=self.config.always_max_length,
+    batch_size = len(dataset) // self.config.num_proc + 1
+    dataset = dataset.shuffle(seed=self.config.seed)
+    dataset = dataset.map(
+        lambda batch: pack_sft_batch(
+            batch,
+            max_length=self.config.max_length,
+            min_length=self.config.min_length,
+            always_max_length=self.config.always_max_length,
+            fuse_position_ids=self.config.fuse_position_ids),
+        batched=True,
+        batch_size=batch_size,
+        num_proc=self.config.num_proc,
+        desc="Packing dataset",
     )
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
