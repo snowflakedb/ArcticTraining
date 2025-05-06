@@ -209,6 +209,12 @@ class SFTDataConfig(DataConfig):
     pad_to: Literal["max_length", "div_length"] = "div_length"
     """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
 
+    filter_samples: bool = True
+    """ Whether to filter loaded dataset to have maximum sequence length of `max_length`. """
+
+    pack_samples: bool = True
+    """ Whether to pack multiple samples into samples up to size `max_length`. """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -226,6 +232,9 @@ class SFTDataConfig(DataConfig):
 
 
 def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
+    if not self.config.filter_samples:
+        return dataset
+
     dataset = dataset.filter(
         lambda x: len(x["input_ids"]) <= self.config.max_length,
         num_proc=self.config.num_proc,
@@ -240,6 +249,9 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
 
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
+    if not self.config.pack_samples:
+        return dataset
+
     batch_size = len(dataset) // self.config.num_proc + 1
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
