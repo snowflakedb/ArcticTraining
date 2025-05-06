@@ -19,7 +19,7 @@ from datasets import Dataset
 from datasets import DatasetDict
 from datasets import load_dataset
 
-from .utils import create_sft_data_factory
+from .utils import create_data_factory
 
 
 def test_huggingface_local_data_source(model_name: str, tmp_path: Path):
@@ -30,10 +30,13 @@ def test_huggingface_local_data_source(model_name: str, tmp_path: Path):
     DatasetDict(dict(train=dataset)).save_to_disk(dataset_path.as_posix())
 
     # Load saved dataset using HuggingFaceLocal data source
-    sft_data_factory = create_sft_data_factory(
+    sft_data_factory = create_data_factory(
         model_name=model_name,
-        sources=[dataset_path.as_posix()],
-        cache_dir=tmp_path,
+        data_config_kwargs=dict(
+            type="sft",
+            sources=[dataset_path.as_posix()],
+            cache_dir=tmp_path,
+        ),
     )
     training_dataloader, _ = sft_data_factory()
 
@@ -48,10 +51,13 @@ def test_huggingface_local_data_source_no_split(model_name: str, tmp_path: Path)
     dataset.save_to_disk(dataset_path.as_posix())
 
     # Load saved dataset using HuggingFaceLocal data source
-    sft_data_factory = create_sft_data_factory(
+    sft_data_factory = create_data_factory(
         model_name=model_name,
-        sources=[dataset_path.as_posix()],
-        cache_dir=tmp_path,
+        data_config_kwargs=dict(
+            type="sft",
+            sources=[dataset_path.as_posix()],
+            cache_dir=tmp_path,
+        ),
     )
     training_dataloader, _ = sft_data_factory()
 

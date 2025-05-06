@@ -42,5 +42,5 @@ class LigerModelFactory(HFModelFactory):
             self.config.name_or_path,
             config=model_config,
             attn_implementation=self.config.attn_implementation,
-            torch_dtype=self.config.dtype,
+            torch_dtype=self.config.dtype.value,
         )

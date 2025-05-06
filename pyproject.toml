@@ -53,6 +53,7 @@ dependencies = [
     "tqdm",
     "transformers>=4.47.0",
     "wandb",
+    "yq",
 ]
 
 # Optional development dependencies
