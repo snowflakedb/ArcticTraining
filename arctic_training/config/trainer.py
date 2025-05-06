@@ -143,6 +143,9 @@ class TrainerConfig(BaseConfig):
     mem_profiler_max_entries: HumanInt = Field(default=100_000, ge=1)
     """ Maximum number of entries to store in the memory profiler. """
 
+    kill_switch_path: Path = Path("/tmp/at_kill_switch")
+    """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
+
     @model_validator(mode="after")
     def init_dist(self) -> Self:
         get_accelerator().set_device(self.local_rank)
