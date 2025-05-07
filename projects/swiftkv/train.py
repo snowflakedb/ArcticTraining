@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import math
-from typing import Any
+from typing import Any, List
 from typing import Union
 
 import torch
@@ -106,7 +106,9 @@ class SwiftKVModelFactory(HFModelFactory):
 
 
 class SwiftKVTrainerConfig(TrainerConfig):
-    temperature: float = 1.0
+    logits_loss_temp: float = 2.0
+    hidden_loss_mult: float = 1.0
+    hidden_loss_layer: int = -1
 
 
 class SwiftKVTrainer(SFTTrainer):
@@ -121,11 +123,11 @@ class SwiftKVTrainer(SFTTrainer):
         with torch.no_grad():
             self.model.swiftkv(False)
             self.model.eval()
-            teacher_outputs = self.model(**batch)
+            teacher_outputs = self.model(**batch, output_hidden_states=True)
 
         self.model.swiftkv(True)
         self.model.train()
-        student_outputs = self.model(**batch)
+        student_outputs = self.model(**batch, output_hidden_states=True)
 
         return student_outputs, teacher_outputs
 
@@ -136,17 +138,26 @@ class SwiftKVTrainer(SFTTrainer):
         if self.config.sequence_parallel_size == 1:
             student_outputs, teacher_outputs = self.forward(batch)
 
-            loss = self.distillation_loss(
+            logits_loss = self.logits_loss(
                 student_outputs.logits,
                 teacher_outputs.logits,
-                temperature=self.config.temperature,
+                temperature=self.config.logits_loss_temp,
                 mask=(batch["labels"] != -100),
             )
 
-            logger.info(
-                f"student loss: {student_outputs.loss.item()}, teacher loss:"
-                f" {teacher_outputs.loss.item()}, distill loss: {loss.item()}"
+            hidden_loss = self.hidden_loss(
+                student_outputs.hidden_states[self.config.hidden_loss_layer],
+                teacher_outputs.hidden_states[self.config.hidden_loss_layer],
             )
+
+            logger.info(
+                f"student loss: {student_outputs.loss.item()}, "
+                f"teacher loss: {teacher_outputs.loss.item()}, "
+                f"logits loss: {logits_loss.item()}, "
+                f"hidden loss: {hidden_loss.item()}"
+            )
+
+            loss = logits_loss + self.config.hidden_loss_mult * hidden_loss
         else:
             # Ulysses SP
             # expectations:
@@ -212,34 +223,7 @@ class SwiftKVTrainer(SFTTrainer):
 
         return loss
 
-    def loss_old(self, batch: Any) -> torch.Tensor:
-        batch = to_device(batch, self.device)
-
-        with torch.no_grad():
-            self.model.swiftkv(False)
-            self.model.eval()
-            teacher_outputs = self.model(**batch)
-
-        self.model.swiftkv(True)
-        self.model.train()
-        student_outputs = self.model(**batch)
-
-        loss = self.distillation_loss(
-            student_outputs.logits,
-            teacher_outputs.logits,
-            temperature=self.config.temperature,
-        )
-
-        logger.info(
-            f"student loss: {student_outputs.loss.item()}, teacher loss:"
-            f" {teacher_outputs.loss.item()}, distill loss: {loss.item()}"
-        )
-
-        torch.cuda.synchronize()
-
-        return loss
-
-    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1, mask=None):
+    def logits_loss(self, student_output, teacher_output, temperature=1.0, dim=-1, mask=None):
         # Soften the student logits by applying softmax first and log() second
         soft_targets = F.softmax(teacher_output / temperature, dim=dim)
         soft_prob = F.log_softmax(student_output / temperature, dim=dim)
@@ -254,12 +238,15 @@ class SwiftKVTrainer(SFTTrainer):
             loss = loss * mask
         return torch.mean(loss * temperature**2)
 
+    def hidden_loss(self, student_hidden_states, teacher_hidden_states):
+        return F.mse_loss(student_hidden_states, teacher_hidden_states)
+
     def distillation_loss_sp(self, logits, labels=None, vocab_size=None, shift_labels=None):
         student_logits, teacher_logits = torch.chunk(logits, 2, dim=-1)
 
-        return self.distillation_loss(
+        return self.logits_loss(
             student_logits,
             teacher_logits,
-            temperature=self.config.temperature,
+            temperature=self.config.logits_loss_temp,
             mask=(shift_labels != -100),
         )
