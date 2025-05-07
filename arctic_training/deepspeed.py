@@ -504,12 +504,15 @@ class UlyssesSPAttentionHF(torch.nn.Module):
         from transformers import AutoConfig
         from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-        import arctic_training.trainer.parallel_state as mpu
+        import arctic_training.trainer.sp_parallel_state as mpu
+        #import arctic_training.trainer.parallel_state as mpu
 
         # see_memory_usage("ulysses: 1.1", force=True)
         # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
         # print_rank0(f"MBS  {micro_batch_size}")
-        mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
+        mpu.initialize_sequence_parallel(sequence_parallel_size=sequence_parallel_size)
+        #mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
+
         # see_memory_usage("ulysses: 1.2", force=True)
         # we don't have the model yet at this stage
         hf_model_config = AutoConfig.from_pretrained(model_name_or_path)
@@ -537,7 +540,8 @@ class UlyssesSPAttentionHF(torch.nn.Module):
             global_seq_length=max_length,
             batch_size=micro_batch_size,
             attn_head_count=hf_model_config.num_attention_heads,
-            attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
+            attn_head_size=getattr(hf_model_config, "head_dim", hf_model_config.hidden_size // hf_model_config.num_attention_heads),
+            #attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
             kv_head_count=hf_model_config.num_key_value_heads,
             num_hidden_layers=hf_model_config.num_hidden_layers,
             # device=self.device,
@@ -630,57 +634,57 @@ class UlyssesSPDataLoaderWrapper:
         if len(self.micro_batches) == 0:
             self.refill()
 
-        batch = self.micro_batches.pop(0)
+        return self.micro_batches.pop(0)
 
-        seq_length = len(batch["input_ids"][0])
+        # seq_length = len(batch["input_ids"][0])
 
-        if seq_length % self.sp_world_size != 0:
-            raise ValueError(f"batch's seqlen={seq_length} isn't divisible by sp-size={self.sp_world_size}")
-        chunk_len = int(seq_length / self.sp_world_size)
+        # if seq_length % self.sp_world_size != 0:
+        #     raise ValueError(f"batch's seqlen={seq_length} isn't divisible by sp-size={self.sp_world_size}")
+        # chunk_len = int(seq_length / self.sp_world_size)
 
-        # because we have to gather logits from all sp ranks we have to do the loss function ourselves
-        # therefore remove labels to avoid an attempt to calculate loss by transformers
-        labels = batch.pop("labels")
-        labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
-        batch["shift_labels"] = labels[..., 1:].contiguous()
-        # free up temp memory
-        del labels
+        # # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+        # # therefore remove labels to avoid an attempt to calculate loss by transformers
+        # labels = batch.pop("labels")
+        # labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+        # batch["shift_labels"] = labels[..., 1:].contiguous()
+        # # free up temp memory
+        # del labels
 
-        # XXX: do not delete this block for now
-        # if "position_ids" in batch:
-        #     ## we need both the sharded and non-sharded version of position_ids
-        #     # XXX: don't know how to pass it to ulysses attn - HF drops custom keys in batch
-        #     batch["position_ids_unsharded"] = copy.copy(batch["position_ids"])
-        #     # and when calculating FLOs one needs the length of each sequence because the compute is quadratic wrt sequence length
-        #     t = batch["position_ids"].flatten()
-        #     zero_positions = torch.where(t==0)[0].tolist() + [t.numel]
-        #     seqlens = [zero_positions[i+1]-zero_positions[i] for i in range(len(zero_positions)-1)]
-        #     # XXX: the last seqlens may include padding - need to figure out how to fix that
-        #     # XXX: Aurick is going to rework this for padding of pos ids to be 0..x, like normal sequences, so for now will just leave the padding in the last sample - the flops estimate would be still correct - when it'll be its own sample we still need to count it in as a sample because compute will still be done
+        # # XXX: do not delete this block for now
+        # # if "position_ids" in batch:
+        # #     ## we need both the sharded and non-sharded version of position_ids
+        # #     # XXX: don't know how to pass it to ulysses attn - HF drops custom keys in batch
+        # #     batch["position_ids_unsharded"] = copy.copy(batch["position_ids"])
+        # #     # and when calculating FLOs one needs the length of each sequence because the compute is quadratic wrt sequence length
+        # #     t = batch["position_ids"].flatten()
+        # #     zero_positions = torch.where(t==0)[0].tolist() + [t.numel]
+        # #     seqlens = [zero_positions[i+1]-zero_positions[i] for i in range(len(zero_positions)-1)]
+        # #     # XXX: the last seqlens may include padding - need to figure out how to fix that
+        # #     # XXX: Aurick is going to rework this for padding of pos ids to be 0..x, like normal sequences, so for now will just leave the padding in the last sample - the flops estimate would be still correct - when it'll be its own sample we still need to count it in as a sample because compute will still be done
 
-        #     print(seqlens)
-        #     batch["sample_sequence_lengths"] = seqlens
-        # if self.sp_rank == 0:
-        #    print(f'{batch["position_ids"].tolist()}\n\n')
-        # exit()
-        # batch["seqlens"] =
+        # #     print(seqlens)
+        # #     batch["sample_sequence_lengths"] = seqlens
+        # # if self.sp_rank == 0:
+        # #    print(f'{batch["position_ids"].tolist()}\n\n')
+        # # exit()
+        # # batch["seqlens"] =
 
-        # batch sharding
-        for k in batch.keys():
-            # leave non-tensors alone
-            if not torch.is_tensor(batch[k]):
-                continue
-            # print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
-            batch[k] = batch[k][:, chunk_len * self.sp_rank : chunk_len * (self.sp_rank + 1)].to(self.device)
-            # else:
-            #     print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
-            #     batch[k] = batch[k].to(self.device)
+        # # batch sharding
+        # for k in batch.keys():
+        #     # leave non-tensors alone
+        #     if not torch.is_tensor(batch[k]):
+        #         continue
+        #     # print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
+        #     batch[k] = batch[k][:, chunk_len * self.sp_rank : chunk_len * (self.sp_rank + 1)].to(self.device)
+        #     # else:
+        #     #     print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
+        #     #     batch[k] = batch[k].to(self.device)
 
-            # print_rank0(f"after sp: {k}: {batch[k].shape=}")
+        #     # print_rank0(f"after sp: {k}: {batch[k].shape=}")
 
-        # if len(self.micro_batches) == 0:
-        #     raise StopIteration
-        return batch
+        # # if len(self.micro_batches) == 0:
+        # #     raise StopIteration
+        # return batch
 
     def refill(self):
         # this will raise StopIteration when empty
@@ -728,8 +732,67 @@ class UlyssesSPDataLoaderWrapper:
         del tensor_list
         del batch
 
+        for batch in micro_batches.values():
+            seq_length = len(batch["input_ids"][0])
+
+            if seq_length % self.sp_world_size != 0:
+                raise ValueError(f"batch's seqlen={seq_length} isn't divisible by sp-size={self.sp_world_size}")
+            chunk_len = seq_length // self.sp_world_size
+
+            # because we have to gather logits from all sp ranks we have to do the loss function ourselves
+            # therefore remove labels to avoid an attempt to calculate loss by transformers
+            labels = batch.pop("labels")
+            labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+            batch["shift_labels"] = labels[..., 1:].contiguous()
+            # free up temp memory
+            del labels
+
+            # XXX: do not delete this block for now
+            # if "position_ids" in batch:
+            #     ## we need both the sharded and non-sharded version of position_ids
+            #     # XXX: don't know how to pass it to ulysses attn - HF drops custom keys in batch
+            #     batch["position_ids_unsharded"] = copy.copy(batch["position_ids"])
+            #     # and when calculating FLOs one needs the length of each sequence because the compute is quadratic wrt sequence length
+            #     t = batch["position_ids"].flatten()
+            #     zero_positions = torch.where(t==0)[0].tolist() + [t.numel]
+            #     seqlens = [zero_positions[i+1]-zero_positions[i] for i in range(len(zero_positions)-1)]
+            #     # XXX: the last seqlens may include padding - need to figure out how to fix that
+            #     # XXX: Aurick is going to rework this for padding of pos ids to be 0..x, like normal sequences, so for now will just leave the padding in the last sample - the flops estimate would be still correct - when it'll be its own sample we still need to count it in as a sample because compute will still be done
+
+            #     print(seqlens)
+            #     batch["sample_sequence_lengths"] = seqlens
+            # if self.sp_rank == 0:
+            #    print(f'{batch["position_ids"].tolist()}\n\n')
+            # exit()
+            # batch["seqlens"] =
+
+            # batch sharding
+            for k in batch.keys():
+                # leave non-tensors alone
+                if not torch.is_tensor(batch[k]):
+                    continue
+                # print_rank(f"SLICING {k} {chunk_len=}: {self.sp_rank=}", skip=False)
+                # at seqlen>10M and 32+ gpus this can take GBs of memory so keep the prefill buffer on cpu
+                batch[k] = batch[k][:, chunk_len * self.sp_rank : chunk_len * (self.sp_rank + 1)].cpu()
+                # else:
+                #     print_rank(f"KEEPING {k} {batch[k].shape=}", skip=False)
+                #     batch[k] = batch[k].to(self.device)
+
+                # print_rank0(f"after sp: {k}: {batch[k].shape=}")
+
+            # if len(self.micro_batches) == 0:
+            #     raise StopIteration
+
+            #print(batch)
+            #exit()
+
+            self.micro_batches.append(batch)
+
+        #del micro_batches
+        #import gc; gc.collect()
+
         # convert to list
-        self.micro_batches = [micro_batches[i] for i in range(len(micro_batches))]
+        #self.micro_batches = [micro_batches[i] for i in range(len(micro_batches))]
 
 
 # XXX: this class shouldn't depend on anything in AT (trainer, etc) - we can have a subclass if needed to support that
@@ -1198,6 +1261,8 @@ class SequenceTiledCompute(torch.autograd.Function):
 
         XXX: currently assuming that all kwargs_to_shard values have a shape of `[bs, seqlen, ...]` and we shard on seqlen dimension
         """
+        see_memory_usage("forward enter", a=True)
+        #print(f"SequenceTiledCompute.forward")
         ctx.fn = fn
         ctx.seqlen = seqlen
         ctx.shards = shards
@@ -1207,41 +1272,56 @@ class SequenceTiledCompute(torch.autograd.Function):
 
         # print(args)
 
-        args = list(args)
-        ctx.total_args = len(args)
-        ctx.grad_requiring_tensor_key_index = (keys_to_shard + keys_to_pass).index(grad_requiring_tensor_key)
-        # print(f"{grad_requiring_tensor_key=} {grad_requiring_tensor_key_index=} ")
+        with torch.no_grad():
+            args = list(args)
+            ctx.total_args = len(args)
+            ctx.grad_requiring_tensor_key_index = (keys_to_shard + keys_to_pass).index(grad_requiring_tensor_key)
+            # print(f"{grad_requiring_tensor_key=} {grad_requiring_tensor_key_index=} ")
 
-        kwargs_to_shard = {k: args.pop(0) for k in keys_to_shard}
-        kwargs_to_pass = {k: args.pop(0) for k in keys_to_pass}
-        ctx.kwargs_to_shard = kwargs_to_shard
-        ctx.kwargs_to_pass = kwargs_to_pass
+            kwargs_to_shard = {k: args.pop(0) for k in keys_to_shard}
+            kwargs_to_pass = {k: args.pop(0) for k in keys_to_pass}
+            ctx.kwargs_to_shard = kwargs_to_shard
+            ctx.kwargs_to_pass = kwargs_to_pass
+            #ctx.keys_to_shard = keys_to_shard
+            #ctx.keys_to_pass = keys_to_pass
+            #ctx.save_for_backward(list(kwargs_to_shard.values())[0])
+
+        #return kwargs_to_shard[grad_requiring_tensor_key]
 
         # print(f"{kwargs_to_shard=}")
         # print(f"{kwargs_to_pass=}")
 
         with torch.no_grad():
+#        with torch.enable_grad():
             shard_step = math.ceil(seqlen / shards)
             output_shards = []
 
-            # import deepspeed
-            # model_with_head = kwargs_to_pass["model_with_head"]
-            # with deepspeed.zero.GatheredParameters(model_with_head.lm_head.weight, modifier_rank=0):
+            # for p in compute_params:
+            #     p.requires_grad_(False)
+            #kwargs_to_shard[grad_requiring_tensor_key].detach_()
             for i in range(shards):
+                #output = kwargs_to_shard[grad_requiring_tensor_key]
                 output = fn(
                     **{k: v[:, i * shard_step : (i + 1) * shard_step] for k, v in kwargs_to_shard.items()},
                     **kwargs_to_pass,
                 )
                 #print(f"{output.shape=}")
                 output_shards.append(output)
+            see_memory_usage("forward end 1", a=True)
 
             if output_unshard_dimension == 0:
                 # this is just the shape=[1] loss use-case, not sure if it's generic enough
                 output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=output_unshard_dimension)
             else:
-                output_unsharded = torch.cat(output_shards, dim=output_unshard_dimension)
+                output_unsharded = torch.cat(output_shards, dim=output_unshard_dimension)#.clone().detach()
+                #output_unsharded = output_shards[0]
+
+            # for p in compute_params:
+            #     p.requires_grad_(True)
 
             #print(f"{output_unsharded.shape=}")
+            #print(f"{output_unsharded.grad=}")
+            see_memory_usage("forward end 2", a=True)
 
             if output_reduction is None:
                 return output_unsharded
@@ -1254,10 +1334,16 @@ class SequenceTiledCompute(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads) -> torch.Tensor:
+        #print(f"SequenceTiledCompute.backward")
+
+        see_memory_usage("backward enter", a=True)
         fn = ctx.fn
         shards = ctx.shards
         kwargs_to_shard = ctx.kwargs_to_shard
         kwargs_to_pass = ctx.kwargs_to_pass
+        #kwargs_to_shard = {k: list(ctx.saved_tensors).pop(0) for k in ctx.keys_to_shard}
+        #kwargs_to_pass  = {k: ctx.saved_tensors.pop(0) for k in ctx.keys_to_pass}
+
         grad_requiring_tensor_key = ctx.grad_requiring_tensor_key
         grad_requiring_tensor_key_index = ctx.grad_requiring_tensor_key_index
         compute_params = ctx.compute_params
@@ -1267,7 +1353,6 @@ class SequenceTiledCompute(torch.autograd.Function):
         grad_requiring_tensor = kwargs_to_shard[grad_requiring_tensor_key]
 
         # print(f"{grad_requiring_tensor.numel()=}")
-
         incoming_grad = grads[0]
         grad_requiring_tensor_grad = torch.zeros_like(grad_requiring_tensor)
 
@@ -1277,9 +1362,11 @@ class SequenceTiledCompute(torch.autograd.Function):
         # for v in kwargs_to_shard.values():
         #     v.resize_(0)
 
-        del kwargs_to_shard
-        del ctx.kwargs_to_shard
+        #del kwargs_to_shard
+        #del ctx.kwargs_to_shard
 
+        #print(f"{shards=}")
+        #shards = 0
         # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
         shard_step = kwargs_to_shard_shards[grad_requiring_tensor_key][0].numel()
         for i in range(shards):
@@ -1295,7 +1382,8 @@ class SequenceTiledCompute(torch.autograd.Function):
                         param.ds_grad_is_ready = True
 
             kwargs_to_shard_shard = {k: kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards.keys()}
-            grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key].requires_grad_()
+            # XXX: do we need requires_grad_()?
+            grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key]#.requires_grad_()
             # print(f"{i} {grad_requiring_tensor_shard.numel()=}")
 
             shard_offset = i * shard_step
@@ -1306,8 +1394,9 @@ class SequenceTiledCompute(torch.autograd.Function):
                 .view_as(grad_requiring_tensor_shard)
             )
 
-            grad_requiring_tensor_shard.requires_grad_()
+            #grad_requiring_tensor_shard.requires_grad_()
 
+            # make it optional
             with torch.enable_grad():
                 output = fn(
                     **kwargs_to_shard_shard,
@@ -1325,21 +1414,186 @@ class SequenceTiledCompute(torch.autograd.Function):
             else:
                 incoming_grad_shard = incoming_grad.view(-1).narrow(0, shard_offset, grad_requiring_tensor_shard.numel()).view_as(grad_requiring_tensor_shard)
                 torch.autograd.backward(output, incoming_grad_shard)
+                # inputs=output, reduces the leak from 2 allocs to 1, but it doesn't compute .grad for all leaf tensors used to calculate output
+                #torch.autograd.backward(output, incoming_grad_shard, inputs=output)
+
+            # output.grad = None
+            # incoming_grad_shard.grad = None
+            #output.detach_()
+
+            #grad_requiring_tensor_shard.requires_grad_(False)
+            #output.requires_grad_(False)
+
             # print(f"{i} {grad_requiring_tensor_shard.grad.numel()=}")
             # print(f"{i} {grad_requiring_tensor_grad.numel()=}")
             # print(f"{i} {grad_requiring_tensor_shard.grad=}")
             # print(f"{i} {grad_requiring_tensor_grad=}")
+            #output.detach()
 
         grad_requiring_tensor_grad /= shards
+
+        #grad_requiring_tensor_grad.detach_()
+
+        # for p in compute_params:
+        #     p.grad = None
+
+        # positional args
+        grad_outputs = [None] * 9
+        # inject the grad for the position of forward input that is grad-requiring
+        arg_outputs = [None] * ctx.total_args
+        arg_outputs[grad_requiring_tensor_key_index] = grad_requiring_tensor_grad#.detach()
+        # print(arg_outputs)
+
+        # grad_requiring_tensor.grad = None
+        # grad_requiring_tensor_grad.grad = None
+        # grad_requiring_tensor.requires_grad_(False)
+        # grad_requiring_tensor_grad.requires_grad_(False)
+
+        see_memory_usage("backward end", a=True)
+
+        return tuple(grad_outputs + arg_outputs)
+
+
+
+
+class SequenceTiledCompute2(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        fn,
+        seqlen,
+        shards,
+        keys_to_shard,
+        keys_to_pass,
+        grad_requiring_tensor_key,
+        compute_params,
+        output_unshard_dimension,
+        output_reduction,
+        *args,
+    ) -> torch.Tensor:
+        see_memory_usage("forward enter", a=True)
+        #print(f"SequenceTiledCompute.forward")
+        ctx.fn = fn
+        ctx.seqlen = seqlen
+        ctx.grad_requiring_tensor_key = grad_requiring_tensor_key
+
+        args = list(args)
+        ctx.total_args = len(args)
+        ctx.grad_requiring_tensor_key_index = (keys_to_shard + keys_to_pass).index(grad_requiring_tensor_key)
+        kwargs_to_shard = {k: args.pop(0) for k in keys_to_shard}
+        kwargs_to_pass = {k: args.pop(0) for k in keys_to_pass}
+        #ctx.kwargs_to_shard = kwargs_to_shard
+        ctx.kwargs_to_pass = kwargs_to_pass
+        ctx.keys_to_shard = keys_to_shard
+        ctx.save_for_backward(list(kwargs_to_shard.values())[0])
+
+        with torch.no_grad():
+            output_unsharded = fn(**kwargs_to_shard, **kwargs_to_pass)
+            return output_unsharded
+
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+        fn = ctx.fn
+        #kwargs_to_shard = ctx.kwargs_to_shard
+        kwargs_to_shard = {k: list(ctx.saved_tensors).pop(0) for k in ctx.keys_to_shard}
+        kwargs_to_pass = ctx.kwargs_to_pass
+
+        grad_requiring_tensor_key = ctx.grad_requiring_tensor_key
+        grad_requiring_tensor_key_index = ctx.grad_requiring_tensor_key_index
+
+        grad_requiring_tensor               = kwargs_to_shard[grad_requiring_tensor_key].detach()
+        grad_requiring_tensor.requires_grad = kwargs_to_shard[grad_requiring_tensor_key].requires_grad
+        incoming_grad = grads[0]
+        #grad_requiring_tensor_grad = torch.zeros_like(grad_requiring_tensor)
+
+        #grad_requiring_tensor.grad = grad_requiring_tensor_grad
+
+        with torch.enable_grad():
+            output = fn(**kwargs_to_shard, **kwargs_to_pass)
+        torch.autograd.backward(output, incoming_grad)
+        grad_requiring_tensor_grad = grad_requiring_tensor.grad
 
         # positional args
         grad_outputs = [None] * 9
         # inject the grad for the position of forward input that is grad-requiring
         arg_outputs = [None] * ctx.total_args
         arg_outputs[grad_requiring_tensor_key_index] = grad_requiring_tensor_grad
-        # print(arg_outputs)
-
         return tuple(grad_outputs + arg_outputs)
+
+
+
+
+
+
+class SequenceTiledCompute6(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        fn,
+        x,
+        #self,
+    ) -> torch.Tensor:
+        ctx.fn = fn
+        #ctx.self = self
+        ctx.save_for_backward(x)
+
+        with torch.no_grad():
+            return fn(x)
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+        fn = ctx.fn
+        x, = ctx.saved_tensors
+        #self = ctx.self
+
+        x1 = x.detach()
+        x1.requires_grad = x.requires_grad
+        with torch.enable_grad():
+            output = fn(x1)
+        torch.autograd.backward(output, grads[0])
+        return (None, x1.grad, None)
+
+
+
+
+
+class SequenceTiledCompute7(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        fn,
+        x,
+        down,
+        gate,
+        up,
+        act_fn,
+    ) -> torch.Tensor:
+        ctx.fn = fn
+        ctx.act_fn = act_fn
+        ctx.save_for_backward(x, down, gate, up)
+
+        with torch.no_grad():
+            return fn(x, down, gate, up, act_fn)
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+        fn = ctx.fn
+        act_fn = ctx.act_fn
+        x, down, gate, up = ctx.saved_tensors
+
+        x1 = x.detach()
+        x1.requires_grad = x.requires_grad
+        with torch.enable_grad():
+            output = fn(x1, down, gate, up, act_fn)
+        torch.autograd.backward(output, grads[0])
+        return (None, x1.grad, None, None, None, None)
+
+
+
+
+
+
 
 
 from typing import Optional

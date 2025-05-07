@@ -17,7 +17,7 @@
 import builtins
 import fcntl
 import gc
-
+import os
 import psutil
 import torch
 
@@ -37,7 +37,8 @@ torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
 pynvml_handle = None
-
+def get_local_rank():
+    return int(os.getenv("LOCAL_RANK", 0))
 
 def get_nvml_mem():
     global pynvml_handle
@@ -46,7 +47,7 @@ def get_nvml_mem():
         return 0
 
     if pynvml_handle is None:
-        rank = dist.get_rank() if dist.is_initialized() else 0
+        rank = get_local_rank() if dist.is_initialized() else 0
         pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
         # pynvml.nvmlShutdown()
     memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
@@ -62,22 +63,24 @@ def gc_empty_accelerator_cache():
     get_accelerator().empty_cache()
 
 
-def see_memory_usage(message, force=False, ranks=[0]):
+def see_memory_usage(message, a=False, force=False, ranks=[0]):
     """
     Arguments:
         message: a pre-amble message to print before the counter dumps - useful for annotating where each measurement has been taken - e.g. "before foo" and later "after foo"
         force: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
         ranks: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
     """
+    return 
     # gc.collect()
     # torch.cuda.empty_cache()
-
-    return
+    if not a:
+        return
+    #return
     # if not force:
     #     return
     rank = dist.get_rank() if dist.is_initialized() else 0
-    # if not rank in ranks:
-    #     return
+    if not rank in ranks:
+        return
 
     # python doesn't do real-time garbage collection so do it explicitly to get the correct RAM reports
     gc.collect()
@@ -210,8 +213,8 @@ def pr(*msg, skip=True, ranks=None):
 
     """
     global_rank = dist.get_rank()
-    if ranks is not None and global_rank not in ranks:
-        return
+    # if ranks is not None and global_rank not in ranks:
+    #     return
     print(f"[{global_rank}]", *msg)
 
 

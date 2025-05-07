@@ -10,9 +10,38 @@ from arctic_training.deepspeed import sequence_tiled_compute
 from transformers import AutoConfig
 import torch
 
+from arctic_training.deepspeed import SequenceTiledCompute
+
 def get_model_type(model_name_or_path):
     config = AutoConfig.from_pretrained(model_name_or_path)
     return config.model_type
+
+# import torch.nn as nn
+# from transformers.activations import ACT2FN
+# class TiledLlamaMLP(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.config = config
+#         self.hidden_size = config.hidden_size
+#         self.intermediate_size = config.intermediate_size
+#         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
+#         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
+#         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
+#         self.act_fn = ACT2FN[config.hidden_act]
+#         #self.dummy_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=config.mlp_bias)
+
+#     def real_forward(self, x):
+#         down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+#         return down_proj
+
+#     def forward(self, x):
+#         from functools import partial
+#         #print("Hello")
+#         return SequenceTiledCompute.apply(
+#             self.real_forward,
+#             x,
+#         )
+
 
 def tiled_mlp_forward_common(self, x):
     """  a monkey patch to replace modeling_llama.LlamaMLP.forward and other identical MLP implementations to perform a tiled compute of the same """
@@ -31,15 +60,72 @@ def tiled_mlp_forward_common(self, x):
         num_shards = math.ceil(seqlen/hidden)
         #print(f"derived {num_shards} for {seqlen=} and {hidden=}")
 
+    # print(f"{self.down_proj.weight.shape=}")
+    # print(f"{self.up_proj.weight.shape=}")
     kwargs_to_shard = dict(x=x)
-    kwargs_to_pass = dict(self=self)
+    kwargs_to_pass = dict(
+        down=self.down_proj.weight,
+        gate=self.gate_proj.weight,
+        up=self.up_proj.weight,
+        # down=self.down_proj.__call__,
+        # gate=self.gate_proj.__call__,
+        # up=self.up_proj.__call__,
+        act_fn=self.act_fn,
+    )
+    #kwargs_to_pass = dict(self=self.dummy_proj.weight)
     grad_requiring_tensor_key = "x"
     compute_params = [self.down_proj.weight, self.gate_proj.weight, self.up_proj.weight]
     seqlen = x.shape[1]
 
-    def mlp_forward(self=None, x=None):
-        #print(f"computing sub {x.shape}")
+    def mlp_forward(x, down, gate, up, act_fn):
+        #return down(act_fn(gate(x)) * up(x))
+        #print(f"{x.shape=}")
+        #print(f"{up.shape=}")
+
+        a = x @ up.t()
+        b = act_fn(x @ gate.t())
+        c = a * b
+        return c @ down.t()
+
+    def mlp_forward2(self=None, x=None):
+        #print(f"mlp_forward computing sub {x.shape}")
+        #return self.dummy_proj(x)
+
+        # leaks the size of mm
+        #return x @ self
+        # no leak
+        #return x*2
+        #return self.down_proj(self.gate_proj(x))
+        #y = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+    # from functools import partial
+    # return SequenceTiledCompute.apply(
+    #     mlp_forward2,
+    #     x,
+    #     self.down_proj.weight,
+    #     self.gate_proj.weight,
+    #     self.up_proj.weight,
+    #     self.act_fn,
+    # )
+
+    # def mlp_forward(self=None, x=None):
+    #     #print(f"mlp_forward computing sub {x.shape}")
+
+    #     # leaks the size of mm
+    #     return x @ self
+    #     # no leak
+    #     return x*2
+    #     #return self.down_proj(self.gate_proj(x))
+    #     #y = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+    #     #return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+    # return SequenceTiledCompute.apply(
+    #     mlp_forward,
+    #     x,
+    #     self.dummy_proj.weight,
+    # )
+
 
     x = sequence_tiled_compute(
         mlp_forward,
@@ -59,6 +145,8 @@ def enable_tiled_mlp_compute(model_name_or_path):
     """
     Important: this monkey patching call, that overrides the original HF Transformers model's MLP class, has to happen before model is instantiated.
     Currently only some models are supported, but we can easily add support for more model architectures if needed.
+
+    Also beware of other packages overriding it - e.g. Liger-Kernel - you can tell Liger-Kernel not to override it via `from_pretrained(..., swiglu=False)`
     """
 
     model_type = get_model_type(model_name_or_path)
@@ -68,6 +156,9 @@ def enable_tiled_mlp_compute(model_name_or_path):
     elif model_type == "qwen2":
         from transformers.models.qwen2 import modeling_qwen2
         modeling_qwen2.Qwen2MLP.forward = tiled_mlp_forward_common
+    elif model_type == "qwen3":
+        from transformers.models.qwen3 import modeling_qwen3
+        modeling_qwen3.Qwen3MLP.forward = tiled_mlp_forward_common
     else:
         raise ValueError(f"model type {model_type} is currently not supported. Please open an issue and ask to add Tiled MLP support for {model_type}.")
 

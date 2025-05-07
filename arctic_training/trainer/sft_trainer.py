@@ -31,6 +31,7 @@ from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 
+from arctic_training.debug import pr
 
 class SFTTrainer(Trainer):
     name = "sft"
@@ -140,6 +141,8 @@ class SFTTrainer(Trainer):
             )
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
+
+        #pr(f"{loss=}")
 
         # differentiable weighted per-shard-loss aggregation across ranks
         import torch.distributed.nn.functional

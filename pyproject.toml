@@ -56,7 +56,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.51.0", # attention api
+    "transformers>=4.51.3", # attention api + qwen
     "wandb",
 ]
 

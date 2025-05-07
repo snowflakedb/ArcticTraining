@@ -468,6 +468,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
             print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
+            # from arctic_training.debug import get_mem_metrics
+            # if self.trainer.global_rank == 0:
+            #     print(get_mem_metrics())
+            #print(batch)
+            #exit()
+
+            # if we need to test an actual long seqlen over packed samples, we can fake it by hacking the position_ids
+            #seqlen = len(batch['input_ids'][0])
+            #batch["position_ids"] = list(range(seqlen))
+
             # print(f"{len(batch['input_ids'][0])}")
             # print(f"{self.config.exit_iteration=}")
             # print(f"{self.training_horizon=}")
