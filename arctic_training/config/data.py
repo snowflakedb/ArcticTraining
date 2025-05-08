@@ -83,6 +83,9 @@ class DataConfig(BaseConfig):
     num_proc: int = 16
     """ Number of processes to use for data loading. """
 
+    dl_num_workers: int = 2
+    """ Number of DL workers per gpu. """
+
     seed: int = 42
     """ Seed for data loading. """
 
