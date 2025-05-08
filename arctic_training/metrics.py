@@ -101,6 +101,7 @@ class Metrics:
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model."""
+        return (6 * seq_len * self.model_size + 12 * self.model_num_layers * self.model_hidden_size * (seq_len**2)) / 1e12
         return (
             seq_len * self.model_size * 2 * 4
             + self.model_num_layers * seq_len * seq_len * self.model_hidden_size * 2 * 2 * 4
@@ -124,7 +125,7 @@ class Metrics:
         if "seqlen" in self.values:
             tflos_total = sum(
                 gather_object(
-                    self._estimate_decoder_transformer_tflos(self.values["seqlen"]),
+                    sum(self._estimate_decoder_transformer_tflos(seq_len) for seq_len in self.values["seqlen"]),
                     self.trainer.world_size,
                 )
             )
@@ -140,7 +141,7 @@ class Metrics:
                 self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
 
         if "seqlen" in self.values:
-            seq_len_total = sum(gather_object(self.values["seqlen"], self.trainer.world_size))
+            seq_len_total = sum(gather_object(sum(self.values["seqlen"]), self.trainer.world_size))
             self.summary_dict["seqlen"] = seq_len_total / self.trainer.world_size
 
         if "step_time" in self.values:
