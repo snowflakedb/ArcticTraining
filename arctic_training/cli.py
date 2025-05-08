@@ -39,6 +39,14 @@ def main():
             """
         ),
     )
+    parser.add_argument(
+        "mode",
+        type=str,
+        nargs="?",
+        choices=["train", "process-data"],
+        default="train",
+        help="Operation mode, 'process-data' will run the data processing pipeline.",
+    )
     parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
     args, deepspeed_args = parser.parse_known_args()
 
@@ -54,6 +62,8 @@ def main():
             "deepspeed",
             *deepspeed_args,
             exe_path,
+            "--mode",
+            args.mode,
             "--config",
             str(args.config),
         ],
@@ -69,6 +79,13 @@ def run_script():
     from arctic_training.registry import get_registered_trainer
 
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["train", "process-data"],
+        default="train",
+        help="Operation mode, 'process-data' will run the data processing pipeline.",
+    )
     parser.add_argument(
         "--config",
         type=Path,
@@ -88,8 +105,10 @@ def run_script():
 
     config = get_config(args.config)
     trainer_cls = get_registered_trainer(name=config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
+    trainer = trainer_cls(config, mode=args.mode)
+    if args.mode == "train":
+        trainer.train()
+
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()
