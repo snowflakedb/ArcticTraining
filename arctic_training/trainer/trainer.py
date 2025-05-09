@@ -319,7 +319,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
-
         # import deepspeed.comm as dist
         # import q
         # from deepspeed.utils import groups

@@ -27,7 +27,7 @@ from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
 from arctic_training import logger
-from arctic_training.deepspeed import ChunkedMemEfficientLoss
+#from arctic_training.deepspeed import ChunkedMemEfficientLoss
 from arctic_training.trainer.sft_trainer import to_device
 from projects.swiftkv import llama_swiftkv
 from projects.swiftkv import qwen2_swiftkv
@@ -177,12 +177,19 @@ class SwiftKVTrainer(SFTTrainer):
 
             shift_labels = batch.pop("shift_labels")
             student_outputs, teacher_outputs = self.forward(batch)
-            logits = torch.cat([student_outputs.logits, teacher_outputs.logits], dim=-1)
+            logits = torch.cat([
+                student_outputs.logits,
+                student_outputs.hidden_states[self.config.hidden_loss_layer],
+                teacher_outputs.logits,
+                teacher_outputs.hidden_states[self.config.hidden_loss_layer],
+            ], dim=-1)
+            del student_outputs.hidden_states
+            del teacher_outputs.hidden_states
 
             # XXX: parameterize
             num_loss_logit_shards: Any = "auto"
 
-            if all((shift_labels == -100).squeeze()):
+            if False:  # all((shift_labels == -100).squeeze()):
                 # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
                 # XXX: should this be float and not the original dtype?
                 loss = (logits.sum() * 0.0).float()
@@ -196,7 +203,7 @@ class SwiftKVTrainer(SFTTrainer):
                     # print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
                 if num_loss_logit_shards > 1:
                     loss = ChunkedMemEfficientLoss.apply(
-                        self.distillation_loss_sp,
+                        self.sp_loss,
                         logits,
                         self.model_unwrapped.config.vocab_size,
                         shift_labels,
@@ -204,7 +211,7 @@ class SwiftKVTrainer(SFTTrainer):
                     )
                 else:
                     # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
-                    loss = self.distillation_loss_sp(
+                    loss = self.sp_loss(
                         logits=logits,
                         labels=None,
                         vocab_size=self.model_unwrapped.config.vocab_size,
@@ -215,7 +222,8 @@ class SwiftKVTrainer(SFTTrainer):
             import torch.distributed.nn.functional
 
             losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
-            good_tokens = sum((shift_labels != -100).view(-1))
+            #good_tokens = sum((shift_labels != -100).view(-1))
+            good_tokens = sum((shift_labels != -1000).view(-1))
             good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
             loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size)) / sum(
                 good_tokens_per_rank
@@ -250,3 +258,119 @@ class SwiftKVTrainer(SFTTrainer):
             temperature=self.config.logits_loss_temp,
             mask=(shift_labels != -100),
         )
+
+    def sp_loss(self, logits, labels=None, vocab_size=None, shift_labels=None):
+        vocab_size = self.model_unwrapped.config.vocab_size
+        hidden_size = self.model_unwrapped.config.hidden_size
+        student_logits, student_hidden, teacher_logits, teacher_hidden = torch.split(
+            logits, [vocab_size, hidden_size, vocab_size, hidden_size], dim=-1
+        )
+        # logits loss
+        logits_loss = self.logits_loss(
+            student_logits,
+            teacher_logits,
+            temperature=self.config.logits_loss_temp,
+            mask=(shift_labels != -100),
+        )
+        # hidden loss
+        hidden_loss = self.hidden_loss(
+            student_hidden,
+            teacher_hidden,
+        )
+        return logits_loss + self.config.hidden_loss_mult * hidden_loss
+
+
+class ChunkedMemEfficientLoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, loss_fn, logits, vocab_size, shift_labels, shards) -> torch.Tensor:
+        """
+        logits doesn't have to be divisible by shards, the last shard will be shorter than the rest.
+        """
+        ctx.save_for_backward(logits, shift_labels)
+        ctx.loss_fn = loss_fn
+        ctx.vocab_size = vocab_size
+        ctx.shards = shards
+
+        with torch.no_grad():
+            seqlen = shift_labels.shape[1]
+            shard_step = math.ceil(seqlen / shards)
+            loss_shards = []
+            total_good_items = 0
+
+            # since -100s are ignored we have to perform a weighted average on each loss slice as each slice may contribute a different number of non- -100 labels
+            # if seqlen / shards != 0 - the last chunk is just shorter than the rest but no data is ignored
+            for i in range(shards):
+                # XXX: here and everywhere don't make a copy, pass the slice or perhaps narrow/view?
+                shift_labels_shard = shift_labels[:, i * shard_step : (i + 1) * shard_step]
+                #if all((shift_labels_shard == -100).squeeze()):
+                #    continue  # ignore this shard
+                loss_shard = loss_fn(
+                    logits=logits[:, i * shard_step : (i + 1) * shard_step, :],
+                    labels=None,
+                    vocab_size=vocab_size,
+                    shift_labels=shift_labels_shard,
+                )
+                good_items = sum((shift_labels_shard != -1000).squeeze())
+                loss_shards.append(loss_shard * good_items)
+                total_good_items += good_items
+            total_loss = torch.cat([l.unsqueeze(0) for l in loss_shards], dim=0).sum()
+            weighted_loss = total_loss / total_good_items
+
+        # weighted_loss.requires_grad = True
+        return weighted_loss
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+
+        logits, shift_labels = ctx.saved_tensors
+        loss_fn = ctx.loss_fn
+        vocab_size = ctx.vocab_size
+        shards = ctx.shards
+
+        grad = grads[0]
+        logits_grad = torch.zeros_like(logits)
+        # logits_grad = torch.zeros(logits.shape, device=logits.device, dtype=grad.dtype, requires_grad=logits.requires_grad)
+
+        logits_shards = list(torch.chunk(logits, chunks=shards, dim=1))
+        shift_labels_shards = list(torch.chunk(shift_labels, chunks=shards, dim=1))
+        del logits
+        del shift_labels
+        ctx.logits = None
+        ctx.shift_labels = None
+        ctx.loss_fn = None
+        ctx.vocab_size = None
+        ctx.shards = None
+
+        # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
+        shard_step = logits_shards[0].numel()
+        for i in range(shards):
+            logits_shard = logits_shards.pop(0)
+            shift_labels_shard = shift_labels_shards.pop(0)
+
+            shard_offset = i * shard_step
+            # this will enable gradual population of the pre-allocated `logits_shard.grad` during `torch.autograd.backward` calls
+            logits_shard.grad = (
+                logits_grad.view(-1).narrow(0, shard_offset, logits_shard.numel()).view_as(logits_shard)
+            )
+
+            with torch.enable_grad():
+                if False:  # all((shift_labels_shard == -100).squeeze()):
+                    # fake loss calculation, since CE will return nan, but grads will be set
+                    # a normal loss_fn upcasts logits to float so match it
+                    loss_shard = (logits_shard.sum() * 0.0).float()
+                else:
+                    loss_shard = loss_fn(
+                        logits=logits_shard.requires_grad_(),
+                        labels=None,
+                        vocab_size=vocab_size,
+                        shift_labels=shift_labels_shard,
+                    )
+
+            torch.autograd.backward(loss_shard, grad)
+
+        logits_grad /= shards
+
+        # print(f"returning {logits_grad.norm()=}")
+        # print(f"returning {logits_grad=}")
+        # only logits (2nd arg) needs grads
+        return None, logits_grad, None, None, None
