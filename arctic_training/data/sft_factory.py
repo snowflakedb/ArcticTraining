@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
+import random
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -155,13 +155,19 @@ def pack_sft_batch(
     min_length: int,
     always_max_length: bool,
     fuse_position_ids: bool,
+    fuse_position_ids_prob: float,
+    seed: int,
 ) -> Dict[str, List[List[int]]]:
     keys = ("input_ids", "labels", "position_ids", "attention_mask")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
+    rng = random.Random(seed)
+
     def flush() -> None:
         if len(current_sample["input_ids"]) > 0:
+            if fuse_position_ids and rng.random() <= fuse_position_ids_prob:
+                current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
             for k in keys:
                 packed_batch[k].append(current_sample[k])
                 current_sample[k] = []
@@ -182,8 +188,6 @@ def pack_sft_batch(
                 current_sample["position_ids"].extend(list(range(pad_len)))
                 current_sample["attention_mask"].extend(attention_mask[:pad_len])
             if len(current_sample["input_ids"]) >= min_length:
-                if fuse_position_ids:
-                    current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
                 flush()
             current_sample = {key: [] for key in keys}
 
@@ -198,8 +202,6 @@ def pack_sft_batch(
 
     # Add the last example if it fits
     if len(current_sample["input_ids"]) >= min_length and not always_max_length:
-        if fuse_position_ids:
-            current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
         flush()
 
     return packed_batch
@@ -227,6 +229,8 @@ class SFTDataConfig(DataConfig):
 
     fuse_position_ids: bool = False
 
+    fuse_position_ids_prob: float = 1.0
+
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     batch_size = len(dataset) // self.config.num_proc + 1
@@ -237,7 +241,9 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
             max_length=self.config.max_length,
             min_length=self.config.min_length,
             always_max_length=self.config.always_max_length,
-            fuse_position_ids=self.config.fuse_position_ids),
+            fuse_position_ids=self.config.fuse_position_ids,
+            fuse_position_ids_prob=self.config.fuse_position_ids_prob,
+            seed=self.config.seed),
         batched=True,
         batch_size=batch_size,
         num_proc=self.config.num_proc,
