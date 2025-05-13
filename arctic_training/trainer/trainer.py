@@ -58,10 +58,8 @@ from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 
-# XXX: this will be moved to deepspeed
-if 1:
-    from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
-    from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -466,9 +464,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.metrics.start_timer("iter")
 
-        see_memory_usage("entered epoch", force=True)
-
-        # enable memory history, which will add tracebacks and event history to snapshots
+        # enable memory allocation history, which will add tracebacks and event history to memory snapshots
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
@@ -476,63 +472,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
-            print_rank(f"\n\n\n\n\nITERATION: {self.train_batch_idx} ", skip=False)
 
-            # from arctic_training.debug import get_mem_metrics
-            # if self.trainer.global_rank == 0:
-            #     print(get_mem_metrics())
-            # print(batch)
-            # exit()
-
-            # if we need to test an actual long seqlen over packed samples, we can fake it by hacking the position_ids
-            # seqlen = len(batch['input_ids'][0])
-            # batch["position_ids"] = list(range(seqlen))
-            # batch["packed_sample_seqlens"][0] = [seqlen]*
-
-            # print(f"{len(batch['input_ids'][0])}")
-            # print(f"{self.config.exit_iteration=}")
-            # print(f"{self.training_horizon=}")
-
-            # seqlens = batch.pop("packed_sample_seqlens")
-            # print(seqlens)
-            # for seqlen in seqlens:
-            #     tflos = self.metrics._estimate_decoder_transformer_tflos(seqlen)
-            #     print(f"{self.global_rank}: {tflos}")
-            # #tflos = sum(self.metrics._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
-            # print(tflos)
-            # exit()
-
-            # this is really the SP-case
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # XXX: fix me: double list
                 packed_sample_seqlens = batch.pop("packed_sample_seqlens")[0]
                 self.metrics.record("seqlen", packed_sample_seqlens)
-
-                # # if we need to test an actual long seqlen over packed samples, we can fake it by hacking the position_ids
-                # total_seqlen = sum(packed_sample_seqlens)
-                # seqlen = len(batch['input_ids'][0])
-                # seqlens = gather_object(seqlen, self.world_size)
-
-                # batch["position_ids"] = list(range(total_seqlen))[]
-
             else:
                 # XXX: the seqlen could be different on different ranks - need to gather
                 self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
 
-            # print(self.metrics.values["seqlen"])
-            # tflos = sum(self.metrics._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.metrics.values["seqlen"])
-            # print("{tflos:.1f")
-            # exit()
-
-            see_memory_usage("before step", force=True)
-
             self.metrics.start_timer("step")
-
-            # with torch.autograd.graph.save_on_cpu():
             self.step(batch)
             self.metrics.stop_timer("step")
-
-            see_memory_usage("after step", force=True)
 
             self.metrics.restart_timer("iter")
 
