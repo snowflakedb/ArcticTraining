@@ -136,8 +136,10 @@ class DataCollatorForCausalLM:
         # ]
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
+            packed_seq_len = [example["packed_seq_len"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
+            packed_seq_len = [list(len(example["input_ids"])) for example in instances]
 
         if self.config.pad_to == "max_length":
             pad_kwargs = {"max_seq": self.config.max_length}
@@ -156,13 +158,14 @@ class DataCollatorForCausalLM:
             "input_ids": input_ids,
             "labels": labels,
             "position_ids": position_ids,
+            "packed_seq_len": packed_seq_len,
         }
 
 
 def pack_sft_batch(
     batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
 ) -> Dict[str, List[List[int]]]:
-    keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    keys = ("input_ids", "labels", "position_ids", "attention_mask", "packed_seq_len")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
@@ -185,6 +188,7 @@ def pack_sft_batch(
         current_sample["labels"].extend(labels)
         current_sample["attention_mask"].extend(attention_mask)
         current_sample["position_ids"].extend(range(len(input_ids)))
+        current_sample["packed_seq_len"].append(len(input_ids))
 
     # Add the last example
     flush()
