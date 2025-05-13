@@ -135,36 +135,38 @@ class DataCollatorForCausalLM:
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
 
-        # if fake_unpacked_long_seq:
-        #     seqlen = self.config.max_length
-        #     labels = torch.randint(1, 100, [1, seqlen])
-        #     input_ids = torch.randint(1, 100, [1, seqlen])
-        #     position_ids = torch.arange(seqlen).unsqueeze(0)
-        #     return {
-        #         "input_ids": input_ids,
-        #         "labels": labels,
-        #         "position_ids": position_ids,
-        #     }
+        # for example in instances:
+        #     print(example["packed_sample_seqlens"])
+        #     print(sum(example["packed_sample_seqlens"]))
+        # print(f'{labels[0].shape=}')
+        # print(f'{labels[1].shape=}')
+
+        # exit()
 
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
             packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
-            packed_sample_seqlens = [len(example["input_ids"]) for example in instances]
+            packed_sample_seqlens = [[len(example["input_ids"])] for example in instances]
+
+        # print(packed_sample_seqlens)
+        # print(position_ids)
+        # exit()
 
         fake_unpacked_long_seq = False
-        # fake_unpacked_long_seq = True
+        #  fake_unpacked_long_seq = True
         if fake_unpacked_long_seq:
             from itertools import chain
 
             total_len = sum(len(example["input_ids"]) for example in instances)
             # to emulate fake full ~max_length samples - use value = 1
-            fake_samples = 1
+            fake_samples = 2
             fake_sample_len = total_len // fake_samples  # approximately is good enough for testing
-            position_ids = list(chain.from_iterable(list(range(fake_sample_len) for _ in range(fake_samples))))
-            position_ids = [torch.tensor(position_ids)]
-            packed_sample_seqlens = [[fake_sample_len for _ in range(fake_samples)]]
+            position_ids_bs1 = list(chain.from_iterable(list(range(fake_sample_len) for _ in range(fake_samples))))
+            position_ids = [torch.tensor(position_ids_bs1) for _ in range(len(instances))]
+            packed_sample_seqlens_bs1 = [fake_sample_len for _ in range(fake_samples)]
+            packed_sample_seqlens = [packed_sample_seqlens_bs1 for _ in range(len(instances))]
 
         if self.config.pad_to == "max_length":
             pad_kwargs = {"max_seq": self.config.max_length}
@@ -215,10 +217,14 @@ def pack_sft_batch(
         current_sample["labels"].extend(labels)
         current_sample["attention_mask"].extend(attention_mask)
         current_sample["position_ids"].extend(range(len(input_ids)))
-        current_sample["packed_sample_seqlens"].append(len(input_ids))
+        current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
     # Add the last example
     flush()
+
+    #print(f'{packed_batch["position_ids"]=}')
+    #print(f'{packed_batch["packed_sample_seqlens"]=}')
+    #exit()
 
     return packed_batch
 

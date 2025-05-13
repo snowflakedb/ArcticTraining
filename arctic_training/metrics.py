@@ -125,15 +125,19 @@ class Metrics:
         self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
 
         tflos_total: float = 0.0
-        if "seqlen" in self.values:
-            # print(self.values["seqlen"])
-            # exit()
-            if isinstance(self.values["seqlen"], list):
-                # deal correctly with packed samples under FA2
-                tflos = sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.values["seqlen"])
-                self.values["seqlen"] = sum(self.values["seqlen"])
-            else:
-                tflos = self._estimate_decoder_transformer_tflos(self.values["seqlen"])
+        if "seqlens" in self.values:
+            # expects a bs-size list of lists, where each sub-list is seqlens of each sub-sample, or a single seqlen if these are unpacked samples.
+            # Examples of self.values["seqlens"]:
+            # - bs=1 + packed samples:   [[100, 200, 4090]]
+            # - bs=2 + packed samples:   [[100, 200, 4090], [4090, 100, 200]]
+            # - bs=1 + an unpacked sample: [[4090]]
+            # - bs=2 + unpacked samples: [[4090], [4090]]
+            seqlen_subtotal = 0
+            tflos_subtotal = 0
+            # iterate over batch size
+            for seqlens in self.values["seqlens"]:
+                tflos_subtotal += sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
+                seqlen_subtotal += sum(seqlens)
 
             # XXX: this is only correct for:
             #  1. unpacked samples -
@@ -142,8 +146,9 @@ class Metrics:
 
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
             tflos_total = (
-                sum(gather_object(tflos, self.trainer.world_size)) / self.trainer.config.sequence_parallel_size
+                sum(gather_object(tflos_subtotal, self.trainer.world_size)) / self.trainer.config.sequence_parallel_size
             )
+            self.values["seqlen_total"] = seqlen_subtotal
 
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size
@@ -155,14 +160,8 @@ class Metrics:
             if tflos_total > 0:
                 self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
 
-        # if self.trainer.global_rank == 0:
-        #     seqlen = self.values["seqlen"]
-        #     iter_time = self.summary_dict["iter_time"]
-        #     iter_tflops = self.summary_dict["iter_tflops"]
-        #     print(f"{self.summary_dict['iter']}: tflos: {tflos:.1f} | iter_time: {iter_time:.1f} | iter_tflops: {iter_tflops:.1f} | seqlen: {seqlen}")
-
-        if "seqlen" in self.values:
-            seq_len_total = sum(gather_object(self.values["seqlen"], self.trainer.world_size))
+        if "seqlen_total" in self.values:
+            seq_len_total = sum(gather_object(self.values["seqlen_total"], self.trainer.world_size))
             self.summary_dict["seqlen"] = seq_len_total / self.trainer.world_size
 
         if "step_time" in self.values:

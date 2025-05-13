@@ -474,12 +474,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.train_batch_idx += 1
 
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
-                # XXX: fix me: double list
-                packed_sample_seqlens = batch.pop("packed_sample_seqlens")[0]
-                self.metrics.record("seqlen", packed_sample_seqlens)
+                # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
+                sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
-                # XXX: the seqlen could be different on different ranks - need to gather
-                self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
+                sample_seqlens = [[len(batch["input_ids"][idx]) * self.config.sequence_parallel_size] for idx in range(len(batch["input_ids"]))]
+            self.metrics.record("seqlens", sample_seqlens)
 
             self.metrics.start_timer("step")
             self.step(batch)
