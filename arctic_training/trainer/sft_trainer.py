@@ -127,7 +127,7 @@ class SFTTrainer(Trainer):
                     loss_sum = loss * good_items
                 return loss_sum
 
-            from arctic_training.deepspeed import sequence_tiled_compute
+            from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
 
             total_loss_sum = sequence_tiled_compute(
                 fused_logits_loss_fn,

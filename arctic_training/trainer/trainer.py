@@ -60,8 +60,8 @@ from arctic_training.tokenizer.factory import TokenizerFactory
 
 # XXX: this will be moved to deepspeed
 if 1:
-    from arctic_training.deepspeed import UlyssesSPAttentionHF
-    from arctic_training.deepspeed import UlyssesSPDataLoaderWrapper
+    from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
+    from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):

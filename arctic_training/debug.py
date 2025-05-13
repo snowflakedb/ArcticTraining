@@ -223,9 +223,9 @@ def pr(*msg, skip=True, ranks=None):
 
 
 def print_rank0(*msg, skip=True):
+    """print something only on rank 0"""
     if DISABLE_DEBUG or skip:
         return
-    """print something only on rank 0"""
     global_rank = dist.get_rank()
     if global_rank == 0:
         print(f"[{global_rank}]", *msg)
