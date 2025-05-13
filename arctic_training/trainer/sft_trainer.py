@@ -22,6 +22,7 @@ import torch
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.sft_factory import SFTDataFactory
+from arctic_training.debug import pr
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
@@ -31,7 +32,6 @@ from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 
-from arctic_training.debug import pr
 
 class SFTTrainer(Trainer):
     name = "sft"
@@ -45,7 +45,7 @@ class SFTTrainer(Trainer):
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
-        #batch["labels"] = batch["shift_labels"]
+        # batch["labels"] = batch["shift_labels"]
         if self.config.sequence_parallel_size == 1:
             # if model.type=liger is configured - this will use a much more efficient fused logits+loss liger kernel - using significantly less gpu memory and a bit faster compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)
@@ -137,14 +137,13 @@ class SFTTrainer(Trainer):
                 kwargs_to_pass,
                 grad_requiring_tensor_key,
                 compute_params,
-                output_unshard_dimension=0, # loss is a scalar
+                output_unshard_dimension=0,  # loss is a scalar
                 output_reduction="sum",
             )
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
 
-
-        #pr(f"{loss=}")
+        # pr(f"{loss=}")
 
         # differentiable weighted per-shard-loss aggregation across ranks
         import torch.distributed.nn.functional

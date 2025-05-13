@@ -101,7 +101,8 @@ class Metrics:
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model.
-        It currently hardwires activation checkpointing always on (co-efficient 4, otherwise should be 3) so it measures hardware flops (used for HFU)"""
+        It currently hardwires activation checkpointing always on (co-efficient 4, otherwise should be 3) so it measures hardware flops (used for HFU)
+        """
         hardware_flops = True
         coef = 4 if hardware_flops else 3
         return (
@@ -125,8 +126,8 @@ class Metrics:
 
         tflos_total: float = 0.0
         if "seqlen" in self.values:
-            #print(self.values["seqlen"])
-            #exit()
+            # print(self.values["seqlen"])
+            # exit()
             if isinstance(self.values["seqlen"], list):
                 # deal correctly with packed samples under FA2
                 tflos = sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.values["seqlen"])
@@ -153,7 +154,6 @@ class Metrics:
             self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
             if tflos_total > 0:
                 self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
-
 
         # if self.trainer.global_rank == 0:
         #     seqlen = self.values["seqlen"]

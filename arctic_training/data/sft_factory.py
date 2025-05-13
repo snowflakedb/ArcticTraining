@@ -154,13 +154,14 @@ class DataCollatorForCausalLM:
             packed_sample_seqlens = [len(example["input_ids"]) for example in instances]
 
         fake_unpacked_long_seq = False
-        #fake_unpacked_long_seq = True
+        # fake_unpacked_long_seq = True
         if fake_unpacked_long_seq:
             from itertools import chain
+
             total_len = sum(len(example["input_ids"]) for example in instances)
             # to emulate fake full ~max_length samples - use value = 1
             fake_samples = 1
-            fake_sample_len = total_len // fake_samples # approximately is good enough for testing
+            fake_sample_len = total_len // fake_samples  # approximately is good enough for testing
             position_ids = list(chain.from_iterable(list(range(fake_sample_len) for _ in range(fake_samples))))
             position_ids = [torch.tensor(position_ids)]
             packed_sample_seqlens = [[fake_sample_len for _ in range(fake_samples)]]
@@ -178,7 +179,7 @@ class DataCollatorForCausalLM:
         labels = pad(labels, padding_value=IGNORE_INDEX, **pad_kwargs)
         position_ids = pad(position_ids, padding_value=0, is_position_id=True, **pad_kwargs)
 
-        #print(f"{len(packed_sample_seqlens[0])=} {packed_sample_seqlens}")
+        # print(f"{len(packed_sample_seqlens[0])=} {packed_sample_seqlens}")
 
         return {
             "input_ids": input_ids,

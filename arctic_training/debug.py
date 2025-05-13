@@ -18,6 +18,7 @@ import builtins
 import fcntl
 import gc
 import os
+
 import psutil
 import torch
 
@@ -37,8 +38,11 @@ torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
 pynvml_handle = None
+
+
 def get_local_rank():
     return int(os.getenv("LOCAL_RANK", 0))
+
 
 def get_nvml_mem():
     global pynvml_handle
@@ -70,12 +74,12 @@ def see_memory_usage(message, a=False, force=False, ranks=[0]):
         force: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
         ranks: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
     """
-    return 
+    return
     # gc.collect()
     # torch.cuda.empty_cache()
     if not a:
         return
-    #return
+    # return
     # if not force:
     #     return
     rank = dist.get_rank() if dist.is_initialized() else 0

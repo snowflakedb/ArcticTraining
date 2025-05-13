@@ -49,6 +49,7 @@ from arctic_training.debug import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
+from arctic_training.model.tiled_compute import enable_tiled_mlp_compute
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
@@ -56,7 +57,6 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.model.tiled_compute import enable_tiled_mlp_compute
 
 # XXX: this will be moved to deepspeed
 if 1:
@@ -481,14 +481,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # from arctic_training.debug import get_mem_metrics
             # if self.trainer.global_rank == 0:
             #     print(get_mem_metrics())
-            #print(batch)
-            #exit()
+            # print(batch)
+            # exit()
 
             # if we need to test an actual long seqlen over packed samples, we can fake it by hacking the position_ids
             # seqlen = len(batch['input_ids'][0])
             # batch["position_ids"] = list(range(seqlen))
             # batch["packed_sample_seqlens"][0] = [seqlen]*
-
 
             # print(f"{len(batch['input_ids'][0])}")
             # print(f"{self.config.exit_iteration=}")
@@ -516,8 +515,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
                 # batch["position_ids"] = list(range(total_seqlen))[]
 
-
-
             else:
                 # XXX: the seqlen could be different on different ranks - need to gather
                 self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
@@ -525,7 +522,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # print(self.metrics.values["seqlen"])
             # tflos = sum(self.metrics._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.metrics.values["seqlen"])
             # print("{tflos:.1f")
-            #exit()
+            # exit()
 
             see_memory_usage("before step", force=True)
 

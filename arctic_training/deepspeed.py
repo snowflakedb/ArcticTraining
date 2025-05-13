@@ -505,13 +505,13 @@ class UlyssesSPAttentionHF(torch.nn.Module):
         from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
         import arctic_training.trainer.sp_parallel_state as mpu
-        #import arctic_training.trainer.parallel_state as mpu
 
+        # import arctic_training.trainer.parallel_state as mpu
         # see_memory_usage("ulysses: 1.1", force=True)
         # print_rank0(f"MPU INIT on rank {torch.distributed.get_rank()}")
         # print_rank0(f"MBS  {micro_batch_size}")
         mpu.initialize_sequence_parallel(sequence_parallel_size=sequence_parallel_size)
-        #mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
+        # mpu.initialize_model_parallel(sequence_parallel_size=sequence_parallel_size)
 
         # see_memory_usage("ulysses: 1.2", force=True)
         # we don't have the model yet at this stage
@@ -540,8 +540,10 @@ class UlyssesSPAttentionHF(torch.nn.Module):
             global_seq_length=max_length,
             batch_size=micro_batch_size,
             attn_head_count=hf_model_config.num_attention_heads,
-            attn_head_size=getattr(hf_model_config, "head_dim", hf_model_config.hidden_size // hf_model_config.num_attention_heads),
-            #attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
+            attn_head_size=getattr(
+                hf_model_config, "head_dim", hf_model_config.hidden_size // hf_model_config.num_attention_heads
+            ),
+            # attn_head_size=hf_model_config.hidden_size // hf_model_config.num_attention_heads,
             kv_head_count=hf_model_config.num_key_value_heads,
             num_hidden_layers=hf_model_config.num_hidden_layers,
             # device=self.device,
@@ -704,7 +706,7 @@ class UlyssesSPDataLoaderWrapper:
                 batch[k] = batch[k].to(self.device)
                 # print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
                 # print_rank0(f"before gather: {k}: {batch[k]=}")
-                #print(f"before gather: {k}: {batch[k].shape=}")
+                # print(f"before gather: {k}: {batch[k].shape=}")
                 with torch.no_grad():
                     tensor_list = [
                         torch.zeros((batch[k].shape[0], seqlens[i]), dtype=batch[k].dtype, device=batch[k].device)
@@ -784,16 +786,16 @@ class UlyssesSPDataLoaderWrapper:
             # if len(self.micro_batches) == 0:
             #     raise StopIteration
 
-            #print(batch)
-            #exit()
+            # print(batch)
+            # exit()
 
             self.micro_batches.append(batch)
 
-        #del micro_batches
-        #import gc; gc.collect()
+        # del micro_batches
+        # import gc; gc.collect()
 
         # convert to list
-        #self.micro_batches = [micro_batches[i] for i in range(len(micro_batches))]
+        # self.micro_batches = [micro_batches[i] for i in range(len(micro_batches))]
 
 
 # XXX: this class shouldn't depend on anything in AT (trainer, etc) - we can have a subclass if needed to support that
@@ -1189,7 +1191,6 @@ class UlyssesSPFwdLossBwdWithLogits:
         self.model.backward(self.loss)
 
 
-
 def sequence_tiled_compute(
     fn,
     seqlen,
@@ -1263,7 +1264,7 @@ class SequenceTiledCompute(torch.autograd.Function):
         XXX: currently assuming that all kwargs_to_shard values have a shape of `[bs, seqlen, ...]` and we shard on seqlen dimension
         """
         see_memory_usage("forward enter", a=True)
-        #print(f"SequenceTiledCompute.forward")
+        # print(f"SequenceTiledCompute.forward")
         ctx.fn = fn
         ctx.seqlen = seqlen
         ctx.shards = shards
@@ -1283,30 +1284,30 @@ class SequenceTiledCompute(torch.autograd.Function):
             kwargs_to_pass = {k: args.pop(0) for k in keys_to_pass}
             ctx.kwargs_to_shard = kwargs_to_shard
             ctx.kwargs_to_pass = kwargs_to_pass
-            #ctx.keys_to_shard = keys_to_shard
-            #ctx.keys_to_pass = keys_to_pass
-            #ctx.save_for_backward(list(kwargs_to_shard.values())[0])
+            # ctx.keys_to_shard = keys_to_shard
+            # ctx.keys_to_pass = keys_to_pass
+            # ctx.save_for_backward(list(kwargs_to_shard.values())[0])
 
-        #return kwargs_to_shard[grad_requiring_tensor_key]
+        # return kwargs_to_shard[grad_requiring_tensor_key]
 
         # print(f"{kwargs_to_shard=}")
         # print(f"{kwargs_to_pass=}")
 
         with torch.no_grad():
-#        with torch.enable_grad():
+            #        with torch.enable_grad():
             shard_step = math.ceil(seqlen / shards)
             output_shards = []
 
             # for p in compute_params:
             #     p.requires_grad_(False)
-            #kwargs_to_shard[grad_requiring_tensor_key].detach_()
+            # kwargs_to_shard[grad_requiring_tensor_key].detach_()
             for i in range(shards):
-                #output = kwargs_to_shard[grad_requiring_tensor_key]
+                # output = kwargs_to_shard[grad_requiring_tensor_key]
                 output = fn(
                     **{k: v[:, i * shard_step : (i + 1) * shard_step] for k, v in kwargs_to_shard.items()},
                     **kwargs_to_pass,
                 )
-                #print(f"{output.shape=}")
+                # print(f"{output.shape=}")
                 output_shards.append(output)
             see_memory_usage("forward end 1", a=True)
 
@@ -1314,14 +1315,14 @@ class SequenceTiledCompute(torch.autograd.Function):
                 # this is just the shape=[1] loss use-case, not sure if it's generic enough
                 output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=output_unshard_dimension)
             else:
-                output_unsharded = torch.cat(output_shards, dim=output_unshard_dimension)#.clone().detach()
-                #output_unsharded = output_shards[0]
+                output_unsharded = torch.cat(output_shards, dim=output_unshard_dimension)  # .clone().detach()
+                # output_unsharded = output_shards[0]
 
             # for p in compute_params:
             #     p.requires_grad_(True)
 
-            #print(f"{output_unsharded.shape=}")
-            #print(f"{output_unsharded.grad=}")
+            # print(f"{output_unsharded.shape=}")
+            # print(f"{output_unsharded.grad=}")
             see_memory_usage("forward end 2", a=True)
 
             if output_reduction is None:
@@ -1335,15 +1336,15 @@ class SequenceTiledCompute(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads) -> torch.Tensor:
-        #print(f"SequenceTiledCompute.backward")
+        # print(f"SequenceTiledCompute.backward")
 
         see_memory_usage("backward enter", a=True)
         fn = ctx.fn
         shards = ctx.shards
         kwargs_to_shard = ctx.kwargs_to_shard
         kwargs_to_pass = ctx.kwargs_to_pass
-        #kwargs_to_shard = {k: list(ctx.saved_tensors).pop(0) for k in ctx.keys_to_shard}
-        #kwargs_to_pass  = {k: ctx.saved_tensors.pop(0) for k in ctx.keys_to_pass}
+        # kwargs_to_shard = {k: list(ctx.saved_tensors).pop(0) for k in ctx.keys_to_shard}
+        # kwargs_to_pass  = {k: ctx.saved_tensors.pop(0) for k in ctx.keys_to_pass}
 
         grad_requiring_tensor_key = ctx.grad_requiring_tensor_key
         grad_requiring_tensor_key_index = ctx.grad_requiring_tensor_key_index
@@ -1363,11 +1364,11 @@ class SequenceTiledCompute(torch.autograd.Function):
         # for v in kwargs_to_shard.values():
         #     v.resize_(0)
 
-        #del kwargs_to_shard
-        #del ctx.kwargs_to_shard
+        # del kwargs_to_shard
+        # del ctx.kwargs_to_shard
 
-        #print(f"{shards=}")
-        #shards = 0
+        # print(f"{shards=}")
+        # shards = 0
         # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
         shard_step = kwargs_to_shard_shards[grad_requiring_tensor_key][0].numel()
         for i in range(shards):
@@ -1384,7 +1385,7 @@ class SequenceTiledCompute(torch.autograd.Function):
 
             kwargs_to_shard_shard = {k: kwargs_to_shard_shards[k].pop(0) for k in kwargs_to_shard_shards.keys()}
             # XXX: do we need requires_grad_()?
-            grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key]#.requires_grad_()
+            grad_requiring_tensor_shard = kwargs_to_shard_shard[grad_requiring_tensor_key]  # .requires_grad_()
             # print(f"{i} {grad_requiring_tensor_shard.numel()=}")
 
             shard_offset = i * shard_step
@@ -1395,7 +1396,7 @@ class SequenceTiledCompute(torch.autograd.Function):
                 .view_as(grad_requiring_tensor_shard)
             )
 
-            #grad_requiring_tensor_shard.requires_grad_()
+            # grad_requiring_tensor_shard.requires_grad_()
 
             # make it optional
             with torch.enable_grad():
@@ -1413,27 +1414,31 @@ class SequenceTiledCompute(torch.autograd.Function):
                 # loss use-case
                 torch.autograd.backward(output, incoming_grad)
             else:
-                incoming_grad_shard = incoming_grad.view(-1).narrow(0, shard_offset, grad_requiring_tensor_shard.numel()).view_as(grad_requiring_tensor_shard)
+                incoming_grad_shard = (
+                    incoming_grad.view(-1)
+                    .narrow(0, shard_offset, grad_requiring_tensor_shard.numel())
+                    .view_as(grad_requiring_tensor_shard)
+                )
                 torch.autograd.backward(output, incoming_grad_shard)
                 # inputs=output, reduces the leak from 2 allocs to 1, but it doesn't compute .grad for all leaf tensors used to calculate output
-                #torch.autograd.backward(output, incoming_grad_shard, inputs=output)
+                # torch.autograd.backward(output, incoming_grad_shard, inputs=output)
 
             # output.grad = None
             # incoming_grad_shard.grad = None
-            #output.detach_()
+            # output.detach_()
 
-            #grad_requiring_tensor_shard.requires_grad_(False)
-            #output.requires_grad_(False)
+            # grad_requiring_tensor_shard.requires_grad_(False)
+            # output.requires_grad_(False)
 
             # print(f"{i} {grad_requiring_tensor_shard.grad.numel()=}")
             # print(f"{i} {grad_requiring_tensor_grad.numel()=}")
             # print(f"{i} {grad_requiring_tensor_shard.grad=}")
             # print(f"{i} {grad_requiring_tensor_grad=}")
-            #output.detach()
+            # output.detach()
 
         grad_requiring_tensor_grad /= shards
 
-        #grad_requiring_tensor_grad.detach_()
+        # grad_requiring_tensor_grad.detach_()
 
         # for p in compute_params:
         #     p.grad = None
@@ -1442,7 +1447,7 @@ class SequenceTiledCompute(torch.autograd.Function):
         grad_outputs = [None] * 9
         # inject the grad for the position of forward input that is grad-requiring
         arg_outputs = [None] * ctx.total_args
-        arg_outputs[grad_requiring_tensor_key_index] = grad_requiring_tensor_grad#.detach()
+        arg_outputs[grad_requiring_tensor_key_index] = grad_requiring_tensor_grad  # .detach()
         # print(arg_outputs)
 
         # grad_requiring_tensor.grad = None
@@ -1453,8 +1458,6 @@ class SequenceTiledCompute(torch.autograd.Function):
         see_memory_usage("backward end", a=True)
 
         return tuple(grad_outputs + arg_outputs)
-
-
 
 
 class SequenceTiledCompute2(torch.autograd.Function):
@@ -1473,7 +1476,7 @@ class SequenceTiledCompute2(torch.autograd.Function):
         *args,
     ) -> torch.Tensor:
         see_memory_usage("forward enter", a=True)
-        #print(f"SequenceTiledCompute.forward")
+        # print(f"SequenceTiledCompute.forward")
         ctx.fn = fn
         ctx.seqlen = seqlen
         ctx.grad_requiring_tensor_key = grad_requiring_tensor_key
@@ -1483,7 +1486,7 @@ class SequenceTiledCompute2(torch.autograd.Function):
         ctx.grad_requiring_tensor_key_index = (keys_to_shard + keys_to_pass).index(grad_requiring_tensor_key)
         kwargs_to_shard = {k: args.pop(0) for k in keys_to_shard}
         kwargs_to_pass = {k: args.pop(0) for k in keys_to_pass}
-        #ctx.kwargs_to_shard = kwargs_to_shard
+        # ctx.kwargs_to_shard = kwargs_to_shard
         ctx.kwargs_to_pass = kwargs_to_pass
         ctx.keys_to_shard = keys_to_shard
         ctx.save_for_backward(list(kwargs_to_shard.values())[0])
@@ -1492,23 +1495,22 @@ class SequenceTiledCompute2(torch.autograd.Function):
             output_unsharded = fn(**kwargs_to_shard, **kwargs_to_pass)
             return output_unsharded
 
-
     @staticmethod
     def backward(ctx, *grads) -> torch.Tensor:
         fn = ctx.fn
-        #kwargs_to_shard = ctx.kwargs_to_shard
+        # kwargs_to_shard = ctx.kwargs_to_shard
         kwargs_to_shard = {k: list(ctx.saved_tensors).pop(0) for k in ctx.keys_to_shard}
         kwargs_to_pass = ctx.kwargs_to_pass
 
         grad_requiring_tensor_key = ctx.grad_requiring_tensor_key
         grad_requiring_tensor_key_index = ctx.grad_requiring_tensor_key_index
 
-        grad_requiring_tensor               = kwargs_to_shard[grad_requiring_tensor_key].detach()
+        grad_requiring_tensor = kwargs_to_shard[grad_requiring_tensor_key].detach()
         grad_requiring_tensor.requires_grad = kwargs_to_shard[grad_requiring_tensor_key].requires_grad
         incoming_grad = grads[0]
-        #grad_requiring_tensor_grad = torch.zeros_like(grad_requiring_tensor)
+        # grad_requiring_tensor_grad = torch.zeros_like(grad_requiring_tensor)
 
-        #grad_requiring_tensor.grad = grad_requiring_tensor_grad
+        # grad_requiring_tensor.grad = grad_requiring_tensor_grad
 
         with torch.enable_grad():
             output = fn(**kwargs_to_shard, **kwargs_to_pass)
@@ -1523,20 +1525,16 @@ class SequenceTiledCompute2(torch.autograd.Function):
         return tuple(grad_outputs + arg_outputs)
 
 
-
-
-
-
 class SequenceTiledCompute6(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
         fn,
         x,
-        #self,
+        # self,
     ) -> torch.Tensor:
         ctx.fn = fn
-        #ctx.self = self
+        # ctx.self = self
         ctx.save_for_backward(x)
 
         with torch.no_grad():
@@ -1545,8 +1543,8 @@ class SequenceTiledCompute6(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grads) -> torch.Tensor:
         fn = ctx.fn
-        x, = ctx.saved_tensors
-        #self = ctx.self
+        (x,) = ctx.saved_tensors
+        # self = ctx.self
 
         x1 = x.detach()
         x1.requires_grad = x.requires_grad
@@ -1555,9 +1553,6 @@ class SequenceTiledCompute6(torch.autograd.Function):
 
         torch.autograd.backward(output, grads[0])
         return (None, x1.grad, None)
-
-
-
 
 
 class SequenceTiledCompute7(torch.autograd.Function):
@@ -1590,12 +1585,6 @@ class SequenceTiledCompute7(torch.autograd.Function):
             output = fn(x1, down, gate, up, act_fn)
         torch.autograd.backward(output, grads[0])
         return (None, x1.grad, None, None, None, None)
-
-
-
-
-
-
 
 
 from typing import Optional
