@@ -44,7 +44,9 @@ from arctic_training.config.model import ModelConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.config.utils import UniqueKeyLoader
+from arctic_training.config.utils import parse_human_val
 from arctic_training.config.wandb import WandBConfig
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
@@ -101,7 +103,7 @@ class TrainerConfig(BaseConfig):
     epochs: int = Field(default=1, ge=0)
     """ Number of epochs to train. """
 
-    loss_log_interval: int = Field(default=1, ge=0)
+    loss_log_interval: HumanInt = Field(default=1, ge=0)
     """ Number of steps between logging loss. """
 
     train_log_iter_interval: Literal[0, 1] = 1
@@ -128,7 +130,7 @@ class TrainerConfig(BaseConfig):
     checkpoint: List[CheckpointConfig] = []
     """ Checkpoint configurations. Multiple checkpoint engines may be used together. """
 
-    train_iters: int = Field(default=0, ge=0)
+    train_iters: HumanInt = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
     eval_frequency: int = Field(default=0, ge=0)
@@ -136,7 +138,7 @@ class TrainerConfig(BaseConfig):
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
 
-    min_iterations: int = Field(default=0, ge=0)
+    min_iterations: HumanInt = Field(default=0, ge=0)
     """ When >0, the training dataset will be replicated until there is enough data to run this many iterations. """
 
     overfit_first_batch: bool = False
@@ -148,8 +150,11 @@ class TrainerConfig(BaseConfig):
     mem_profiler_dir: Path = Field(default_factory=lambda data: data["logger"].output_dir / "mem-prof")
     """ Path to save memory profiling results. Defaults to `logger.output_dir/mem-prof`. """
 
-    mem_profiler_max_entries: int = Field(default=100_000, ge=1)
+    mem_profiler_max_entries: HumanInt = Field(default=100_000, ge=1)
     """ Maximum number of entries to store in the memory profiler. """
+
+    kill_switch_path: Path = Path("/tmp/at_kill_switch")
+    """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
@@ -318,6 +323,25 @@ class TrainerConfig(BaseConfig):
 
         setup_logger(v)
         return v
+
+    @field_validator("deepspeed", mode="before")
+    @classmethod
+    def coerce_deepspeed_human_friendly_values(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        # Allow human friendly values for deepspeed config. This is a workaround
+        # until we upstream this feature to the DeepSpeed pydantic configs.
+        def coerce_dict_values(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+            coerced_dict: Dict[str, Any] = {}
+            for key, value in config_dict.items():
+                if isinstance(value, dict):
+                    coerced_dict[key] = coerce_dict_values(value)
+                else:
+                    try:
+                        coerced_dict[key] = parse_human_val(value)
+                    except Exception:
+                        coerced_dict[key] = value
+            return coerced_dict
+
+        return coerce_dict_values(v)
 
     @model_validator(mode="after")
     def build_deepspeed_config(self) -> Self:

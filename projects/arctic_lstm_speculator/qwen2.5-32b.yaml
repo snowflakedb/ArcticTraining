@@ -1,0 +1,52 @@
+type: arctic-lstm-speculator
+micro_batch_size: 32
+gradient_accumulation_steps: 8
+train_iters: 3000
+model:
+  name_or_path: Qwen/Qwen2.5-32B-Instruct
+  disable_activation_checkpoint: true
+  method: sum_lstm
+  proj_dim: 5120
+  emb_dim: 5120
+  speculator_width: 5120
+  speculator_tie_weights: true
+  speculator_scale_input: true
+  tie_lstm_embs: true
+  n_speculator_heads: 3
+tokenizer:
+  name_or_path: Qwen/Qwen2.5-32B-Instruct
+deepspeed:
+  zero_optimization:
+    stage: 3
+    allgather_bucket_size: 500000000
+    stage3_param_persistence_threshold: 10000
+    stage3_max_live_parameters: 30000000
+    stage3_prefetch_bucket_size: 500000000
+    reduce_bucket_size: 250000000
+    memory_efficient_linear: true
+data:
+  sources:
+    - type: huggingface
+      name_or_path: qwen25_32b_data
+      process: false
+  cache_dir: data-cache-qwen25_32b
+  num_proc: 16
+  filter_samples: false
+  pack_samples: false
+logger:
+  output_dir: "./"
+  file_output_ranks: [0]
+scheduler:
+  name: cosine
+  warmup_ratio: 0.05
+optimizer:
+  betas: [0.9,0.999]
+  weight_decay: 0.1
+  lr: 1e-3
+checkpoint:
+  - type: deepspeed
+    save_every_n_steps: 600
+    output_dir: spec-decode-qwen-25/checkpoints
+  - type: arctic-lstm-speculator
+    save_end_of_training: true
+    output_dir: spec-decode-qwen-25

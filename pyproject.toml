@@ -12,7 +12,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.3"
+version = "0.0.4.dev0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -40,6 +40,8 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 
+requires-python = ">= 3.8"
+
 # Dependencies for the project
 dependencies = [
     "datasets",
@@ -58,6 +60,7 @@ dependencies = [
     "tqdm",
     "transformers>=4.51.3", # attention api + qwen
     "wandb",
+    "yq",
 ]
 
 # Optional development dependencies

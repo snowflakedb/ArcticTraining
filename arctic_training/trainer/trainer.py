@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import random
 from abc import ABC
 from abc import abstractmethod
@@ -150,7 +151,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_method(cls, "train", ["self"])
         _validate_class_method(cls, "checkpoint", ["self"])
 
-    def __init__(self, config: TrainerConfig) -> None:
+    def __init__(self, config: TrainerConfig, mode: str = "train") -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
         self.epoch_idx = 0
@@ -178,6 +179,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader_map = data_factory()
+        if mode == "process-data":
+            return
+
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
@@ -312,8 +316,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     @property
     def epochs(self) -> tqdm:
         """Epochs iterator."""
+        total_epochs = self.config.epochs
+        if self.config.train_iters:
+            total_epochs = math.ceil(
+                self.config.train_iters * self.config.gradient_accumulation_steps / len(self.train_dataloader)
+            )
+
         return tqdm(
-            range(self.epoch_idx, self.config.epochs),
+            range(self.epoch_idx, total_epochs),
             desc="Epochs",
             unit="epoch",
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
@@ -543,6 +553,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
                         step=self.model.global_steps,
                     )
+
+            if self.config.kill_switch_path.exists():
+                self.early_stop = True
 
             if self.early_stop:
                 break

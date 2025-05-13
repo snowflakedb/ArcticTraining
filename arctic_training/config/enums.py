@@ -19,6 +19,7 @@ from typing import Set
 from typing import Tuple
 
 import torch
+from pydantic_core import core_schema
 
 
 class DType(Enum):
@@ -45,3 +46,19 @@ class DType(Enum):
         if isinstance(other, DType):
             return self is other
         return other in self._aliases
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, _handler):
+        return core_schema.no_info_after_validator_function(
+            lambda v: cls(v),
+            core_schema.any_schema(),  # Allow str or torch.dtype input
+            serialization=core_schema.plain_serializer_function_ser_schema(cls.serialize),
+        )
+
+    @classmethod
+    def serialize(cls, instance):
+        return str(instance.value)
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        return {"type": "string", "title": "Torch Dtype", "examples": ["float32", "bfloat16"]}

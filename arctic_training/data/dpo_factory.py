@@ -26,6 +26,7 @@ from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.config.data import DataConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.sft_factory import pad
 from arctic_training.data.utils import DatasetType
@@ -34,10 +35,7 @@ IGNORE_INDEX = -100
 
 
 class DPODataConfig(DataConfig):
-    max_length: int = 8192
-    """ Maximum length of the input sequence. """
-
-    max_prompt_length: int = 4096
+    max_prompt_length: HumanInt = 4096
     """ Maximum prompt length of the input sequence. """
 
     dpo_prompt_truncation_mode: Literal["keep_start", "keep_end"] = "keep_start"

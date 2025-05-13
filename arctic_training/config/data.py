@@ -29,6 +29,7 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.data.utils import is_local_fs
 from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
@@ -75,6 +76,9 @@ class DataConfig(BaseConfig):
 
     train_eval_split: Tuple[float, float] = (1.0, 0.0)
     """ How much of the training data to use for evaluation. """
+
+    max_length: HumanInt = 8192
+    """ Maximum length of the input sequence. """
 
     num_proc: int = 16
     """ Number of processes to use for data loading. """
