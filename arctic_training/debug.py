@@ -83,7 +83,7 @@ def see_memory_usage(message, a=False, force=False, ranks=[0]):
     # if not force:
     #     return
     rank = dist.get_rank() if dist.is_initialized() else 0
-    if not rank in ranks:
+    if rank not in ranks:
         return
 
     # python doesn't do real-time garbage collection so do it explicitly to get the correct RAM reports

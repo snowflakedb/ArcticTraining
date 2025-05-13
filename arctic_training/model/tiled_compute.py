@@ -24,18 +24,16 @@ import math
 
 import torch
 import torch.distributed as dist
-from transformers import AutoConfig
+import torch.nn as nn
 
-from deepspeed.runtime.sequence_parallel.ulysses_sp import SequenceTiledCompute
+# from deepspeed.runtime.sequence_parallel.ulysses_sp import SequenceTiledCompute
 from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
+from transformers import AutoConfig
 
 
 def get_model_type(model_name_or_path):
     config = AutoConfig.from_pretrained(model_name_or_path)
     return config.model_type
-
-
-import torch.nn as nn
 
 
 # simplified MLP with just one dummy weight
@@ -218,7 +216,6 @@ class Compute(torch.autograd.Function):
         ctx.save_for_backward(x)
 
         with torch.no_grad():
-            z = fn(x, self)
             return fn(x, self)
 
     @staticmethod
@@ -230,7 +227,6 @@ class Compute(torch.autograd.Function):
         x1 = x.detach()
         x1.requires_grad = x.requires_grad
         with torch.enable_grad():
-            output = fn(x1, self)
             output = fn(x1, self)
 
         # hooks will start firing here - prints will show up here
@@ -251,7 +247,6 @@ class Compute2(torch.autograd.Function):
     ) -> torch.Tensor:
         ctx.fn = fn
         ctx.self = self
-        ctx.seqlen = seqlen
         ctx.shards = shards
         ctx.compute_params = compute_params
         ctx.save_for_backward(x)
@@ -272,7 +267,6 @@ class Compute2(torch.autograd.Function):
         fn = ctx.fn
         (x,) = ctx.saved_tensors
         self = ctx.self
-        seqlen = ctx.seqlen
         shards = ctx.shards
         compute_params = ctx.compute_params
 
@@ -341,4 +335,3 @@ def enable_tiled_mlp_compute(model_name_or_path):
             f"model type {model_type} is currently not supported. Please open an issue and ask to add Tiled MLP"
             f" support for {model_type}."
         )
-
