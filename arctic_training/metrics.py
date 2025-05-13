@@ -100,10 +100,13 @@ class Metrics:
         self.start_timer(key)
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
-        """Given a sequence length, estimates the number of floating point operations required to run the model."""
+        """Given a sequence length, estimates the number of floating point operations required to run the model.
+        It currently hardwires activation checkpointing always on (co-efficient 4, otherwise should be 3) so it measures hardware flops (used for HFU)"""
+        hardware_flops = True
+        coef = 4 if hardware_flops else 3
         return (
-            seq_len * self.model_size * 2 * 4
-            + self.model_num_layers * seq_len * seq_len * self.model_hidden_size * 2 * 2 * 4
+            2 * coef * self.model_size * seq_len
+            + 2 * 2 * coef * self.model_num_layers * self.model_hidden_size * seq_len**2
         ) / 1e12
 
     def get_value(self, key: str) -> Union[int, float]:
@@ -122,12 +125,12 @@ class Metrics:
 
         tflos_total: float = 0.0
         if "seqlen" in self.values:
-
+            #print(self.values["seqlen"])
+            #exit()
             if isinstance(self.values["seqlen"], list):
                 # deal correctly with packed samples under FA2
                 tflos = sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.values["seqlen"])
                 self.values["seqlen"] = sum(self.values["seqlen"])
-
             else:
                 tflos = self._estimate_decoder_transformer_tflos(self.values["seqlen"])
 
@@ -150,6 +153,13 @@ class Metrics:
             self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
             if tflos_total > 0:
                 self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
+
+
+        # if self.trainer.global_rank == 0:
+        #     seqlen = self.values["seqlen"]
+        #     iter_time = self.summary_dict["iter_time"]
+        #     iter_tflops = self.summary_dict["iter_tflops"]
+        #     print(f"{self.summary_dict['iter']}: tflos: {tflos:.1f} | iter_time: {iter_time:.1f} | iter_tflops: {iter_tflops:.1f} | seqlen: {seqlen}")
 
         if "seqlen" in self.values:
             seq_len_total = sum(gather_object(self.values["seqlen"], self.trainer.world_size))

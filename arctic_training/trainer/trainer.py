@@ -475,8 +475,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             #exit()
 
             # if we need to test an actual long seqlen over packed samples, we can fake it by hacking the position_ids
-            #seqlen = len(batch['input_ids'][0])
-            #batch["position_ids"] = list(range(seqlen))
+            # seqlen = len(batch['input_ids'][0])
+            # batch["position_ids"] = list(range(seqlen))
+            # batch["packed_sample_seqlens"][0] = [seqlen]*
+
 
             # print(f"{len(batch['input_ids'][0])}")
             # print(f"{self.config.exit_iteration=}")
@@ -491,11 +493,29 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # print(tflos)
             # exit()
 
+            # this is really the SP-case
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # XXX: fix me: double list
-                self.metrics.record("seqlen", batch.pop("packed_sample_seqlens")[0])
+                packed_sample_seqlens = batch.pop("packed_sample_seqlens")[0]
+                self.metrics.record("seqlen", packed_sample_seqlens)
+
+                # # if we need to test an actual long seqlen over packed samples, we can fake it by hacking the position_ids
+                # total_seqlen = sum(packed_sample_seqlens)
+                # seqlen = len(batch['input_ids'][0])
+                # seqlens = gather_object(seqlen, self.world_size)
+
+                # batch["position_ids"] = list(range(total_seqlen))[]
+
+
+
             else:
+                # XXX: the seqlen could be different on different ranks - need to gather
                 self.metrics.record("seqlen", len(batch["input_ids"][0]) * self.config.sequence_parallel_size)
+
+            # print(self.metrics.values["seqlen"])
+            # tflos = sum(self.metrics._estimate_decoder_transformer_tflos(seqlen) for seqlen in self.metrics.values["seqlen"])
+            # print("{tflos:.1f")
+            #exit()
 
             see_memory_usage("before step", force=True)
 

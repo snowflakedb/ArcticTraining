@@ -9,12 +9,26 @@ import math
 from arctic_training.deepspeed import sequence_tiled_compute
 from transformers import AutoConfig
 import torch
+import torch.distributed as dist
 
 from arctic_training.deepspeed import SequenceTiledCompute
 
 def get_model_type(model_name_or_path):
     config = AutoConfig.from_pretrained(model_name_or_path)
     return config.model_type
+
+
+import torch.nn as nn
+# simplified MLP with just one dummy weight
+class MyLlamaMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        self.dummy_proj2 = nn.Linear(self.hidden_size, self.hidden_size*2, bias=False)
+        self.dummy_proj = nn.Linear(self.hidden_size*2, self.hidden_size, bias=False)
+
+    def forward(self, x):
+        return self.dummy_proj(self.dummy_proj2(x))
 
 # import torch.nn as nn
 # from transformers.activations import ACT2FN
@@ -51,33 +65,41 @@ def tiled_mlp_forward_common(self, x):
     #     print(f"computing main {x.shape}")
 
     # XXX: temp
-    #num_shards = 16
+    #num_shards = 6
     num_shards = "auto"
 
     if num_shards == "auto":
         bs, seqlen, hidden = x.shape
         # XXX: not too many?
         num_shards = math.ceil(seqlen/hidden)
-        #print(f"derived {num_shards} for {seqlen=} and {hidden=}")
+
+        # it's crucial that all ranks run the same number of shards, otherwise if one of the ranks runs less shards, there will be a deadlock as that rank will stop running sooner than others and will not supply its weights shard to other ranks. So we will use the max value across all ranks.
+        # XXX: but this will run on every layer - it'd be good to cache the number of shards as it doesn't change during the iteration
+        tensor = torch.tensor(num_shards, device=x.device)
+        dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+        num_shards = tensor.item()
+        #print(f"derived {num_shards} for {seqlen=} and {hidden=} max'ed across ranks")
+
 
     # print(f"{self.down_proj.weight.shape=}")
     # print(f"{self.up_proj.weight.shape=}")
     kwargs_to_shard = dict(x=x)
-    kwargs_to_pass = dict(
-        down=self.down_proj.weight,
-        gate=self.gate_proj.weight,
-        up=self.up_proj.weight,
-        # down=self.down_proj.__call__,
-        # gate=self.gate_proj.__call__,
-        # up=self.up_proj.__call__,
-        act_fn=self.act_fn,
-    )
+    kwargs_to_pass = dict(self=self)
+    # kwargs_to_pass = dict(
+    #     down=self.down_proj.weight,
+    #     gate=self.gate_proj.weight,
+    #     up=self.up_proj.weight,
+    #     # down=self.down_proj.__call__,
+    #     # gate=self.gate_proj.__call__,
+    #     # up=self.up_proj.__call__,
+    #     act_fn=self.act_fn,
+    # )
     #kwargs_to_pass = dict(self=self.dummy_proj.weight)
     grad_requiring_tensor_key = "x"
     compute_params = [self.down_proj.weight, self.gate_proj.weight, self.up_proj.weight]
     seqlen = x.shape[1]
 
-    def mlp_forward(x, down, gate, up, act_fn):
+    def mlp_forward2(x, down, gate, up, act_fn):
         #return down(act_fn(gate(x)) * up(x))
         #print(f"{x.shape=}")
         #print(f"{up.shape=}")
@@ -87,7 +109,7 @@ def tiled_mlp_forward_common(self, x):
         c = a * b
         return c @ down.t()
 
-    def mlp_forward2(self=None, x=None):
+    def mlp_forward(x, self): #self=None, x=None):
         #print(f"mlp_forward computing sub {x.shape}")
         #return self.dummy_proj(x)
 
@@ -98,6 +120,15 @@ def tiled_mlp_forward_common(self, x):
         #return self.down_proj(self.gate_proj(x))
         #y = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+    return Compute2.apply(
+        mlp_forward,
+        x,
+        self,
+        seqlen,
+        num_shards,
+        compute_params,
+    )
 
     # from functools import partial
     # return SequenceTiledCompute.apply(
@@ -141,6 +172,139 @@ def tiled_mlp_forward_common(self, x):
     return x
 
 
+def mlp_forward_new(self, x):
+
+    def mlp_forward(x, self):
+        #return self.dummy_proj(self.dummy_proj2(x))
+        return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+        #return self.dummy_proj(x)
+
+    print(f"{x.shape=}")
+    #print(f"{self.dummy_proj.weight.shape=}")
+
+    #mlp_forward(x, self)
+
+    return Compute.apply(
+        mlp_forward,
+        x,
+        self
+    )
+
+class Compute(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        fn,
+        x,
+        self,
+    ) -> torch.Tensor:
+        ctx.fn = fn
+        ctx.self = self
+        ctx.save_for_backward(x)
+
+        with torch.no_grad():
+            z = fn(x, self)
+            return fn(x, self)
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+        fn = ctx.fn
+        x, = ctx.saved_tensors
+        self = ctx.self
+
+        x1 = x.detach()
+        x1.requires_grad = x.requires_grad
+        with torch.enable_grad():
+            output = fn(x1, self)
+            output = fn(x1, self)
+
+        # hooks will start firing here - prints will show up here
+        torch.autograd.backward(output, grads[0])
+        return (None, x1.grad, None)
+
+
+class Compute2(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        fn,
+        x,
+        self,
+        seqlen,
+        shards,
+        compute_params,
+    ) -> torch.Tensor:
+        ctx.fn = fn
+        ctx.self = self
+        ctx.seqlen = seqlen
+        ctx.shards = shards
+        ctx.compute_params = compute_params
+        ctx.save_for_backward(x)
+
+        with torch.no_grad():
+            shard_step = math.ceil(seqlen / shards)
+            output_shards = []
+
+            for i in range(shards):
+                output = fn(x[:, i * shard_step : (i + 1) * shard_step], self)
+                output_shards.append(output)
+            output_unsharded = torch.cat(output_shards, dim=1)
+
+            return output_unsharded
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+        fn = ctx.fn
+        x, = ctx.saved_tensors
+        self = ctx.self
+        seqlen = ctx.seqlen
+        shards = ctx.shards
+        compute_params = ctx.compute_params
+
+        x1 = x.detach()
+        x1.requires_grad = x.requires_grad
+        x = x1
+
+        incoming_grad = grads[0]
+        x_grad = torch.zeros_like(x)
+        x_shards = list(torch.chunk(x, chunks=shards, dim=1))
+
+        shard_step = x_shards[0].numel()
+        for i in range(shards):
+
+            if compute_params is not None:
+                if i + 1 < shards:
+                    for param in compute_params:
+                        param.ds_grad_is_ready = False
+                else:
+                    # last shard, can add the grad
+                    for param in compute_params:
+                        param.ds_grad_is_ready = True
+
+            x_shard = x_shards.pop(0)
+
+            shard_offset = i * shard_step
+            x_shard.grad = (
+                x_grad.view(-1)
+                .narrow(0, shard_offset, x_shard.numel())
+                .view_as(x_shard)
+            )
+
+            # make it optional
+            with torch.enable_grad():
+                output = fn(x_shard, self)
+
+                incoming_grad_shard = incoming_grad.view(-1).narrow(0, shard_offset, x_shard.numel()).view_as(x_shard)
+                torch.autograd.backward(output, incoming_grad_shard)
+
+        x_grad /= shards
+
+        return (None, x.grad, None, None, None, None)
+
+
+
+
+
 def enable_tiled_mlp_compute(model_name_or_path):
     """
     Important: this monkey patching call, that overrides the original HF Transformers model's MLP class, has to happen before model is instantiated.
@@ -152,6 +316,8 @@ def enable_tiled_mlp_compute(model_name_or_path):
     model_type = get_model_type(model_name_or_path)
     if model_type == "llama":
         from transformers.models.llama import modeling_llama
+        #modeling_llama.LlamaMLP = MyLlamaMLP
+        #modeling_llama.LlamaMLP.forward = mlp_forward_new
         modeling_llama.LlamaMLP.forward = tiled_mlp_forward_common
     elif model_type == "qwen2":
         from transformers.models.qwen2 import modeling_qwen2

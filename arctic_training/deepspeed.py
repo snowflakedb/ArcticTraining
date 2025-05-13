@@ -704,6 +704,7 @@ class UlyssesSPDataLoaderWrapper:
                 batch[k] = batch[k].to(self.device)
                 # print_rank(f"before gather: {k}: {batch[k].shape=}", skip=False)
                 # print_rank0(f"before gather: {k}: {batch[k]=}")
+                #print(f"before gather: {k}: {batch[k].shape=}")
                 with torch.no_grad():
                     tensor_list = [
                         torch.zeros((batch[k].shape[0], seqlens[i]), dtype=batch[k].dtype, device=batch[k].device)
@@ -1551,6 +1552,7 @@ class SequenceTiledCompute6(torch.autograd.Function):
         x1.requires_grad = x.requires_grad
         with torch.enable_grad():
             output = fn(x1)
+
         torch.autograd.backward(output, grads[0])
         return (None, x1.grad, None)
 

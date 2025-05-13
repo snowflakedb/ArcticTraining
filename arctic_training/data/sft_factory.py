@@ -133,6 +133,18 @@ class DataCollatorForCausalLM:
         # attention_mask = [
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
+
+        # if fake_unpacked_long_seq:
+        #     seqlen = self.config.max_length
+        #     labels = torch.randint(1, 100, [1, seqlen])
+        #     input_ids = torch.randint(1, 100, [1, seqlen])
+        #     position_ids = torch.arange(seqlen).unsqueeze(0)
+        #     return {
+        #         "input_ids": input_ids,
+        #         "labels": labels,
+        #         "position_ids": position_ids,
+        #     }
+
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
             packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
@@ -140,9 +152,23 @@ class DataCollatorForCausalLM:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
             packed_sample_seqlens = [len(example["input_ids"]) for example in instances]
 
+        fake_unpacked_long_seq = False
+        #fake_unpacked_long_seq = True
+        if fake_unpacked_long_seq:
+            from itertools import chain
+            total_len = sum(len(example["input_ids"]) for example in instances)
+            # to emulate fake full ~max_length samples - use value = 1
+            fake_samples = 1
+            fake_sample_len = total_len // fake_samples # approximately is good enough for testing
+            position_ids = list(chain.from_iterable(list(range(fake_sample_len) for _ in range(fake_samples))))
+            position_ids = [torch.tensor(position_ids)]
+            packed_sample_seqlens = [[fake_sample_len for _ in range(fake_samples)]]
+
         input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
         labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
         position_ids = pad(position_ids, divisible_by=self.config.div_length, padding_value=0, is_position_id=True)
+
+        #print(f"{len(packed_sample_seqlens[0])=} {packed_sample_seqlens}")
 
         return {
             "input_ids": input_ids,
@@ -358,6 +384,6 @@ class SFTDataFactory(DataFactory):
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config),
             batch_size=self.micro_batch_size,
             sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
-            num_workers=self.config.num_proc,
+            num_workers=self.config.dl_num_workers,
             drop_last=True,
         )
