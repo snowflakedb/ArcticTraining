@@ -31,16 +31,16 @@ class LigerModelFactory(HFModelFactory):
             raise ImportError(
                 "You need to install the liger-kernel package to use LigerKernel models: `pip install liger-kernel`"
             )
-        # liger_version_min = "0.5.9"  # shift_labels support
-        # liger_version_have = importlib.metadata.version("liger_kernel")
-        # if version.parse(liger_version_have) < version.parse(liger_version_min):
-        #     raise ValueError(
-        #         f"liger-kernel>={liger_version_min} is required, but you have liger-kernel=={liger_version_have}"
-        #     )
+        liger_version_min = "0.5.9"  # shift_labels support
+        liger_version_have = importlib.metadata.version("liger_kernel")
+        if version.parse(liger_version_have) < version.parse(liger_version_min):
+            raise ValueError(
+                f"liger-kernel>={liger_version_min} is required, but you have liger-kernel=={liger_version_have}"
+            )
 
         # Disable liger's mlp override if we are using our mlp override
-        # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
         swiglu = False if self.trainer.config.tiled_mlp_compute else True
+        # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
 
         return AutoLigerKernelForCausalLM.from_pretrained(
             self.config.name_or_path,
