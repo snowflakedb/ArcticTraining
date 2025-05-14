@@ -178,6 +178,7 @@ def monkey_patch_checkpoint_function_with_cpu_offload():
 
     torch.utils.checkpoint.CheckpointFunction = CheckpointFunctionWithCPUOffload
 
+
 # XXX: If we want to explore using a context manager to offload checkpoints instead of the monkey patch, see this implementation:
 # # from https://github.com/pytorch/torchtune/blob/8fd697188f25832343cc013b89b354f0f8368b78/torchtune/training/_activation_offloading.py#L24-L374
 # might need to look if there is a newer version as I know some fixes were applied to it since this SHA

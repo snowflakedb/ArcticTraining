@@ -222,9 +222,9 @@ def pack_sft_batch(
     # Add the last example
     flush()
 
-    #print(f'{packed_batch["position_ids"]=}')
-    #print(f'{packed_batch["packed_sample_seqlens"]=}')
-    #exit()
+    # print(f'{packed_batch["position_ids"]=}')
+    # print(f'{packed_batch["packed_sample_seqlens"]=}')
+    # exit()
 
     return packed_batch
 
