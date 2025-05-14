@@ -49,6 +49,7 @@ class Metrics:
         self.summary_dict: Dict[str, Union[int, float]] = {}
         self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
         self.values: Dict[str, Union[int, float]] = defaultdict(float)
+        self.seqlens = None
 
         # Store model size values for quickly calculating tflos later
         def numel_fn(p):
@@ -125,7 +126,7 @@ class Metrics:
         self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
 
         tflos_total: float = 0.0
-        if "seqlens" in self.values:
+        if self.seqlens is not None:
             # expects a bs-size list of lists, where each sub-list is seqlens of each sub-sample, or a single seqlen if these are unpacked samples.
             # Examples of self.values["seqlens"]:
             # - bs=1 + packed samples:   [[100, 200, 4090]]
@@ -135,7 +136,7 @@ class Metrics:
             seqlen_subtotal = 0
             tflos_subtotal = 0
             # iterate over batch size
-            for seqlens in self.values["seqlens"]:
+            for seqlens in self.seqlens:
                 tflos_subtotal += sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
                 seqlen_subtotal += sum(seqlens)
 
@@ -146,7 +147,8 @@ class Metrics:
 
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
             tflos_total = (
-                sum(gather_object(tflos_subtotal, self.trainer.world_size)) / self.trainer.config.sequence_parallel_size
+                sum(gather_object(tflos_subtotal, self.trainer.world_size))
+                / self.trainer.config.sequence_parallel_size
             )
             self.values["seqlen_total"] = seqlen_subtotal
 
