@@ -31,6 +31,8 @@ import torch.cuda
 import torch.distributed.nn
 import wandb
 from deepspeed.accelerator import get_accelerator
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -44,7 +46,8 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
-from arctic_training.debug import print_rank
+
+# from arctic_training.debug import print_rank
 from arctic_training.debug import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
@@ -57,9 +60,6 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-
-from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
-from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -477,8 +477,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
-                sample_seqlens = [[len(batch["input_ids"][idx]) * self.config.sequence_parallel_size] for idx in range(len(batch["input_ids"]))]
-            self.metrics.record("seqlens", sample_seqlens)
+                sample_seqlens = [
+                    [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
+                    for idx in range(len(batch["input_ids"]))
+                ]
+            self.metrics.seqlens = sample_seqlens
 
             self.metrics.start_timer("step")
             self.step(batch)
