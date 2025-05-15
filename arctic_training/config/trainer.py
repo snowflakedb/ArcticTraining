@@ -115,6 +115,15 @@ class TrainerConfig(BaseConfig):
     micro_batch_size: int = Field(default=1, ge=1)
     """ Micro batch size per GPU. """
 
+    sequence_parallel_size: int = Field(default=1, ge=1)
+    """ Sequence Parallelism Degree. Disabled if set to 1 """
+
+    activation_checkpoint_cpu_offload: bool = False
+    """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
+
+    tiled_mlp_compute: bool = False
+    """ Tile the MLP computation to save GPU memory. Currently only limited architectures supported, but can be expanded to more. """
+
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
 
