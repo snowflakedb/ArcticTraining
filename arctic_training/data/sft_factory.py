@@ -135,24 +135,12 @@ class DataCollatorForCausalLM:
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
 
-        # for example in instances:
-        #     print(example["packed_sample_seqlens"])
-        #     print(sum(example["packed_sample_seqlens"]))
-        # print(f'{labels[0].shape=}')
-        # print(f'{labels[1].shape=}')
-
-        # exit()
-
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
             packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
             packed_sample_seqlens = [[len(example["input_ids"])] for example in instances]
-
-        # print(packed_sample_seqlens)
-        # print(position_ids)
-        # exit()
 
         fake_unpacked_long_seq = False
         # fake_unpacked_long_seq = True
@@ -180,8 +168,6 @@ class DataCollatorForCausalLM:
         input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id, **pad_kwargs)
         labels = pad(labels, padding_value=IGNORE_INDEX, **pad_kwargs)
         position_ids = pad(position_ids, padding_value=0, is_position_id=True, **pad_kwargs)
-
-        # print(f"{len(packed_sample_seqlens[0])=} {packed_sample_seqlens}")
 
         return {
             "input_ids": input_ids,
@@ -221,10 +207,6 @@ def pack_sft_batch(
 
     # Add the last example
     flush()
-
-    # print(f'{packed_batch["position_ids"]=}')
-    # print(f'{packed_batch["packed_sample_seqlens"]=}')
-    # exit()
 
     return packed_batch
 

@@ -31,7 +31,7 @@ import torch.cuda
 import torch.distributed.nn
 from deepspeed.accelerator import get_accelerator
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
-from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderAdapter
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -271,7 +271,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.sp_rank = groups._get_sequence_parallel_rank()
 
             # wrap the DL with Ulysses one
-            self.train_dataloader = UlyssesSPDataLoaderWrapper(
+            self.train_dataloader = UlyssesSPDataLoaderAdapter(
                 self.train_dataloader,
                 sp_rank=self.sp_rank,
                 sp_group=self.sp_group,
