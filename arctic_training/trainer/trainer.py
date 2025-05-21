@@ -313,7 +313,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         for batch in self.train_batches:
             self.train_batch_idx += 1
-            self.metrics.record("seqlen", len(batch["input_ids"][0]))
+
+            if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
+                # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
+                sample_seqlens = batch.pop("packed_sample_seqlens")
+            else:
+                sample_seqlens = [[len(batch["input_ids"][idx])] for idx in range(len(batch["input_ids"]))]
+            self.metrics.seqlens = sample_seqlens
 
             self.metrics.start_timer("step")
             self.step(batch)
