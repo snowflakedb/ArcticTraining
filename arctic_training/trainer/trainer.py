@@ -138,7 +138,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_method(cls, "train", ["self"])
         _validate_class_method(cls, "checkpoint", ["self"])
 
-    def __init__(self, config: TrainerConfig) -> None:
+    def __init__(self, config: TrainerConfig, mode: str = "train") -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
         self.epoch_idx = 0
@@ -162,6 +162,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader_map = data_factory()
+        if mode == "process-data":
+            return
+
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 

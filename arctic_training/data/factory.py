@@ -116,7 +116,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                     )
 
                 logger.info(f"Saving dataset to cache path {cache_path.as_posix()}")
-                dataset.save_to_disk(cache_path.as_posix())
+                tmp_cache_path = cache_path.with_suffix(".incomplete")
+                dataset.save_to_disk(tmp_cache_path.as_posix())
+                tmp_cache_path.rename(cache_path)
 
             dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
 
