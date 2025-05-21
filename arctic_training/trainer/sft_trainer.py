@@ -45,7 +45,7 @@ class SFTTrainer(Trainer):
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
-        # batch["labels"] = batch["shift_labels"]
+        #batch["labels"] = batch["shift_labels"]
         if self.config.sequence_parallel_size == 1:
             # if model.type=liger is configured - this will use a much more efficient fused logits+loss liger kernel - using significantly less gpu memory and a bit faster compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)

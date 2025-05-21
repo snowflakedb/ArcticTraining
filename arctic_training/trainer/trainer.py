@@ -349,7 +349,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             raise ValueError("Train dataloader not initialized.")
         if self.config.train_iters:
             return self.config.train_iters
-        return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
+
+        # XXX: this was incorrect for GAS
+        return self.config.epochs * len(self.train_dataloader) #// self.config.gradient_accumulation_steps
 
     @callback_wrapper("loss")
     @abstractmethod
@@ -404,15 +406,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         see_memory_usage("before forward", force=False)
 
         self.model.train()
-        if self.config.sequence_parallel_size > 1:
-            self.model.set_gradient_accumulation_boundary(False)
 
         loss = self.loss(batch)
-
-        if self.config.sequence_parallel_size > 1:
-            #    if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
-            # this breaks gas
-            self.model.set_gradient_accumulation_boundary(True)
 
         self.backward(loss)
 

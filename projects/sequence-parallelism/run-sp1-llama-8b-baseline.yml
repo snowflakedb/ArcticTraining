@@ -1,0 +1,91 @@
+type: sft
+micro_batch_size: 1
+exit_iteration: 3
+min_iterations: 3
+#activation_checkpoint_cpu_offload: true
+#tiled_mlp_compute: true
+sequence_parallel_size: 1
+
+deepspeed:
+  zero_optimization:
+    stage: 3
+    offload_optimizer:
+      device: cpu
+    offload_param:
+      device: cpu
+
+  seq_parallel_communication_data_type: bf16
+
+optimizer:
+  type: cpu_adam
+  learning_rate: 0.00001
+
+model:
+  #type: "liger"
+  # name_or_path: hf-internal-testing/tiny-random-LlamaForCausalLM
+  # name_or_path: HuggingFaceTB/SmolLM-135M-Instruct
+  #name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+  # name_or_path: Qwen/Qwen2.5-7B-Instruct-1M (wrong shape)
+  #name_or_path: Qwen/Qwen2.5-14B-Instruct-1M
+  # name_or_path: Qwen/QwQ-32B #
+  # name_or_path: google/gemma-1.1-2b-it
+  # name_or_path: Felladrin/Llama-160M-Chat-v1
+  # name_or_path: hfl/chinese-llama-2-1.3b
+  #name_or_path: meta-llama/Llama-3.2-1B-Instruct
+  #name_or_path: meta-llama/Llama-3.2-3B-Instruct
+  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  # name_or_path: meta-llama/Llama-3.1-70B-Instruct
+
+  #attn_implementation: eager
+  attn_implementation: flash_attention_2
+  #attn_implementation: sdpa
+
+  # dtype: float32
+  dtype: bf16
+
+
+
+#scheduler:
+#  name: constant
+
+data:
+  sources:
+    #- HuggingFaceH4/ultrachat_200k
+    - HuggingFaceH4/ultrachat_200k:train[:10000]
+  cache_dir: /data-fast/data-cache/stas
+  # num_proc: 16
+  dl_num_workers: 1
+
+#  max_length: 256
+#  max_length: 512
+#  max_length: 1024
+#  max_length: 2048
+#  max_length: 8192
+#  max_length: 8_000 # w/o param offload
+#  max_length: 26_000 # w/o param offload NV 71.27 GB
+#  max_length: 32_000 # w/ param offload: NV 71.91 GB
+  max_length: 36_000 # w/ param offload close to oom
+
+wandb:
+# enable: true
+  enable: false
+  project: "ulysses"
+  name: "dp1-sp1-chunked-loss-300k"
+
+logger:
+  level: WARNING
+#  level: INFO
+
+  output_dir: "logs"
+  #file_output_ranks: [0,1]
+  print_output_ranks: [0,1,2,3,4,5,6,7]
+
+
+# checkpoint:
+#   - type: huggingface
+#     save_end_of_training: true
+#     output_dir: ./fine-tuned-model
+
+
+
+

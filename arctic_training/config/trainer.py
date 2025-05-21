@@ -347,7 +347,9 @@ class TrainerConfig(BaseConfig):
     def build_deepspeed_config(self) -> Self:
         ds_config = self.deepspeed
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_batch_size
-        ds_config["train_batch_size"] = self.micro_batch_size * self.gradient_accumulation_steps * self.world_size
+        ds_config["train_batch_size"] = self.micro_batch_size * self.gradient_accumulation_steps * self.world_size / self.sequence_parallel_size
+        ds_config["gradient_accumulation_steps"] = self.gradient_accumulation_steps
+        ds_config["sequence_parallel_size"] = self.sequence_parallel_size
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
         ds_config["zero_optimization"] = ds_config.get(
             "zero_optimization",

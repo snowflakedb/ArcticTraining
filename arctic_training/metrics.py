@@ -51,6 +51,8 @@ class Metrics:
         self.values: Dict[str, Union[int, float]] = defaultdict(float)
         self.seqlens = None
 
+        self.losses = []
+
         # Store model size values for quickly calculating tflos later
         def numel_fn(p):
             return p.ds_numel if hasattr(p, "ds_tensor") else p.numel()
@@ -100,6 +102,7 @@ class Metrics:
         self.stop_timer(key)
         self.start_timer(key)
 
+
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model.
         It currently hardwires activation checkpointing always on (co-efficient 4, otherwise should be 3) so it measures hardware flops (used for HFU)
@@ -140,11 +143,6 @@ class Metrics:
                 tflos_subtotal += sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
                 seqlen_subtotal += sum(seqlens)
 
-            # XXX: this is only correct for:
-            #  1. unpacked samples -
-            #  2. our current use of sdpa where it attends to the whole packed sample because we aren't sending the 4D attn mask
-            # in the case of FA2 which decides what it attends to sections based on position ids, we should run the estimator for each sample's length and then sum it up, otherwise the compute will be estimated to be much much bigger than it is.
-
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
             tflos_total = (
                 sum(gather_object(tflos_subtotal, self.trainer.world_size))
@@ -155,6 +153,15 @@ class Metrics:
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size
             self.summary_dict["loss"] = loss
+
+            # XXX: short term partial GAS support for reporting the correct loss
+            if self.trainer.config.gradient_accumulation_steps > 1:
+                if len(self.losses) < self.trainer.config.gradient_accumulation_steps:
+                    self.losses += [loss]
+
+                if len(self.losses) == self.trainer.config.gradient_accumulation_steps:
+                    self.summary_dict["loss"] = sum(self.losses) / self.trainer.config.gradient_accumulation_steps
+                    self.losses = []
 
         if "iter_time" in self.values:
             iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
