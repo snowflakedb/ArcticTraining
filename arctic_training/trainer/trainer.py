@@ -29,7 +29,6 @@ import numpy as np
 import torch
 import torch.cuda
 import torch.distributed.nn
-import wandb
 from deepspeed.accelerator import get_accelerator
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderWrapper
@@ -39,6 +38,7 @@ from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from wandb.sdk.wandb_run import Run as WandbRun
 
+import wandb
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
@@ -351,7 +351,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             return self.config.train_iters
 
         # XXX: this was incorrect for GAS
-        return self.config.epochs * len(self.train_dataloader) #// self.config.gradient_accumulation_steps
+        return self.config.epochs * len(self.train_dataloader)  # // self.config.gradient_accumulation_steps
 
     @callback_wrapper("loss")
     @abstractmethod

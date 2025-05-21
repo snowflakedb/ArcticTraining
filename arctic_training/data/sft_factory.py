@@ -155,7 +155,7 @@ class DataCollatorForCausalLM:
         # exit()
 
         fake_unpacked_long_seq = False
-        #fake_unpacked_long_seq = True
+        # fake_unpacked_long_seq = True
         if fake_unpacked_long_seq:
             from itertools import chain
 

@@ -51,7 +51,7 @@ class Metrics:
         self.values: Dict[str, Union[int, float]] = defaultdict(float)
         self.seqlens = None
 
-        self.losses = []
+        self.losses: list = []
 
         # Store model size values for quickly calculating tflos later
         def numel_fn(p):
@@ -101,7 +101,6 @@ class Metrics:
     def restart_timer(self, key: str) -> None:
         self.stop_timer(key)
         self.start_timer(key)
-
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
         """Given a sequence length, estimates the number of floating point operations required to run the model.
