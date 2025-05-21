@@ -17,12 +17,12 @@ import math
 from typing import Union
 
 import torch
+import torch.distributed.nn.functional
+from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
 
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.sft_factory import SFTDataFactory
-
-# from arctic_training.debug import pr
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
@@ -45,7 +45,6 @@ class SFTTrainer(Trainer):
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
-        # batch["labels"] = batch["shift_labels"]
         if self.config.sequence_parallel_size == 1:
             # if model.type=liger is configured - this will use a much more efficient fused logits+loss liger kernel - using significantly less gpu memory and a bit faster compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)
@@ -75,10 +74,6 @@ class SFTTrainer(Trainer):
         # 2. But liger kernel isn't implemented for all HF Transformers models, so then we fall back onto our tiled logits+loss compute implementation that is almost as efficient memory-wise, but which has more compute overhead before backward re-runs forward. The total memory usage is very similar, but cuda cache flushes earlier if pushing close to OOM than liger.
         if self.config.model.type == "liger":
             # letting liger do fused logits+loss calculation
-            # XXX: update to the latest liger version and it can handle shift_labels
-            # This needs to be removed once liger new version is out - track https://github.com/linkedin/Liger-Kernel/issues/675
-            # batch["labels"] = batch.pop("shift_labels")
-            # batch["labels"] = None
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
 
@@ -127,8 +122,6 @@ class SFTTrainer(Trainer):
                     loss_sum = loss * good_items
                 return loss_sum
 
-            from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
-
             total_loss_sum = sequence_tiled_compute(
                 fused_logits_loss_fn,
                 seqlen,
@@ -143,16 +136,12 @@ class SFTTrainer(Trainer):
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
 
-        # pr(f"{loss=}")
-
         # differentiable weighted per-shard-loss aggregation across ranks
-        import torch.distributed.nn.functional
-
         losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
         good_tokens = sum((shift_labels != -100).view(-1))
         good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
-        loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size)) / sum(
-            good_tokens_per_rank
-        )
+        total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
+        total_good_tokens = sum(good_tokens_per_rank)
+        loss = total_loss / total_good_tokens
 
         return loss
