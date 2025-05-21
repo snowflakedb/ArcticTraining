@@ -143,10 +143,7 @@ class Metrics:
                 seqlen_subtotal += sum(seqlens)
 
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
-            tflos_total = (
-                sum(gather_object(tflos_subtotal, self.trainer.world_size))
-                / self.trainer.config.sequence_parallel_size
-            )
+            tflos_total = sum(gather_object(tflos_subtotal, self.trainer.world_size))
             self.values["seqlen_total"] = seqlen_subtotal
 
         if "loss" in self.values:
