@@ -42,7 +42,7 @@ data:
     - HuggingFaceH4/ultrachat_200k
     #- HuggingFaceH4/ultrachat_200k:train[:10000]
   cache_dir: data-cache
-  
+
   dl_num_workers: 1
 
 #  max_length: 256
