@@ -134,10 +134,27 @@ class DataCollatorForCausalLM:
         # attention_mask = [
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
+
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
+            packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
+            packed_sample_seqlens = [[len(example["input_ids"])] for example in instances]
+
+        fake_unpacked_long_seq = False
+        # fake_unpacked_long_seq = True
+        if fake_unpacked_long_seq:
+            from itertools import chain
+
+            total_len = sum(len(example["input_ids"]) for example in instances)
+            # to emulate fake full ~max_length samples - use value = 1
+            fake_samples = 1
+            fake_sample_len = total_len // fake_samples  # approximately is good enough for testing
+            position_ids_bs1 = list(chain.from_iterable(list(range(fake_sample_len) for _ in range(fake_samples))))
+            position_ids = [torch.tensor(position_ids_bs1) for _ in range(len(instances))]
+            packed_sample_seqlens_bs1 = [fake_sample_len for _ in range(fake_samples)]
+            packed_sample_seqlens = [packed_sample_seqlens_bs1 for _ in range(len(instances))]
 
         if self.config.pad_to == "max_length":
             pad_kwargs = {"max_seq": self.config.max_length}
@@ -156,13 +173,14 @@ class DataCollatorForCausalLM:
             "input_ids": input_ids,
             "labels": labels,
             "position_ids": position_ids,
+            "packed_sample_seqlens": packed_sample_seqlens,
         }
 
 
 def pack_sft_batch(
     batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
 ) -> Dict[str, List[List[int]]]:
-    keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    keys = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
@@ -185,6 +203,7 @@ def pack_sft_batch(
         current_sample["labels"].extend(labels)
         current_sample["attention_mask"].extend(attention_mask)
         current_sample["position_ids"].extend(range(len(input_ids)))
+        current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
     # Add the last example
     flush()
