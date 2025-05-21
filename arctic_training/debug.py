@@ -21,8 +21,6 @@ import os
 
 import psutil
 import torch
-
-# deepspeed or
 import torch.distributed as dist
 from deepspeed.accelerator import get_accelerator
 
@@ -67,21 +65,15 @@ def gc_empty_accelerator_cache():
     get_accelerator().empty_cache()
 
 
-def see_memory_usage(message, a=False, force=False, ranks=[0]):
+def see_memory_usage(message, force=False, ranks=[0]):
     """
     Arguments:
-        message: a pre-amble message to print before the counter dumps - useful for annotating where each measurement has been taken - e.g. "before foo" and later "after foo"
-        force: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
-        ranks: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
+        - `message`: a pre-amble message to print before the counter dumps - useful for annotating where each measurement has been taken - e.g. "before foo" and later "after foo"
+        - `force`: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
+        - `ranks`: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
     """
-    return
-    # gc.collect()
-    # torch.cuda.empty_cache()
-    if not a:
+    if not force:
         return
-    # return
-    # if not force:
-    #     return
     rank = dist.get_rank() if dist.is_initialized() else 0
     if rank not in ranks:
         return
@@ -89,8 +81,10 @@ def see_memory_usage(message, a=False, force=False, ranks=[0]):
     # python doesn't do real-time garbage collection so do it explicitly to get the correct RAM reports
     gc.collect()
 
-    # XXX: I think torch.cuda.empty_cache() needs to be called here after gc.collect! (the deepspeed version doesn't)
-    torch.cuda.empty_cache()
+    # In some situations we want to flush the cache but not others, so for now let the developer
+    # override this manually - by default it should not be called. when it's not enabled use the
+    # MA_* numbers to get the real memory usage, rather than CA_* ones
+    # torch.cuda.empty_cache()
 
     # collect raw memory usage outside pytorch
     nv_mem = get_nvml_mem()
@@ -140,17 +134,20 @@ def get_mem_metrics():
     return summary
 
 
-# fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks
-# are used, you will want it off at a cost of interleaved prints from the same host.
-# by default it'll be False to keep things fast, but set it to true when interleaved prints interfere with debug
+# fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks are
+# used, you will want it off at a cost of interleaved prints from the same host. by default it'll
+# be False to keep things fast, but set it to true when interleaved prints interfere with debug
 #
-# TODO: alternatively could try to point to some temp file on a local NVME drive - but it's hard to tell if say `/tmp` is on the local drive
+# TODO: alternatively could try to point to some temp file on a local NVME drive - but it's hard to
+# tell if say `/tmp` is on the local drive
 USE_PRINTFLOCK = True
 # PRINT_FLOCK_FILE = "/tmp/printflock.lock"
 PRINT_FLOCK_FILE = __file__
 
-# to quickly temporarily turn off all debugging w/o needing to comment it out - set this to True
-# XXX: add API so that the operator could tweak this global from the main script and not mess with this module and commit wrong things by mistake
+# Set to True to quickly temporarily turn off all debugging w/o needing to disable each call
+#
+# XXX: perhaps add API so that the operator could tweak this global from the main script and not
+# mess with this module and commit wrong things by mistake
 DISABLE_DEBUG = True
 
 
@@ -192,7 +189,7 @@ if USE_PRINTFLOCK:
     print = printflock
 
 
-def print_rank(*msg, skip=True, ranks=None):
+def print_rank(*msg, force=False, ranks=None):
     """print something on all global ranks with [rank] prefix.
     if `ranks` is passed then only those ranks will be printed
 
@@ -200,39 +197,18 @@ def print_rank(*msg, skip=True, ranks=None):
     print_rank(*msg, ranks=[0,3]):
 
     """
-    if DISABLE_DEBUG or skip:
+    if DISABLE_DEBUG or not force or ranks is None:
         return
     global_rank = dist.get_rank()
-    if ranks is not None and global_rank not in ranks:
+    if global_rank not in ranks:
         return
     print(f"[{global_rank}]", *msg)
 
 
-def pr(*msg, skip=True, ranks=None):
-    """print something on all global ranks with [rank] prefix.
-    if `ranks` is passed then only those ranks will be printed
-
-    e.g. to print just on ranks 0 and 3:
-    print_rank(*msg, ranks=[0,3]):
-
-    """
-    global_rank = dist.get_rank()
-    # if ranks is not None and global_rank not in ranks:
-    #     return
-    print(f"[{global_rank}]", *msg)
-
-
-def print_rank0(*msg, skip=True):
+def print_rank0(*msg, force=False):
     """print something only on rank 0"""
-    if DISABLE_DEBUG or skip:
+    if DISABLE_DEBUG or not force:
         return
-    global_rank = dist.get_rank()
-    if global_rank == 0:
-        print(f"[{global_rank}]", *msg)
-
-
-def pr0(*msg, skip=True):
-    """print something only on rank 0"""
     global_rank = dist.get_rank()
     if global_rank == 0:
         print(f"[{global_rank}]", *msg)
@@ -241,12 +217,11 @@ def pr0(*msg, skip=True):
 def debug_gathered_tensor(tensor, group, name=None, dim=0):
     """gather a tensor across ranks of the given group and dump its shape and norm
 
-
     Arguments:
-        tensor: tensor to gather
-        group: process group to gather on
-        name: optional - the variable name for the tensor
-        dim: which dimension to gather on. default: 0
+      - `tensor`: tensor to gather
+      - `group`: process group to gather on
+      - `name`: optional - the variable name for the tensor
+      - `dim`: which dimension to gather on. default: 0
 
     """
 

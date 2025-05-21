@@ -46,9 +46,6 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
-
-# from arctic_training.debug import print_rank
-from arctic_training.debug import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -171,10 +168,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         tokenizer_factory = self.config.tokenizer.factory(self)
         self.tokenizer = tokenizer_factory()
 
-        # see_memory_usage("after tokenizer", force=True)
-
-        # see_memory_usage("before dataloader", force=True)
-
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader_map = data_factory()
         if mode == "process-data":
@@ -193,11 +186,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             seq_length_is_variable=True,
         )
 
-        # self.core_attn_implementation = self.config.model.attn_implementation
-        # if self.config.sequence_parallel_size > 1:
-        #     # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesSPAttentionHF`
-        #     self.config.model.attn_implementation = "ulysses"
-
         # Important: this is most likely not beneficial under seqlen=64k
         if self.config.activation_checkpoint_cpu_offload:
             # activation_checkpointing_cpu_offload becomes very benefitial at very long seqlen
@@ -209,15 +197,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             monkey_patch_checkpoint_function_with_cpu_offload()
 
-            # XXX: this is probably too late to override, torch has been loaded
-            # but perhaps could give user a warning? but they will never see it
-            # import os
-            # PYTORCH_CUDA_ALLOC_CONF = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", None)
-            # if PYTORCH_CUDA_ALLOC_CONF is None:
-            #     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
-        # see_memory_usage("after ulysses", force=True)
-
         # MLP tiling - has to happen before model is instantiated
         if self.config.tiled_mlp_compute:
             enable_tiled_mlp_compute(self.config.model.name_or_path)
@@ -226,13 +205,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # print(self.config.deepspeed)
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
-
-        see_memory_usage("after model", force=True)
-
-        # UlyssesSPAttentionHF.validate_model(
-        #     model=self.model,
-        #     sequence_parallel_size=self.config.sequence_parallel_size,
-        # )
 
         # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to override this properly - apparently there is a plan to do so in the future versions of transformers.
         # 1. definitely needed for SP
@@ -249,7 +221,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        # torch.distributed.barrier()
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -258,8 +229,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
-
-        see_memory_usage("after ds", force=True)
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first
@@ -377,66 +346,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         this method.
         """
 
-        # import deepspeed.comm as dist
-        # import q
-        # from deepspeed.utils import groups
-        # q(self.global_rank)
-        # print_rank0(f"{groups._get_sequence_parallel_group()=}")
-        # print_rank0(f"{groups._get_sequence_parallel_rank()=}")
-        # print_rank0(f"{groups._get_sequence_parallel_world_size()=}")
-        # dist.barrier()
-        # import time
-        # time.sleep(5)
-        # die
-
-        torch.set_printoptions(sci_mode=False)
-        # torch.set_printoptions(
-        #     threshold=100000000, # print all data (without ... skipping) - can be huge!
-        #     sci_mode=False,      # print all data on the same scale of 1 (this disables scientific notation)
-        #     precision=6,         # print X decimal points for floats (default 4)
-        #     edgeitems=5,         # when the data is large and skipped, control how many entries are printed on each edge
-        #     linewidth=120,       # redefine linewidth for when lines are \n-wrapped in printout (default 80)
-        #                         # if threshold is defined, matrix printing will ignore this setting
-        #     profile="full",      # printing defaults: "default", "short", "full"
-        # )
-
-        # if self.global_rank == 0:
-        #     print_rank0(batch)
-
-        see_memory_usage("before forward", force=False)
-
         self.model.train()
 
         loss = self.loss(batch)
 
         self.backward(loss)
 
-        # XXX: do not delete until we get GAS working
-        # until then uncomment to compare loss exactness vs dp8-sp1
-        # self.temp_losses.append(loss.item())
-        # sp_world_size = 8
-        # if len(self.temp_losses) == sp_world_size:
-        #     avg_loss = sum(self.temp_losses) / len(self.temp_losses)
-        #     print(f"{avg_loss=}")
-        #     self.temp_losses = []
-
-        see_memory_usage("after backward", force=False)
-
         def maybe_item(v):
             return v.item() if torch.is_tensor(v) else v
 
         self.metrics.record("loss", maybe_item(loss))
 
-        # if self.train_batch_idx % self.config.gradient_accumulation_steps == 0:
         self.model.step()
-
-        # XXX: a hack to exit early until the counters are unbroken
-        # if self.train_batch_idx == 9:
-        #    self.early_stop = True
-
-        see_memory_usage("after step", force=False)
-
-        # from deepspeed.utils import safe_get_full_grad, safe_get_full_fp32_param
 
         # use deepspeed global step as golden truth
         self.global_step = self.model.global_steps

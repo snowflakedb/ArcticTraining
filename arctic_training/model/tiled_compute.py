@@ -15,10 +15,9 @@
 
 
 import math
+
 import torch
 import torch.distributed as dist
-import torch.nn as nn
-
 from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledMLP
 from transformers import AutoConfig
 
@@ -64,6 +63,7 @@ def tiled_mlp_forward_common(self, x):
         compute_params,
     )
 
+
 def enable_tiled_mlp_compute(model_name_or_path):
     """
     Important: this monkey patching call, that overrides the original HF Transformers model's MLP class, has to happen before a model is instantiated.
@@ -91,4 +91,3 @@ def enable_tiled_mlp_compute(model_name_or_path):
             f"model type {model_type} is currently not supported. Please open an Issue and ask to add Tiled MLP"
             f" support for {model_type} or alternatively submit a PR."
         )
-
