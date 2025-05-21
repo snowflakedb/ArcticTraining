@@ -30,8 +30,8 @@ data:
   sources:
     - HuggingFaceH4/ultrachat_200k
     #- HuggingFaceH4/ultrachat_200k:train[:10000]
-  cache_dir: /data-fast/data-cache/stas
-  # num_proc: 16
+  cache_dir: data-cache
+  
   dl_num_workers: 1
 
 #  max_length: 500000

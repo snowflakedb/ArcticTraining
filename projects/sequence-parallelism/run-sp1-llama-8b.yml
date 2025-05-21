@@ -22,76 +22,20 @@ optimizer:
 
 model:
   type: "liger"
-  # name_or_path: hf-internal-testing/tiny-random-LlamaForCausalLM
-  # name_or_path: HuggingFaceTB/SmolLM-135M-Instruct
-  #name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
-  # name_or_path: Qwen/Qwen2.5-7B-Instruct-1M (wrong shape)
-  #name_or_path: Qwen/Qwen2.5-14B-Instruct-1M
-  # name_or_path: Qwen/QwQ-32B #
-  # name_or_path: google/gemma-1.1-2b-it
-  # name_or_path: Felladrin/Llama-160M-Chat-v1
-  # name_or_path: hfl/chinese-llama-2-1.3b
-  #name_or_path: meta-llama/Llama-3.2-1B-Instruct
-  #name_or_path: meta-llama/Llama-3.2-3B-Instruct
   name_or_path: meta-llama/Llama-3.1-8B-Instruct
-  # name_or_path: meta-llama/Llama-3.1-70B-Instruct
 
-  #attn_implementation: eager
   attn_implementation: flash_attention_2
   #attn_implementation: sdpa
-
-  # dtype: float32
-  dtype: bf16
-
-
-
-#scheduler:
-#  name: constant
 
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
     #- HuggingFaceH4/ultrachat_200k:train[:10000]
-  cache_dir: /data-fast/data-cache/stas
-  # num_proc: 16
-  dl_num_workers: 1
+  cache_dir: data-cache
+    dl_num_workers: 1
 
-#  max_length: 256
-#  max_length: 512
-#  max_length: 1024
-#  max_length: 2048
-#  max_length: 8192
-#  max_length: 17000
-#  max_length: 33000
-#  max_length: 66000 # ok
-#  max_length: 99000
-#  max_length: 120000
-#  max_length: 131072
-#  max_length: 150000
-#  max_length: 160000 # ok
-#  max_length: 180000#
-#  max_length: 200000
-#  max_length: 260000
-#  max_length: 300000
-#  max_length: 340000
-#  max_length: 380000
-#  max_length: 400000
-#  max_length: 450000
   max_length: 500000 # ok with pt=2.8.0.dev20250507+cu126
 #  max_length: 555000 # Triton Error [CUDA]: an illegal memory access was encountered
-#  max_length: 600000
-#  max_length: 700000
-
-
-# mem_profiler: e2e
-# mem_profiler_max_entries: 1_000_000_000
-# mem_profiler_dir: mem-prof
-
-wandb:
-# enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp1-chunked-loss-300k"
 
 logger:
   level: WARNING

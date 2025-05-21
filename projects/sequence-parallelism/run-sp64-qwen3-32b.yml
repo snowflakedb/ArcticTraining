@@ -29,7 +29,7 @@ data:
   sources:
     - HuggingFaceH4/ultrachat_200k
   #  - HuggingFaceH4/ultrachat_200k:train[:5000]
-  cache_dir: /data-fast/data-cache/stas
+  cache_dir: data-cache
   # num_proc: 1
   dl_num_workers: 1
 

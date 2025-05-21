@@ -128,9 +128,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     `post-` for `init`, `train`, `epoch`, `step`, and `checkpoint`.
     """
 
-    # XXX: hack to compare correctness until we support GAS
-    temp_losses: list[int] = []
-
     @classmethod
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
@@ -177,7 +174,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
-        # XXX: We can abstract this section further with AT-specific wrapper, but UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
+        # XXX: We can abstract this section further with AT-specific wrapper, but
+        # UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
             model_name_or_path=self.config.model.name_or_path,
             core_attn_implementation=self.config.model.attn_implementation,
@@ -190,10 +188,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # Important: this is most likely not beneficial under seqlen=64k
         if self.config.activation_checkpoint_cpu_offload:
             # activation_checkpointing_cpu_offload becomes very benefitial at very long seqlen
-            # e.g., llama 8b at 800k (100k effective per gpu) will save 24GB per gpu: ((100_000*4096)*2*32/2**30)
-            # but for short sequences the offload will just slow things down,
-            # XXX: could parameterize or run a few lengths to see at which threshold it becomes beneficial - a user might still want this on even at shorter seqlen if they don't mind slower performance.
-            # discussing adding this functionality to pytorch core (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
+            # e.g., llama 8b at 800k (100k effective per gpu) will save 24GB per gpu:
+            # ((100_000*4096)*2*32/2**30), but for short sequences the offload will just slow things
+            # down,
+            #
+            # XXX: could parameterize or run a few lengths to see at which threshold it becomes
+            # beneficial - a user might still want this on even at shorter seqlen if they don't
+            # mind slower performance. discussing adding this functionality to pytorch core
+            # (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
             from arctic_training.monkey_patches import monkey_patch_checkpoint_function_with_cpu_offload
 
             monkey_patch_checkpoint_function_with_cpu_offload()
@@ -207,7 +209,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
-        # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to override this properly - apparently there is a plan to do so in the future versions of transformers.
+        # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to
+        # override this properly - apparently there is a plan to do so in the future versions of
+        # transformers.
         # 1. definitely needed for SP
         # 2. but it also should benefit a single gpu use case
         if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation != "flash_attention_2":
@@ -385,8 +389,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
-        # XXX: this counter must not be reset between epochs
-        self.train_batch_idx = 0
         for batch in self.train_batches:
             self.train_batch_idx += 1
 
