@@ -98,9 +98,9 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
             and self.trainer.global_step > 0
         ):
             return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
-        if not return_value and self.config.save_every_n_epochs:
-            return_value = self.epoch_finished and (self.trainer.epoch_idx % self.config.save_every_n_epochs) == 0
-        if not return_value and self.config.save_end_of_training:
+        if self.config.save_every_n_epochs:
+            return_value = return_value or (self.epoch_finished and (self.trainer.epoch_idx % self.config.save_every_n_epochs) == 0)
+        ifself.config.save_end_of_training:
             return_value = return_value or self.training_finished
         return return_value
 
