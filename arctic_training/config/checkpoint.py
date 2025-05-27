@@ -54,7 +54,7 @@ class CheckpointConfig(BaseConfig):
     def engine(self) -> Type["CheckpointEngine"]:
         return get_registered_checkpoint_engine(name=self.type)
 
-    @field_validator("output_dir")
+    @field_validator("output_dir", mode="after")
     @classmethod
     def resolve_output_dir(cls, v: Path) -> Path:
         return v.resolve()
