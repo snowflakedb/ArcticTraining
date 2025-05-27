@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from typing import Type
 
 from pydantic import Field
+from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.config.utils import HumanInt
@@ -52,3 +53,8 @@ class CheckpointConfig(BaseConfig):
     @property
     def engine(self) -> Type["CheckpointEngine"]:
         return get_registered_checkpoint_engine(name=self.type)
+
+    @field_validator("output_dir")
+    @classmethod
+    def resolve_output_dir(cls, v: Path) -> Path:
+        return v.resolve()

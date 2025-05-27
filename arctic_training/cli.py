@@ -16,12 +16,12 @@
 import argparse
 import os
 import shutil
-import subprocess
 import textwrap
 from pathlib import Path
 
 
 def main():
+    from deepspeed.launcher.runner import main as ds_runner
     parser = argparse.ArgumentParser(
         prog="arctic_training",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -55,26 +55,17 @@ def main():
 
     exe_path = shutil.which("arctic_training_run")
 
-    env = os.environ.copy()
-
-    subprocess.run(
-        [
-            "deepspeed",
-            *deepspeed_args,
-            exe_path,
-            "--mode",
-            args.mode,
-            "--config",
-            str(args.config),
-        ],
-        env=env,
-        check=True,
-    )
+    ds_runner([
+        *deepspeed_args,
+        exe_path,
+        "--mode",
+        args.mode,
+        "--config",
+        str(args.config),
+    ])
 
 
 def run_script():
-    import deepspeed.comm as dist
-
     from arctic_training.config.trainer import get_config
     from arctic_training.registry import get_registered_trainer
 
@@ -103,12 +94,14 @@ def run_script():
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
+    exit()
     config = get_config(args.config)
     trainer_cls = get_registered_trainer(name=config.type)
     trainer = trainer_cls(config, mode=args.mode)
     if args.mode == "train":
         trainer.train()
 
+    import deepspeed.comm as dist
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()

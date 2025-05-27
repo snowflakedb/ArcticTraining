@@ -13,40 +13,105 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from arctic_training.logging import setup_init_logger
+import importlib
+import typing as t
 
+from arctic_training.logging import setup_init_logger
 setup_init_logger()
 
-from arctic_training.callback.callback import Callback
-from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
-from arctic_training.checkpoint.engine import CheckpointEngine
-from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
-from arctic_training.config.checkpoint import CheckpointConfig
-from arctic_training.config.data import DataConfig
-from arctic_training.config.logger import LoggerConfig
-from arctic_training.config.model import ModelConfig
-from arctic_training.config.optimizer import OptimizerConfig
-from arctic_training.config.scheduler import SchedulerConfig
-from arctic_training.config.tokenizer import TokenizerConfig
-from arctic_training.config.trainer import TrainerConfig
-from arctic_training.config.trainer import get_config
-from arctic_training.data.dpo_factory import DPODataFactory
-from arctic_training.data.factory import DataFactory
-from arctic_training.data.hf_source import HFDataSource
-from arctic_training.data.sft_factory import SFTDataFactory
-from arctic_training.data.source import DataSource
-from arctic_training.logging import logger
-from arctic_training.model.factory import ModelFactory
-from arctic_training.model.hf_factory import HFModelFactory
-from arctic_training.model.liger_factory import LigerModelFactory
-from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
-from arctic_training.optimizer.factory import OptimizerFactory
-from arctic_training.registry import register
-from arctic_training.scheduler.factory import SchedulerFactory
-from arctic_training.scheduler.hf_factory import HFSchedulerFactory
-from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
-from arctic_training.trainer.dpo_trainer import DPOTrainer
-from arctic_training.trainer.dpo_trainer import DPOTrainerConfig
-from arctic_training.trainer.sft_trainer import SFTTrainer
-from arctic_training.trainer.trainer import Trainer
+__all__ = [
+    # Public symbols exposed by the package
+    "logger",
+    "register",
+    "Callback",
+    "DSCheckpointEngine",
+    "CheckpointEngine",
+    "HFCheckpointEngine",
+    "CheckpointConfig",
+    "DataConfig",
+    "LoggerConfig",
+    "ModelConfig",
+    "OptimizerConfig",
+    "SchedulerConfig",
+    "TokenizerConfig",
+    "TrainerConfig",
+    "get_config",
+    "DPODataFactory",
+    "DataFactory",
+    "HFDataSource",
+    "SFTDataFactory",
+    "DataSource",
+    "ModelFactory",
+    "HFModelFactory",
+    "LigerModelFactory",
+    "FusedAdamOptimizerFactory",
+    "OptimizerFactory",
+    "SchedulerFactory",
+    "HFSchedulerFactory",
+    "TokenizerFactory",
+    "HFTokenizerFactory",
+    "DPOTrainer",
+    "DPOTrainerConfig",
+    "SFTTrainer",
+    "Trainer",
+]
+
+_import_map = {
+    "logger": "arctic_training.logging",
+    "register": "arctic_training.registry",
+
+    "Callback": "arctic_training.callback.callback",
+    "DSCheckpointEngine": "arctic_training.checkpoint.ds_engine",
+    "CheckpointEngine": "arctic_training.checkpoint.engine",
+    "HFCheckpointEngine": "arctic_training.checkpoint.hf_engine",
+
+    "CheckpointConfig": "arctic_training.config.checkpoint",
+    "DataConfig": "arctic_training.config.data",
+    "LoggerConfig": "arctic_training.config.logger",
+    "ModelConfig": "arctic_training.config.model",
+    "OptimizerConfig": "arctic_training.config.optimizer",
+    "SchedulerConfig": "arctic_training.config.scheduler",
+    "TokenizerConfig": "arctic_training.config.tokenizer",
+    "TrainerConfig": "arctic_training.config.trainer",
+    "get_config": "arctic_training.config.trainer",
+
+    "DataFactory": "arctic_training.data.factory",
+    "DPODataFactory": "arctic_training.data.dpo_factory",
+
+    "DataSource": "arctic_training.data.source",
+    "HFDataSource": "arctic_training.data.hf_source",
+    "SFTDataFactory": "arctic_training.data.sft_factory",
+
+    "ModelFactory": "arctic_training.model.factory",
+    "HFModelFactory": "arctic_training.model.hf_factory",
+    "LigerModelFactory": "arctic_training.model.liger_factory",
+
+    "OptimizerFactory": "arctic_trainng.optimizer.factory",
+    "FusedAdamOptimizerFactory": "arctic_training.optimizer.adam_factory",
+
+    "SchedulerFactory": "arctic_training.scheduler.factory",
+    "HFSchedulerFactory": "arctic_training.scheduler.hf_factory",
+
+    "TokenizerFactory": "arctic_training.tokenizer.factory",
+    "HFTokenizerFactory": "arctic_training.tokenizer.hf_factory",
+
+    "Trainer": "arctic_training.trainer.trainer",
+    "DPOTrainer": "arctic_training.trainer.dpo_trainer",
+    "DPOTrainerConfig": "arctic_training.trainer.dpo_trainer",
+    "SFTTrainer": "arctic_training.trainer.sft_trainer",
+}
+
+_lazy_cache: dict[str, t.Any] = {}
+
+def __getattr__(name: str) -> t.Any:
+    if name in _lazy_cache:
+        return _lazy_cache[name]
+    if name in _import_map:
+        module = importlib.import_module(_import_map[name])
+        attr = getattr(module, name)
+        _lazy_cache[name] = attr
+        return attr
+    raise AttributeError(f"module {__name__} has no attribute {name!r}")
+
+def __dir__() -> list[str]:
+    return sorted(list(globals().keys()) + list(_import_map.keys()))

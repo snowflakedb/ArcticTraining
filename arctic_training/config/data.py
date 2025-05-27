@@ -114,6 +114,11 @@ class DataConfig(BaseConfig):
             )
         return v
 
+    @field_validator("cache_dir", mode="after")
+    @classmethod
+    def resolve_cache_dir(cls, v: Path) -> Path:
+        return v.resolve()
+
     @field_validator("sources", "eval_sources", mode="before")
     def init_source_configs(
         cls,

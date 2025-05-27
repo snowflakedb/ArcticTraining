@@ -26,9 +26,7 @@ from typing import Literal
 from typing import Union
 from typing import cast
 
-import deepspeed
 import yaml
-from deepspeed.accelerator import get_accelerator
 from pydantic import Field
 from pydantic import ValidationInfo
 from pydantic import field_validator
@@ -149,6 +147,8 @@ class TrainerConfig(BaseConfig):
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
+        import deepspeed
+        from deepspeed.accelerator import get_accelerator
         get_accelerator().set_device(self.local_rank)
         deepspeed.init_distributed()
         return self
