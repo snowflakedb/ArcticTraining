@@ -61,7 +61,7 @@ Here is an example, you should replace with your path
    ```
    ```sh
    # Prepare input-output sequences, example here
-   ./process_dataset.sh \
+   bash data_preprocessing/process_dataset.sh \
     -i /BIRD_DIR/dev_20240627/dev.json \
     -o /BIRD_DIR/dev_bird.json \
     -d /BIRD_DIR/dev_20240627/dev_databases/ \
@@ -80,13 +80,12 @@ You can easily reproduce our evaluation results as follows:
    conda create -n arctic_eval python=3.9.5
    conda activate arctic_eval
    pip3 install vllm==0.6.3.post1 func_timeout tqdm matplotlib nltk==3.8.1 sqlparse
-   python3 nltk_downloader.py
    ```
 
 2. **Run Evaluation:**
 Here is an example of evaluation a model, please replace the input paraments
    ```bash
-   python3 eval_open_source_models.py \
+   python3 bird_eval/eval_open_source_models.py \
    --models Snowflake/Arctic-Text2SQL-R1-7B \
    --input_file /BIRD_DIR/dev_bird.json \
    --parallel-generation \
