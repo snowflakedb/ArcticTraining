@@ -27,7 +27,6 @@ This repository provides a complete demo setup for evaluating **Arctic-Text2SQL-
    apt-get install -y openjdk-11-jdk
 
    pip3 install func_timeout ijson pyserini==0.22.1 faiss-cpu torch==2.1.0 numpy==1.24.3 nltk==3.8.1
-   python3 nltk_downloader.py
    ```
 
 2. **Download Datasets:**
@@ -43,7 +42,7 @@ Download the following datasets and extract them into a single directory. For th
 Here is an example, you should replace with your path
    ```sh
    # Build BM25 index for database values
-   python3 build_contents_index.py \
+   python3 data_preprocessing/build_contents_index.py \
    --db-root /BIRD_DIR/dev_20240627/dev_databases \
    --index-root /BIRD_DIR/dev_20240627/db_contents_index \
    --temp-dir /CREATE_TEMP_DIR \
