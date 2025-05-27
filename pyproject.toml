@@ -102,6 +102,6 @@ cortex = [
 ]
 
 [project.scripts]
-arctic_training = "arctic_training.cli:main"
-arctic_training_run = "arctic_training.cli:run_script"
+arctic_training = "cli:main"
+arctic_training_run = "arctic_training.entrypoint:launch"
 arctic_synth = "arctic_training.synth:main"
