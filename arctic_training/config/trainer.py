@@ -149,6 +149,7 @@ class TrainerConfig(BaseConfig):
     def init_dist(self) -> Self:
         import deepspeed
         from deepspeed.accelerator import get_accelerator
+
         get_accelerator().set_device(self.local_rank)
         deepspeed.init_distributed()
         return self
