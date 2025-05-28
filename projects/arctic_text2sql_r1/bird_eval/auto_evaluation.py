@@ -95,6 +95,7 @@ def main():
         ### Greedy Search ###
         gs_json = os.path.join(results_dir, f"greedy_search_{ckpt_id or 'base'}.json")
         if not os.path.exists(gs_json):
+            gs_temp = 0.0 if opt.n > 1 else opt.temperature
             cmd = (
                 f"CUDA_VISIBLE_DEVICES={opt.visible_devices} "
                 f"python3 bird_eval/infer.py {extra_flag} "
@@ -103,7 +104,7 @@ def main():
                 f"--output_file {gs_json} "
                 f"--tensor_parallel_size {opt.tensor_parallel_size} "
                 "--n 1 "
-                f"--temperature {opt.temperature}"
+                f"--temperature {gs_temp}"
             )
             start = time.time()
             os.system(cmd)
@@ -113,7 +114,7 @@ def main():
 
         # Evaluate greedy
         gs_acc, _ = evaluate_bird.run_eval(
-            opt.gold_file, gs_json, opt.db_path, eval_mode="greedy_search", warm_up=False
+            opt.gold_file, gs_json, opt.db_path, mode="greedy_search", save_pred_sqls=True
         )
         greedy_acc[ckpt_id] = gs_acc
 
@@ -142,7 +143,7 @@ def main():
                 print(f"[{ckpt_id or 'base'}] Skipping major voting (exists)")
 
             mv_acc, _ = evaluate_bird.run_eval(
-                opt.gold_file, mv_json, opt.db_path, eval_mode="major_voting", warm_up=False
+                opt.gold_file, mv_json, opt.db_path, mode="major_voting", save_pred_sqls=True
             )
             major_acc[ckpt_id] = mv_acc
 
