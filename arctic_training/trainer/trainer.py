@@ -161,7 +161,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.tokenizer = tokenizer_factory()
 
         data_factory = self.config.data.factory(self)
-        self.train_dataloader, self.eval_dataloader_map = data_factory()
+        self.train_dataloader, self.eval_dataloader = data_factory()
         if mode == "process-data":
             return
 
@@ -239,6 +239,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         return tqdm(
             self.train_dataloader,
             desc="Train Batches",
+            unit="batch",
+            disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
+        )
+
+    @property
+    def eval_batches(self) -> tqdm:
+        """Evaluation data iterator."""
+        return tqdm(
+            self.eval_dataloader,
+            desc="Eval Batches",
             unit="batch",
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
@@ -342,6 +352,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         step=self.model.global_steps,
                     )
 
+            if self.config.eval_frequency > 0 and self.train_batch_idx % self.config.eval_frequency == 0:
+                self.evaluate()
+
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
 
@@ -375,6 +388,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
+
+    @callback_wrapper("evaluate")
+    def evaluate(self) -> None:
+        """
+        Evaluation loop. Measures the model's performance on the evaluation dataset.
+        """
+        self.model.eval()
+        for eval_batch in self.eval_batches:
+            with torch.no_grad():
+                loss = self.loss(eval_batch)
+        self.model.train()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
