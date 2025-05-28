@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository provides a complete demo setup for evaluating **Arctic-Text2SQL-R1**.
+This repository provides a complete demo setup for evaluating **Arctic-Text2SQL-R1** for our [paper](https://arxiv.org/abs/2505.20315).
 
 🚀 Try our released models on Hugging Face:
 - [🤗 Arctic-SQL-R1-7B](https://huggingface.co/Snowflake/Arctic-Text2SQL-R1-7B)
