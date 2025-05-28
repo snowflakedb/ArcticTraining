@@ -97,7 +97,6 @@ Here is an example of evaluation a model, please replace the input paraments
    python3 bird_eval/eval_open_source_models.py \
    --models Snowflake/Arctic-Text2SQL-R1-7B \
    --input_file /BIRD_DIR/dev_bird.json \
-   --parallel-generation \
    --gold_file_path /BIRD_DIR/dev_20240627/dev.json \
    --dp_path /BIRD_DIR/dev_20240627/dev_databases \
    --self_consistency
