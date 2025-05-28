@@ -1,108 +1,157 @@
-import os
-import json
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
+import json
+import os
+import time
+
 import evaluate_bird
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import time
 
-def visualize(eval_name, acc_dict, ylabel, file_path):
+
+def visualize(eval_name, acc_dict, mode, out_dir):
+    """
+    mode: 'greedy_search' or 'major_voting'
+    """
     plt.figure(figsize=(10, 6))
-
-    ckpt_ids = list(range(len(acc_dict)))
-    values = list(acc_dict.values())
-
-    if isinstance(values[0], list): # Spider has two metrics: EX acc and TS acc
-        num_lines = len(values[0])
-        labels = ["EX", "TS"]
-        assert num_lines == len(labels)
-        for i in range(num_lines):
-            line_values = [v[i] for v in values]
-            plt.plot(ckpt_ids, line_values, marker='o', linestyle='-', label=labels[i])
-    else:
-        plt.plot(ckpt_ids, values, marker='o', linestyle='-', label="EX")
-
-    plt.title(eval_name)
-    plt.xlabel('ckpt-id')
-    plt.ylabel(ylabel)
+    x = list(range(len(acc_dict)))
+    y = list(acc_dict.values())
+    plt.plot(x, y, marker="o", linestyle="-", label=mode.replace("_", " ").title())
+    plt.title(f"{eval_name} — {mode.replace('_', ' ').title()} Accuracy")
+    plt.xlabel("checkpoint index")
+    plt.ylabel("accuracy")
     plt.grid(True)
     plt.legend()
-
-    plt.savefig(file_path)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, f"{mode}.png"))
     plt.close()
 
-def save_evaluation_results(file_path, acc_dict):
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(acc_dict, indent=2, ensure_ascii=False))
+
+def save_json(d, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model_dir", type=str, default="./ckpts", help="Either local folder of checkpoints or a HF model ID"
+    )
+    parser.add_argument(
+        "--multiple_models", action="store_true", help="If set, look for subfolders in `model_dir` named `ckpt-<idx>`"
+    )
+    parser.add_argument(
+        "--eval_name", type=str, required=True, help="A short name for this evaluation (used in output paths)"
+    )
+    parser.add_argument("--input_file", type=str, required=True, help="Path to JSON input prompts")
+    parser.add_argument("--gold_file", type=str, required=True, help="Path to gold SQL file")
+    parser.add_argument("--db_path", type=str, required=True, help="Path to directory of SQLite DBs")
+    parser.add_argument("--visible_devices", type=str, default="0,1", help="CUDA_VISIBLE_DEVICES for generation")
+    parser.add_argument("--tensor_parallel_size", type=int, default=1)
+    parser.add_argument("--n", type=int, default=1, help="Number of samples per prompt (1=greedy, >1=major_voting)")
+    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--parallel_generation", action="store_true", help="Pass --parallel_generation to infer.py")
+    opt = parser.parse_args()
+
+    # Build list of checkpoint IDs
+    if opt.multiple_models:
+        # Expect dirs like ckpt-0, ckpt-1, etc.
+        ckpts = sorted(os.listdir(opt.model_dir), key=lambda x: int(x.split("-")[-1]))
+    else:
+        ckpts = [""]  # single run, empty string
+
+    # Prepare output dirs
+    results_dir = os.path.join("results", opt.eval_name)
+    eval_dir = os.path.join("evaluation_results", opt.eval_name)
+    os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
+
+    extra_flag = "--parallel_generation" if opt.parallel_generation else ""
+
+    greedy_acc = {}
+    major_acc = {}
+
+    for idx, ckpt_id in enumerate(tqdm(ckpts, desc="Checkpoints")):
+        # 1) Resolve model path/ID
+        if ckpt_id:
+            model_path = os.path.join(opt.model_dir, ckpt_id)
+        else:
+            model_path = opt.model_dir
+
+        ### Greedy Search ###
+        gs_json = os.path.join(results_dir, f"greedy_search_{ckpt_id or 'base'}.json")
+        if not os.path.exists(gs_json):
+            cmd = (
+                f"CUDA_VISIBLE_DEVICES={opt.visible_devices} "
+                f"python3 bird_eval/infer.py {extra_flag} "
+                f"--pretrained_model_name_or_path {model_path} "
+                f"--input_file {opt.input_file} "
+                f"--output_file {gs_json} "
+                f"--tensor_parallel_size {opt.tensor_parallel_size} "
+                "--n 1 "
+                f"--temperature {opt.temperature}"
+            )
+            start = time.time()
+            os.system(cmd)
+            print(f"[{ckpt_id or 'base'}] Greedy gen took {time.time()-start:.1f}s")
+        else:
+            print(f"[{ckpt_id or 'base'}] Skipping greedy (exists)")
+
+        # Evaluate greedy
+        gs_acc, _ = evaluate_bird.run_eval(
+            opt.gold_file, gs_json, opt.db_path, eval_mode="greedy_search", warm_up=False
+        )
+        greedy_acc[ckpt_id] = gs_acc
+
+        # Save & plot
+        save_json(greedy_acc, os.path.join(eval_dir, "greedy_search.json"))
+        visualize(opt.eval_name, greedy_acc, "greedy_search", eval_dir)
+
+        ### Major Voting (only if n>1) ###
+        if opt.n > 1:
+            mv_json = os.path.join(results_dir, f"major_voting_{ckpt_id or 'base'}.json")
+            if not os.path.exists(mv_json):
+                cmd = (
+                    f"CUDA_VISIBLE_DEVICES={opt.visible_devices} "
+                    f"python3 bird_eval/infer.py {extra_flag} "
+                    f"--pretrained_model_name_or_path {model_path} "
+                    f"--input_file {opt.input_file} "
+                    f"--output_file {mv_json} "
+                    f"--tensor_parallel_size {opt.tensor_parallel_size} "
+                    f"--n {opt.n} "
+                    f"--temperature {opt.temperature}"
+                )
+                start = time.time()
+                os.system(cmd)
+                print(f"[{ckpt_id or 'base'}] Major Voting gen took {time.time()-start:.1f}s")
+            else:
+                print(f"[{ckpt_id or 'base'}] Skipping major voting (exists)")
+
+            mv_acc, _ = evaluate_bird.run_eval(
+                opt.gold_file, mv_json, opt.db_path, eval_mode="major_voting", warm_up=False
+            )
+            major_acc[ckpt_id] = mv_acc
+
+            # Save & plot
+            save_json(major_acc, os.path.join(eval_dir, "major_voting.json"))
+            visualize(opt.eval_name, major_acc, "major_voting", eval_dir)
+
+    print("✅ Done.")
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output_ckpt_dir", type = str, default = "./ckpts")
-    parser.add_argument('--multiple_models', action='store_true', help='Evaluate multiple models from a folder.')
-    parser.add_argument('--parallel_generation', action='store_true', help='Using ray + vllm to speed up generation.')
-    parser.add_argument("--source", type = str, default = "bird")
-
-    parser.add_argument("--visible_devices", type = str, default = "0,1")
-    parser.add_argument("--input_file", type = str, help = "input file path (prompts)")
-    parser.add_argument("--eval_name", type = str, help = "name of the evaluation set")
-    parser.add_argument("--tensor_parallel_size", type = int, help = "the number of used GPUs", default = 1)
-    parser.add_argument("--n", type = int, help = "sampling number", default = 16)
-
-    parser.add_argument("--gold_file", type = str, help = "gold sql path")
-    parser.add_argument("--db_path", type = str, help = "database path")
-
-    opt = parser.parse_args()
-    print(opt)
-
-    assert opt.source in [ "bird"]
-
-    if opt.multiple_models:
-        ckpt_ids = os.listdir(opt.output_ckpt_dir)
-        ckpt_ids = sorted(ckpt_ids, key=lambda x: int(x.split("-")[1]))
-        print(ckpt_ids)
-    else:
-        ckpt_ids = [""]
-
-    greedy_search_acc_dict = dict()
-    pass_at_k_acc_dict = dict()
-    major_voting_acc_dict = dict()
-
-    os.makedirs(os.path.join("results", opt.eval_name), exist_ok=True)
-    os.makedirs(os.path.join("evaluation_results", opt.eval_name), exist_ok=True)
-
-    extra_param = ""
-    if opt.parallel_generation:
-        extra_param = "--parallel_generation"
-
-    for ckpt_id in tqdm(ckpt_ids):
-        print("Evaluating ckpt:", ckpt_id)
-
-        if ckpt_id not in greedy_search_acc_dict.keys():
-            # greedy decoding
-
-            gs_pred_file = f"results/{opt.eval_name}/greedy_search_{ckpt_id}.json"
-            greedy_search_cmd = f"CUDA_VISIBLE_DEVICES={opt.visible_devices} python3 infer.py {extra_param} \
-                --pretrained_model_name_or_path {os.path.join(opt.output_ckpt_dir, ckpt_id)} \
-                --input_file {opt.input_file} \
-                --output_file {gs_pred_file} \
-                --tensor_parallel_size {opt.tensor_parallel_size} \
-                --n 1 \
-                --temperature 0.0"
-            start_time = time.time()
-            os.system(greedy_search_cmd)
-            print(f"Greedy generation time: {time.time() - start_time:.2f}s")
-
-            if opt.source == "bird":
-                # warm up
-                evaluate_bird.run_eval(opt.gold_file, gs_pred_file, opt.db_path, "greedy_search", True)
-                # record evaluation results
-                gs_acc, _ = evaluate_bird.run_eval(opt.gold_file, gs_pred_file, opt.db_path, "greedy_search", True)
-
-            greedy_search_acc_dict[ckpt_id] = gs_acc
-            print(opt.eval_name)
-            print(greedy_search_acc_dict)
-            visualize(opt.eval_name, greedy_search_acc_dict, "greedy_search",
-                os.path.join("evaluation_results", opt.eval_name, "greedy_search.png"))
-            save_evaluation_results(os.path.join("evaluation_results", opt.eval_name, "greedy_search.json"), greedy_search_acc_dict)
-        else:
-            print(f"skip {ckpt_id} greedy search")
+    main()

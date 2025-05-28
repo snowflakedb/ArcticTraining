@@ -1,11 +1,16 @@
 # Arctic-R1 Project: Evaluation
 
+<p align="center">
+  <img src="assets/leaderboard_plot_average_styled.png" alt="Six-Benchmark Avg Execution Accuracy vs Model Size" width="800"/>
+</p>
+
 ## Overview
 
 This repository provides a complete demo setup for evaluating **Arctic-Text2SQL-R1**.
 
 🚀 Try our released models on Hugging Face:
 - [🤗 Arctic-SQL-R1-7B](https://huggingface.co/Snowflake/Arctic-Text2SQL-R1-7B)
+
 
 
 ### What's Inside
@@ -26,12 +31,13 @@ This repository provides a complete demo setup for evaluating **Arctic-Text2SQL-
    apt-get update
    apt-get install -y openjdk-11-jdk
 
-   pip3 install func_timeout ijson pyserini==0.22.1 faiss-cpu torch==2.1.0 numpy==1.24.3 nltk==3.8.1
+   pip3 install func_timeout ijson tqdm pyserini pyserini==0.22.1 faiss-cpu torch numpy==1.24.3 nltk==3.8.1
+   python3 nltk_downloader.py
    ```
 
 2. **Download Datasets:**
 
-Download the following datasets and extract them into a single directory. For the purposes of this tutorial we will assume they are all extracted into `/data/`. If your path differs please adjust the config files under [data_generation/configs/bird_config.yaml](data_generation/configs/bird_config.yaml) and [data_generation/configs/spider_config.yaml](data_generation/configs/spider_config.yaml).
+Download the following datasets and extract them into a single directory. For the purposes of this tutorial we will assume they are all extracted into `/data/`.
 
 - **BIRD Benchmark**
   - [Dev Set](https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip)
@@ -40,6 +46,7 @@ Download the following datasets and extract them into a single directory. For th
 3. **Generate Evaluation Input Data**
 
 Here is an example, you should replace with your path
+
    ```sh
    # Build BM25 index for database values
    python3 data_preprocessing/build_contents_index.py \
@@ -48,6 +55,7 @@ Here is an example, you should replace with your path
    --temp-dir /CREATE_TEMP_DIR \
    --threads 16
    ```
+
    generate input file
    ```
     -i INPUT_JSON       path to input_data_file \
@@ -72,6 +80,7 @@ Here is an example, you should replace with your path
     -c /BIRD_DIR/dev_20240627/db_contents_index
    ```
 
+
 ### Evaluation Reproduction
 You can easily reproduce our evaluation results as follows:
 
@@ -79,7 +88,7 @@ You can easily reproduce our evaluation results as follows:
    ```sh
    conda create -n arctic_eval python=3.9.5
    conda activate arctic_eval
-   pip3 install vllm==0.6.3.post1 func_timeout tqdm matplotlib nltk==3.8.1 sqlparse
+   pip3 install vllm func_timeout tqdm matplotlib nltk==3.8.1 sqlparse pandas
    ```
 
 2. **Run Evaluation:**
@@ -90,7 +99,8 @@ Here is an example of evaluation a model, please replace the input paraments
    --input_file /BIRD_DIR/dev_bird.json \
    --parallel-generation \
    --gold_file_path /BIRD_DIR/dev_20240627/dev.json \
-   --dp_path /BIRD_DIR/dev_20240627/dev_databases
+   --dp_path /BIRD_DIR/dev_20240627/dev_databases \
+   --self_consistency
    ```
 
 
