@@ -142,6 +142,7 @@ class TrainerConfig(BaseConfig):
     """ Maximum number of training iterations. """
 
     eval_frequency: int = Field(default=0, ge=0)
+    """ Number of iterations between evaluations. If 0, no evaluation is performed. """
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
@@ -319,6 +320,10 @@ class TrainerConfig(BaseConfig):
     def validate_eval_frequency(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
             assert self.eval_frequency > 0, "eval_frequency must be set if eval dataset is provided."
+        if self.eval_frequency > 0:
+            assert (
+                self.data.eval_sources or self.data.train_eval_split[1] > 0.0
+            ), "eval_frequency must be set only if eval dataset is provided."
         return self
 
     @model_validator(mode="after")
