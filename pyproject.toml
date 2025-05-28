@@ -2,6 +2,11 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+include = [
+  "arctic_training_cli.py",
+]
+
 [project.urls]
 Homepage = "https://github.com/snowflakedb/ArcticTraining"
 Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
@@ -102,6 +107,6 @@ cortex = [
 ]
 
 [project.scripts]
-arctic_training = "cli:main"
+arctic_training = "arctic_training_cli:main"
 arctic_training_run = "arctic_training.entrypoint:launch"
 arctic_synth = "arctic_training.synth:main"
