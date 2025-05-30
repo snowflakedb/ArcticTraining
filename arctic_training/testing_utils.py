@@ -200,30 +200,6 @@ def require_deepspeed(test_case):
         return test_case
 
 
-def is_bnb_available():
-    return importlib.util.find_spec("bitsandbytes") is not None
-
-
-def require_bnb(test_case):
-    """
-    Decorator marking a test that requires bitsandbytes
-    """
-    if not is_bnb_available():
-        return unittest.skip("test requires bitsandbytes from https://github.com/facebookresearch/bitsandbytes")(
-            test_case
-        )
-    else:
-        return test_case
-
-
-def require_bnb_non_decorator():
-    """
-    Non-Decorator function that would skip a test if bitsandbytes is missing
-    """
-    if not is_bnb_available():
-        raise SkipTest("Test requires bitsandbytes from https://github.com/facebookresearch/bitsandbytes")
-
-
 def set_seed(seed: int = 42):
     """
     Helper function for reproducible behavior to set the seed in ``random``, ``numpy``, ``torch``
@@ -274,32 +250,6 @@ def torch_assert_close(actual, expected, **kwargs):
     """
     # assert_close was added around pt-1.9, it does better checks - e.g. will check that dimensions dtype, device and layout match
     return torch.testing.assert_close(actual, expected, **kwargs)
-
-
-def is_torch_bf16_available():
-    # from https://github.com/huggingface/transformers/blob/26eb566e43148c80d0ea098c76c3d128c0281c16/src/transformers/file_utils.py#L301
-    if is_torch_available():
-        import torch
-
-        if not torch.cuda.is_available() or torch.version.cuda is None:
-            return False
-        if torch.cuda.get_device_properties(torch.cuda.current_device()).major < 8:
-            return False
-        if int(torch.version.cuda.split(".")[0]) < 11:
-            return False
-        if not version.parse(torch.__version__) >= version.parse("1.09"):
-            return False
-        return True
-    else:
-        return False
-
-
-def require_torch_bf16(test_case):
-    """Decorator marking a test that requires CUDA hardware supporting bf16 and PyTorch >= 1.9."""
-    if not is_torch_bf16_available():
-        return unittest.skip("test requires CUDA hardware supporting bf16 and PyTorch >= 1.9")(test_case)
-    else:
-        return test_case
 
 
 def get_tests_dir(append_path=None):
