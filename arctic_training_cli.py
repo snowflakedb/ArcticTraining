@@ -66,3 +66,7 @@ def main():
             str(args.config),
         ]
     )
+
+
+if __name__ == "__main__":
+    main()
