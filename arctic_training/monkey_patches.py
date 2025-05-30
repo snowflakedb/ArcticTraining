@@ -75,7 +75,8 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
                 # upstream could accept a list of arg indices to offload
                 if i == 0:
                     # print(f"{arg.shape=}")
-                    ctx.device = arg.device
+                    ctx.x_device = arg.device
+                    ctx.x_requires_grad = arg.requires_grad
                     # cpu_tensor = torch.empty_like(arg, pin_memory=False, device="cpu")
                     # cpu_tensor.copy_(arg, non_blocking=True)
 
@@ -120,7 +121,7 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
                 # t = tensors[i]
                 # t1 = t.to("cuda", non_blocking=True)
                 # t = t1
-                t = tensors[i].to(ctx.device).detach()
+                t = tensors[i].to(ctx.x_device).detach().requires_grad_(ctx.x_requires_grad)
             else:
                 t = tensors[i]
             inputs[idx] = t
