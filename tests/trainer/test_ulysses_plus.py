@@ -43,7 +43,7 @@ class TestTrainerWithLauncher(TestCasePlus):
         # later add support for pytest-xdist for unique ports
         master_port = get_unique_port_number()
 
-        output_dir = self.get_auto_remove_tmp_dir() # "./xxx", after=False)
+        output_dir = self.get_auto_remove_tmp_dir()  # "./xxx", after=False)
         save_path = output_dir / "saved"
 
         baseline_config = f"""
