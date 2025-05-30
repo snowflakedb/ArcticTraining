@@ -50,10 +50,8 @@ from pathlib import Path
 from typing import Iterator
 from typing import Union
 from unittest import mock
-from unittest.case import SkipTest
 
 import numpy as np
-from packaging import version
 
 try:
     import torch
