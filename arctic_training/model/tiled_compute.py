@@ -49,7 +49,6 @@ def tiled_mlp_forward_common(self, x):
         # print(f"derived {num_shards} for {seqlen=} and {hidden=} max'ed across ranks")
 
     compute_params = [self.down_proj.weight, self.gate_proj.weight, self.up_proj.weight]
-    seqlen = x.shape[1]
 
     def mlp_forward(self, x):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
@@ -58,7 +57,6 @@ def tiled_mlp_forward_common(self, x):
         mlp_forward,
         self,
         x,
-        seqlen,
         num_shards,
         compute_params,
     )
