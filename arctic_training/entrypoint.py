@@ -49,7 +49,6 @@ def launch():
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
-    exit()
     config = get_config(args.config)
     trainer_cls = get_registered_trainer(name=config.type)
     trainer = trainer_cls(config, mode=args.mode)
