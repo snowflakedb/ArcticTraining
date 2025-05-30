@@ -107,9 +107,12 @@ class TrainerConfig(BaseConfig):
     train_log_iter_interval: Literal[0, 1] = 1
     """ Iters between training metric log outputs. `0` is off, only intervals of `1` currently supported. """
 
-    train_log_metrics_path: Path = Field(
-        default_factory=lambda data: data["logger"].output_dir / "train-log-metrics.jsonl"
-    )
+    # XXX: fixme: the default output dir is broken
+    # train_log_metrics_path: Path = Field(
+    #     default_factory=lambda data: data["logger"].output_dir / "train-log-metrics.jsonl"
+    # )
+    train_log_metrics_path: Path = Path("train-log-metrics.jsonl")
+
     """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
 
     gradient_accumulation_steps: int = Field(default=1, ge=1)
