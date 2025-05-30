@@ -58,6 +58,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
+from arctic_training.utils import append_json_file
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -205,7 +206,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             enable_tiled_mlp_compute(self.config.model.name_or_path)
 
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
-        # print(self.config.deepspeed)
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
@@ -424,8 +424,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 if self.global_rank == 0 and self.gas_boundary:
 
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
-
-                    from arctic_training.utils import append_json_file
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 

@@ -71,19 +71,13 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
         for i, arg in enumerate(args):
             if torch.is_tensor(arg):
                 # cpu-offload
-                # we don't want the 2nd tensor - I think it's a shared 4D attn mask which is huge [seq,seq]
+                # we don't want the 2nd tensor - usually it's a shared 4D attn mask which is huge [seq,seq]
                 # upstream could accept a list of arg indices to offload
                 if i == 0:
                     # print(f"{arg.shape=}")
                     ctx.x_device = arg.device
                     ctx.x_requires_grad = arg.requires_grad
-                    # cpu_tensor = torch.empty_like(arg, pin_memory=False, device="cpu")
-                    # cpu_tensor.copy_(arg, non_blocking=True)
-
-                    # t = cpu_tensor
                     t = arg.detach().cpu()
-                    # x = arg
-                    # arg.data = torch.empty(0, dtype=arg.dtype, device=arg.device)
                 else:
                     t = arg
                 tensor_inputs.append(t)
@@ -96,8 +90,6 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
 
         with torch.no_grad():
             outputs = run_function(*args)
-
-        # x.data = torch.empty(0, dtype=x.dtype, device=x.device)
 
         return outputs
 
@@ -118,9 +110,6 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
         # Fill in inputs with appropriate saved tensors.
         for i, idx in enumerate(tensor_indices):
             if i == 0:
-                # t = tensors[i]
-                # t1 = t.to("cuda", non_blocking=True)
-                # t = t1
                 t = tensors[i].to(ctx.x_device).detach().requires_grad_(ctx.x_requires_grad)
             else:
                 t = tensors[i]
