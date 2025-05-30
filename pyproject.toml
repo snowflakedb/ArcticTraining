@@ -6,6 +6,11 @@ build-backend = "hatchling.build"
 # this is needed when we want to point to a github branch in `dependencies`
 allow-direct-references = true
 
+[tool.hatch.build]
+include = [
+  "arctic_training_cli.py",
+]
+
 [project.urls]
 Homepage = "https://github.com/snowflakedb/ArcticTraining"
 Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
@@ -107,6 +112,6 @@ cortex = [
 ]
 
 [project.scripts]
-arctic_training = "arctic_training.cli:main"
-arctic_training_run = "arctic_training.cli:run_script"
+arctic_training = "arctic_training_cli:main"
+arctic_training_run = "arctic_training.entrypoint:launch"
 arctic_synth = "arctic_training.synth:main"
