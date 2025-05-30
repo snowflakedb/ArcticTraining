@@ -392,6 +392,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         for batch in self.train_batches:
             self.train_batch_idx += 1
 
+            if (
+                self.config.gradient_accumulation_steps == 1
+                or self.train_batch_idx % self.config.gradient_accumulation_steps == 0
+            ):
+                self.gas_boundary = True
+            else:
+                self.gas_boundary = False
+
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
@@ -408,6 +416,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
+
             if (
                 self.config.train_log_iter_interval != 0
                 and self.train_batch_idx % self.config.train_log_iter_interval == 0
@@ -417,6 +426,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     self.global_rank == 0
                     and self.train_batch_idx > 1  # first iter is a massive outlier
                     and self.wandb_experiment is not None
+                    and self.gas_boundary
                 ):
                     self.wandb_experiment.log(
                         {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
