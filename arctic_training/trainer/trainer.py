@@ -421,16 +421,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 and self.train_batch_idx % self.config.train_log_iter_interval == 0
             ):
                 self.metrics.print_summary()
-                if (
-                    self.global_rank == 0
-                    and self.train_batch_idx > 1  # first iter is a massive outlier
-                    and self.wandb_experiment is not None
-                    and self.gas_boundary
-                ):
-                    self.wandb_experiment.log(
-                        {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
-                        step=self.model.global_steps,
-                    )
+                if self.global_rank == 0 and self.gas_boundary:
+
+                    metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+
+                    from arctic_training.utils import append_json_file
+
+                    append_json_file(self.config.train_log_metrics_path, metrics)
+
+                    # first iter is a massive outlier for many fields - so skip it in wandb
+                    if self.wandb_experiment is not None and self.train_batch_idx > 1:
+                        metrics.pop("iter")  # not needed for wandb
+                        self.wandb_experiment.log(metrics, step=self.model.global_steps)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True

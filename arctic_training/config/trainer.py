@@ -107,6 +107,11 @@ class TrainerConfig(BaseConfig):
     train_log_iter_interval: Literal[0, 1] = 1
     """ Iters between training metric log outputs. `0` is off, only intervals of `1` currently supported. """
 
+    train_log_metrics_path: Path = Field(
+        default_factory=lambda data: data["logger"].output_dir / "train-log-metrics.jsonl"
+    )
+    """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
+
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """
 
@@ -379,6 +384,13 @@ class TrainerConfig(BaseConfig):
     def validate_single_checkpoint_resume(self) -> Self:
         resume_checkpoint_values = [c.auto_resume for c in self.checkpoint]
         assert sum(resume_checkpoint_values) <= 1, "Only one checkpoint can auto resume."
+        return self
+
+    @model_validator(mode="after")
+    def train_log_metrics_path_prep(self) -> Self:
+        if self.local_rank == 0:
+            self.train_log_metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            self.train_log_metrics_path.open(mode="a")
         return self
 
     @model_validator(mode="after")
