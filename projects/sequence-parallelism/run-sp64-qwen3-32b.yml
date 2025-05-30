@@ -20,7 +20,6 @@ optimizer:
 model:
   type: "liger"
   name_or_path: Qwen/Qwen3-32B
-  #name_or_path: Qwen/Qwen3-4B
 
   attn_implementation: flash_attention_2
   #attn_implementation: sdpa
@@ -30,23 +29,9 @@ data:
     - HuggingFaceH4/ultrachat_200k
   #  - HuggingFaceH4/ultrachat_200k:train[:5000]
   cache_dir: data-cache
-  # num_proc: 1
   dl_num_workers: 1
 
-#  max_length: 32000 #
   max_length: 15_000_000 # NV 71.00 GB
-#  max_length: 16_000_000 # loss=nan, NV 74.79 GB
-
-
-# mem_profiler: e2e
-# mem_profiler_max_entries: 1_000_000_000
-# mem_profiler_dir: mem-prof-4n-70b
-
-wandb:
-#  enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp32-llama-70b"
 
 
 logger:

@@ -33,16 +33,8 @@ data:
 
   dl_num_workers: 1
 
-#  max_length: 32_000 # NV 71.62 GB w/o liger
   max_length: 36_000 # ok
-#  max_length: 40_000 # almost oom
-#  max_length: 160_000 # ok w/ liger
 
-wandb:
-#  enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp32-llama-8b"
 
 logger:
   level: WARNING

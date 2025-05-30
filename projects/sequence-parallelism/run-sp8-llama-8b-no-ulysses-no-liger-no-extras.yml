@@ -10,8 +10,7 @@ deepspeed:
     stage: 3
     offload_optimizer:
       device: cpu
-    # offload_param:
-    #   device: cpu
+
 
   seq_parallel_communication_data_type: bf16
 
@@ -35,22 +34,6 @@ data:
   dl_num_workers: 1
 
   max_length: 32_000
-#  max_length: 555000
-#  max_length: 500_000 #
-#  max_length: 1_100_000 #
-#  max_length: 1_200_000 #
-#  max_length: 2_000_000 # ok
-#  max_length: 2_300_000 # ok
-#  max_length: 2_400_000 #
-
-#  max_length: 2_500_000 # close to oom
-#  max_length: 3_000_000 # oom
-
-wandb:
-#  enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp8-liger-352k"
 
 logger:
   level: WARNING

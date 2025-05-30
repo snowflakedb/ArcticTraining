@@ -32,22 +32,7 @@ data:
 
   dl_num_workers: 1
 
-#  max_length: 1_000_000 # ok 37
   max_length: 1_200_000
-#  max_length: 1_500_000 # cpu oom NV 44.04 GB
-#  max_length: 1_6000_000 # gpu oom
-#  max_length: 2_000_000 # cpu oom NV 50.65 GB
-#  max_length: 3_000_000 # cpu oom
-
-wandb:
-#  enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp32-llama-8b"
-
-# mem_profiler: e2e
-# mem_profiler_max_entries: 1_000_000_000
-# mem_profiler_dir: mem-prof-4n-8b
 
 logger:
   level: WARNING

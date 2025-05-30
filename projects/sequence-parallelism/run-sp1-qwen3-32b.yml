@@ -23,19 +23,13 @@ optimizer:
 model:
   type: "liger"
   name_or_path: Qwen/Qwen3-32B
-  #name_or_path: Qwen/Qwen3-4B
 
-  #attn_implementation: eager
   attn_implementation: flash_attention_2
   #attn_implementation: sdpa
 
   # dtype: float32
   dtype: bf16
 
-
-
-#scheduler:
-#  name: constant
 
 data:
   sources:
@@ -45,43 +39,7 @@ data:
 
   dl_num_workers: 1
 
-#  max_length: 256
-#  max_length: 512
-#  max_length: 1024
-#  max_length: 2048
-#  max_length: 8192 # ok
-#  max_length: 17000
-#  max_length: 33000
-#  max_length: 66000 #
-#  max_length: 99000
-#  max_length: 120000
-#  max_length: 131072
-#  max_length: 150000
-#  max_length: 160000 #
-#  max_length: 180000#
-#  max_length: 200000 #  NV 56.13 GB
   max_length: 230000 # ok
-#  max_length: 260000 # loss = nan  NV 68.93 GB
-#  max_length: 300000 # fits, but loss=nan
-#  max_length: 340000
-#  max_length: 380000
-#  max_length: 400000 oom
-#  max_length: 450000
-#  max_length: 500000 #
-#  max_length: 555000 #
-#  max_length: 600000
-#  max_length: 700000
-
-
-# mem_profiler: e2e
-# mem_profiler_max_entries: 1_000_000_000
-# mem_profiler_dir: mem-prof
-
-wandb:
-# enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp1-chunked-loss-300k"
 
 logger:
   level: WARNING

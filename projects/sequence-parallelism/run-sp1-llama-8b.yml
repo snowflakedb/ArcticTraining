@@ -46,7 +46,7 @@ logger:
   print_output_ranks: [0,1,2,3,4,5,6,7]
 
 
-# checkpoint:
-#   - type: huggingface
-#     save_end_of_training: true
-#     output_dir: ./fine-tuned-model
+checkpoint:
+  - type: huggingface
+    save_end_of_training: true
+    output_dir: ./fine-tuned-model

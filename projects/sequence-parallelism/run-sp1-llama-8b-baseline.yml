@@ -43,3 +43,8 @@ logger:
   output_dir: "logs"
   #file_output_ranks: [0,1]
   print_output_ranks: [0,1,2,3,4,5,6,7]
+
+checkpoint:
+  - type: huggingface
+    save_end_of_training: true
+    output_dir: ./fine-tuned-model

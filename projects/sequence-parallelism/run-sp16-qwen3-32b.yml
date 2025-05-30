@@ -20,7 +20,6 @@ optimizer:
 model:
   type: "liger"
   name_or_path: Qwen/Qwen3-32B
-  #name_or_path: Qwen/Qwen3-4B
 
   attn_implementation: flash_attention_2
   #attn_implementation: sdpa
@@ -33,32 +32,7 @@ data:
 
   dl_num_workers: 1
 
-#  max_length: 32000 #
-#  max_length: 750000 #
-#  max_length: 1_000_000 #
-#  max_length: 1_600_000
-#  max_length: 2_000_000
-#  max_length: 3_000_000 # 59
   max_length: 4_000_000 #
-#  max_length: 4_500_000 # break
-#  max_length: 5_000_000 #
-#  max_length: 5_100_000 #
-
-
-#  max_length: 8_000_000 # oom
-#  max_length: 9_000_000 #
-#  max_length: 10_000_000 #
-
-# mem_profiler: e2e
-# mem_profiler_max_entries: 1_000_000_000
-# mem_profiler_dir: mem-prof-4n-70b
-
-wandb:
-#  enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp32-llama-70b"
-
 
 logger:
   level: WARNING

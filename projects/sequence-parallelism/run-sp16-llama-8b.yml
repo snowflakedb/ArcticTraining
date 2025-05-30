@@ -34,16 +34,6 @@ data:
 
   max_length: 8_000_000 # close to oom
 
-wandb:
-#  enable: true
-  enable: false
-  project: "ulysses"
-  name: "dp1-sp32-llama-8b"
-
-# mem_profiler: e2e
-# mem_profiler_max_entries: 1_000_000_000
-# mem_profiler_dir: mem-prof-4n-8b
-
 logger:
   level: WARNING
 #  level: INFO
