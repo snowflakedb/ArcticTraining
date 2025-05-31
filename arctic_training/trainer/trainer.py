@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import math
 import random
 from abc import ABC
@@ -27,6 +28,8 @@ from typing import Tuple
 import deepspeed
 import numpy as np
 import torch
+import torch.cuda
+import torch.distributed.nn
 import wandb
 from deepspeed.accelerator import get_accelerator
 from devtools import debug
@@ -52,6 +55,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
+from arctic_training.utils import append_json_file
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -181,6 +185,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
+            args=self.config,
             lr_scheduler=self.scheduler,
             config=self.config.deepspeed,
         )
@@ -255,7 +260,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             raise ValueError("Train dataloader not initialized.")
         if self.config.train_iters:
             return self.config.train_iters
-        return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
+
+        # XXX: this was incorrect for GAS
+        return self.config.epochs * len(self.train_dataloader)  # // self.config.gradient_accumulation_steps
 
     @callback_wrapper("loss")
     @abstractmethod
@@ -280,10 +287,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
+
         self.model.train()
+
         loss = self.loss(batch)
-        self.metrics.record("loss", loss.item())
+
         self.backward(loss)
+
+        def maybe_item(v):
+            return v.item() if torch.is_tensor(v) else v
+
+        self.metrics.record("loss", maybe_item(loss))
+
         self.model.step()
 
         # use deepspeed global step as golden truth
@@ -307,12 +322,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.metrics.start_timer("iter")
 
-        # enable memory history, which will add tracebacks and event history to snapshots
+        # enable memory allocation history, which will add tracebacks and event history to memory snapshots
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         for batch in self.train_batches:
             self.train_batch_idx += 1
+
+            if (
+                self.config.gradient_accumulation_steps == 1
+                or self.train_batch_idx % self.config.gradient_accumulation_steps == 0
+            ):
+                self.gas_boundary = True
+            else:
+                self.gas_boundary = False
 
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
@@ -332,15 +355,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 and self.train_batch_idx % self.config.train_log_iter_interval == 0
             ):
                 self.metrics.print_summary()
-                if (
-                    self.global_rank == 0
-                    and self.train_batch_idx > 1  # first iter is a massive outlier
-                    and self.wandb_experiment is not None
-                ):
-                    self.wandb_experiment.log(
-                        {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
-                        step=self.model.global_steps,
-                    )
+                if self.global_rank == 0 and self.gas_boundary:
+
+                    metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+
+                    append_json_file(self.config.train_log_metrics_path, metrics)
+
+                    # first iter is a massive outlier for many fields - so skip it in wandb
+                    if self.wandb_experiment is not None and self.train_batch_idx > 1:
+                        metrics.pop("iter")  # not needed for wandb
+                        self.wandb_experiment.log(metrics, step=self.model.global_steps)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
