@@ -111,9 +111,9 @@ class TrainerConfig(BaseConfig):
     # train_log_metrics_path: Path = Field(
     #     default_factory=lambda data: data["logger"].output_dir / "train-log-metrics.jsonl"
     # )
+    # """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
     train_log_metrics_path: Path = Path("train-log-metrics.jsonl")
-
-    """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
+    """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `./train-log-metrics.jsonl` """
 
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """
