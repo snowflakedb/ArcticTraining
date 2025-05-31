@@ -1,0 +1,43 @@
+type: sft
+micro_batch_size: 1
+exit_iteration: 4
+min_iterations: 4
+activation_checkpoint_cpu_offload: true
+sequence_parallel_size: 8
+
+deepspeed:
+  zero_optimization:
+    stage: 3
+    offload_optimizer:
+      device: cpu
+
+  seq_parallel_communication_data_type: bf16
+
+optimizer:
+  type: cpu_adam
+  learning_rate: 0.00001
+
+model:
+  type: "liger"
+  name_or_path: meta-llama/Llama-3.1-8B-Instruct
+
+  attn_implementation: flash_attention_2
+  #attn_implementation: sdpa
+
+data:
+  sources:
+    - HuggingFaceH4/ultrachat_200k
+    #- HuggingFaceH4/ultrachat_200k:train[:10000]
+  cache_dir: data-cache
+
+  dl_num_workers: 1
+
+  max_length: 2_400_000 #
+
+logger:
+  level: WARNING
+#  level: INFO
+
+  output_dir: "logs"
+  #file_output_ranks: [0,1]
+  print_output_ranks: [0,1,2,3,4,5,6,7]
