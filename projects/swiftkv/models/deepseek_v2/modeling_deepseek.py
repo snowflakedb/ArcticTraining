@@ -44,7 +44,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss
 from torch.nn import CrossEntropyLoss
@@ -53,8 +52,6 @@ from transformers import GenerationMixin
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache
 from transformers.cache_utils import DynamicCache
-from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.modeling_attn_mask_utils import _prepare_4d_attention_mask
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_outputs import CausalLMOutputWithPast
