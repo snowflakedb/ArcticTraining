@@ -17,20 +17,20 @@ from transformers import AutoConfig
 from transformers import AutoModel
 from transformers import AutoModelForCausalLM
 
-from .config import Qwen2SwiftKVConfig
-from .model import Qwen2SwiftKVForCausalLM
-from .model import Qwen2SwiftKVModel
+from .configuration_llama_swiftkv import LlamaSwiftKVConfig
+from .modeling_llama_swiftkv import LlamaSwiftKVForCausalLM
+from .modeling_llama_swiftkv import LlamaSwiftKVModel
 
 
-def register_auto():
-    AutoConfig.register("qwen2_swiftkv", Qwen2SwiftKVConfig)
-    AutoModel.register(Qwen2SwiftKVConfig, Qwen2SwiftKVModel)
-    AutoModelForCausalLM.register(Qwen2SwiftKVConfig, Qwen2SwiftKVForCausalLM)
+def register_llama_swiftkv():
+    AutoConfig.register("llama_swiftkv", LlamaSwiftKVConfig)
+    AutoModel.register(LlamaSwiftKVConfig, LlamaSwiftKVModel)
+    AutoModelForCausalLM.register(LlamaSwiftKVConfig, LlamaSwiftKVForCausalLM)
 
 
 __all__ = [
-    "Qwen2SwiftKVConfig",
-    "Qwen2SwiftKVForCausalLM",
-    "Qwen2SwiftKVModel",
-    "register_auto",
+    "LlamaSwiftKVConfig",
+    "LlamaSwiftKVForCausalLM",
+    "LlamaSwiftKVModel",
+    "register_llama_swiftkv",
 ]
