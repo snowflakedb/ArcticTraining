@@ -36,7 +36,7 @@ from transformers.models.llama.modeling_llama import eager_attention_forward
 from transformers.processing_utils import Unpack
 from transformers.utils import logging
 
-from .config import LlamaSwiftKVConfig
+from .configuration_llama_swiftkv import LlamaSwiftKVConfig
 
 logger = logging.get_logger(__name__)
 

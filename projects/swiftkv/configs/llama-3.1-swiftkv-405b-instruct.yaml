@@ -17,13 +17,11 @@ data:
     - lmsys/lmsys-chat-1m
     - meta-math/MetaMathQA
     - ise-uiuc/Magicoder-OSS-Instruct-75K
-  use_data_cache: true
-  cache_processed_data: true
   cache_dir: /data/data-cache
   num_proc: 16
   max_length: 5120
 logger:
-  level: WARNING
+  level: INFO
   output_dir: "./"
   file_output_ranks: [0]
 scheduler:
