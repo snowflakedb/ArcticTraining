@@ -19,10 +19,10 @@ from transformers import AutoModelForCausalLM
 
 from .configuration_deepseek import DeepseekV2Config
 from .configuration_deepseek_swiftkv import DeepseekV2SwiftKVConfig
-from .modeling_deepseek import DeepseekV2Model
 from .modeling_deepseek import DeepseekV2ForCausalLM
-from .modeling_deepseek_swiftkv import DeepseekV2SwiftKVModel
+from .modeling_deepseek import DeepseekV2Model
 from .modeling_deepseek_swiftkv import DeepseekV2SwiftKVForCausalLM
+from .modeling_deepseek_swiftkv import DeepseekV2SwiftKVModel
 
 
 def register_deepseek_v2():

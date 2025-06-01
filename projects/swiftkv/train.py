@@ -81,15 +81,14 @@ class SwiftKVModelFactory(HFModelFactory):
 
         # Initialize the swiftkv norm to the norm of the first non-kv layer.
         layer = model.model.layers[model.config.num_key_value_layers]
-        with GatheredParameters(list(model.model.norm_swiftkv.parameters()) +
-                                list(layer.input_layernorm.parameters()), modifier_rank=0):
-            model.model.norm_swiftkv.weight.data.copy_(
-                layer.input_layernorm.weight.data
-            )
+        with GatheredParameters(
+            list(model.model.norm_swiftkv.parameters()) + list(layer.input_layernorm.parameters()), modifier_rank=0
+        ):
+            model.model.norm_swiftkv.weight.data.copy_(layer.input_layernorm.weight.data)
         model.model.norm_swiftkv.weight.requires_grad = True
 
         # Initialize all query parameters directly from the corresponding teacher layer.
-        for layer in model.model.layers[model.config.num_key_value_layers:]:
+        for layer in model.model.layers[model.config.num_key_value_layers :]:
             attn = layer.self_attn
             with GatheredParameters(attn.parameters(), modifier_rank=0):
                 for q_module in q_modules:
@@ -100,7 +99,7 @@ class SwiftKVModelFactory(HFModelFactory):
                         student_param.requires_grad = True
 
         # Initialize all kv parameters to the mean of the teacher layers in each kv group.
-        for idx, layer in enumerate(model.model.layers[model.config.num_key_value_layers:]):
+        for idx, layer in enumerate(model.model.layers[model.config.num_key_value_layers :]):
             attn = layer.self_attn
             if idx % model.config.key_value_group_size == 0:
                 # This layer has swiftkv parameters, zero them out.
@@ -117,8 +116,7 @@ class SwiftKVModelFactory(HFModelFactory):
                     teacher_params = getattr(attn, kv_module).parameters()
                     student_params = getattr(kv_attn, f"{kv_module}_swiftkv").parameters()
                     for teacher_param, student_param in zip(teacher_params, student_params):
-                        student_param.data.add_(
-                            teacher_param.data / model.config.key_value_group_size)
+                        student_param.data.add_(teacher_param.data / model.config.key_value_group_size)
 
         model.gradient_checkpointing_enable()
         return model

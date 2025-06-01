@@ -17,7 +17,6 @@ from lm_eval.__main__ import cli_evaluate
 
 from projects.swiftkv.models import register_all_swiftkv
 
-
 if __name__ == "__main__":
     register_all_swiftkv()
     cli_evaluate()

@@ -55,25 +55,17 @@ logger = logging.get_logger(__name__)
 class DeepseekV2SwiftKVAttention(DeepseekV2Attention):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(
-        self, config: DeepseekV2SwiftKVConfig, layer_idx: Optional[int] = None
-    ):
+    def __init__(self, config: DeepseekV2SwiftKVConfig, layer_idx: Optional[int] = None):
         super().__init__(config, layer_idx=layer_idx)
 
         swiftkv_layer_idx = layer_idx - config.num_key_value_layers
         if layer_idx >= config.num_key_value_layers:
             if self.q_lora_rank is None:
-                self.q_proj_swiftkv = nn.Linear(
-                    self.hidden_size, self.num_heads * self.q_head_dim, bias=False
-                )
+                self.q_proj_swiftkv = nn.Linear(self.hidden_size, self.num_heads * self.q_head_dim, bias=False)
             else:
-                self.q_a_proj_swiftkv = nn.Linear(
-                    self.hidden_size, config.q_lora_rank, bias=config.attention_bias
-                )
+                self.q_a_proj_swiftkv = nn.Linear(self.hidden_size, config.q_lora_rank, bias=config.attention_bias)
                 self.q_a_layernorm_swiftkv = DeepseekV2RMSNorm(config.q_lora_rank)
-                self.q_b_proj_swiftkv = nn.Linear(
-                    config.q_lora_rank, self.num_heads * self.q_head_dim, bias=False
-                )
+                self.q_b_proj_swiftkv = nn.Linear(config.q_lora_rank, self.num_heads * self.q_head_dim, bias=False)
             if swiftkv_layer_idx % config.key_value_group_size == 0:
                 self.kv_a_proj_with_mqa_swiftkv = nn.Linear(
                     self.hidden_size,
@@ -83,8 +75,7 @@ class DeepseekV2SwiftKVAttention(DeepseekV2Attention):
                 self.kv_a_layernorm_swiftkv = DeepseekV2RMSNorm(config.kv_lora_rank)
                 self.kv_b_proj_swiftkv = nn.Linear(
                     config.kv_lora_rank,
-                    self.num_heads
-                    * (self.q_head_dim - self.qk_rope_head_dim + self.v_head_dim),
+                    self.num_heads * (self.q_head_dim - self.qk_rope_head_dim + self.v_head_dim),
                     bias=False,
                 )
 
@@ -102,7 +93,8 @@ class DeepseekV2SwiftKVAttention(DeepseekV2Attention):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if "padding_mask" in kwargs:
             warnings.warn(
-                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use"
+                " `attention_mask` instead.`"
             )
         bsz, q_len, _ = hidden_states.size()
 
@@ -115,41 +107,31 @@ class DeepseekV2SwiftKVAttention(DeepseekV2Attention):
             if swiftkv_kv_states is None:
                 q = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
             else:
-                q = self.q_b_proj_swiftkv(
-                    self.q_a_layernorm_swiftkv(self.q_a_proj_swiftkv(hidden_states))
-                )
+                q = self.q_b_proj_swiftkv(self.q_a_layernorm_swiftkv(self.q_a_proj_swiftkv(hidden_states)))
         q = q.view(bsz, q_len, self.num_heads, self.q_head_dim).transpose(1, 2)
-        q_nope, q_pe = torch.split(
-            q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
-        )
+        q_nope, q_pe = torch.split(q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
 
         if swiftkv_kv_states is None:
             compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
-            compressed_kv, k_pe = torch.split(
-                compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1
-            )
+            compressed_kv, k_pe = torch.split(compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
             k_pe = k_pe.view(bsz, q_len, 1, self.qk_rope_head_dim).transpose(1, 2)
             kv = (
                 self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
-                .view(
-                    bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim
-                )
+                .view(bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim)
                 .transpose(1, 2)
             )
         else:
             k_pe = swiftkv_pe_states
             kv = swiftkv_kv_states
 
-        k_nope, value_states = torch.split(
-            kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
-        )
+        k_nope, value_states = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
         kv_seq_len = value_states.shape[-2]
         if past_key_value is not None:
             if self.layer_idx is None:
                 raise ValueError(
-                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
-                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
-                    "with a layer index."
+                    "The cache structure has changed since version v4.36. If you are using"
+                    f" {self.__class__.__name__} for auto-regressive decoding with k/v caching, please make sure to"
+                    " initialize the attention class with a layer index."
                 )
             kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
@@ -165,13 +147,9 @@ class DeepseekV2SwiftKVAttention(DeepseekV2Attention):
         key_states[:, :, :, self.qk_nope_head_dim :] = k_pe
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-            key_states, value_states = past_key_value.update(
-                key_states, value_states, self.layer_idx, cache_kwargs
-            )
+            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        attn_weights = (
-            torch.matmul(query_states, key_states.transpose(2, 3)) * self.softmax_scale
-        )
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * self.softmax_scale
 
         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
             raise ValueError(
@@ -187,12 +165,8 @@ class DeepseekV2SwiftKVAttention(DeepseekV2Attention):
             attn_weights = attn_weights + attention_mask
 
         # upcast attention to fp32
-        attn_weights = nn.functional.softmax(
-            attn_weights, dim=-1, dtype=torch.float32
-        ).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(
-            attn_weights, p=self.attention_dropout, training=self.training
-        )
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.v_head_dim):
@@ -243,7 +217,8 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
         # DeepseekV2FlashAttention2 attention does not support output_attentions
         if "padding_mask" in kwargs:
             warnings.warn(
-                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use"
+                " `attention_mask` instead.`"
             )
 
             # overwrite attention_mask with padding_mask
@@ -262,37 +237,27 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
             if swiftkv_kv_states is None:
                 q = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
             else:
-                q = self.q_b_proj_swiftkv(
-                    self.q_a_layernorm_swiftkv(self.q_a_proj_swiftkv(hidden_states))
-                )
+                q = self.q_b_proj_swiftkv(self.q_a_layernorm_swiftkv(self.q_a_proj_swiftkv(hidden_states)))
         q = q.view(bsz, q_len, self.num_heads, self.q_head_dim).transpose(1, 2)
-        q_nope, q_pe = torch.split(
-            q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
-        )
+        q_nope, q_pe = torch.split(q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
 
         # Flash attention requires the input to have the shape
         # batch_size x seq_length x head_dim x hidden_dim
         # therefore we just need to keep the original shape
         if swiftkv_kv_states is None:
             compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
-            compressed_kv, k_pe = torch.split(
-                compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1
-            )
+            compressed_kv, k_pe = torch.split(compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
             k_pe = k_pe.view(bsz, q_len, 1, self.qk_rope_head_dim).transpose(1, 2)
             kv = (
                 self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
-                .view(
-                    bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim
-                )
+                .view(bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim)
                 .transpose(1, 2)
             )
         else:
             k_pe = swiftkv_pe_states
             kv = swiftkv_kv_states
 
-        k_nope, value_states = torch.split(
-            kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
-        )
+        k_nope, value_states = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
         kv_seq_len = value_states.shape[-2]
 
         kv_seq_len = value_states.shape[-2]
@@ -315,9 +280,7 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
 
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-            key_states, value_states = past_key_value.update(
-                key_states, value_states, self.layer_idx, cache_kwargs
-            )
+            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
         # to be able to avoid many of these transpose/reshape/view.
@@ -341,15 +304,11 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
             elif torch.is_autocast_enabled():
                 target_dtype = torch.get_autocast_gpu_dtype()
             else:
-                target_dtype = (
-                    self.q_proj.weight.dtype
-                    if self.q_lora_rank is None
-                    else self.q_a_proj.weight.dtype
-                )
+                target_dtype = self.q_proj.weight.dtype if self.q_lora_rank is None else self.q_a_proj.weight.dtype
 
             logger.warning_once(
-                f"The input hidden states seems to be silently casted in float32, this might be related to"
-                f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
+                "The input hidden states seems to be silently casted in float32, this might be related to the fact"
+                " you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
                 f" {target_dtype}."
             )
 
@@ -369,9 +328,7 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
         if self.q_head_dim != self.v_head_dim:
             attn_output = attn_output[:, :, :, : self.v_head_dim]
 
-        attn_output = attn_output.reshape(
-            bsz, q_len, self.num_heads * self.v_head_dim
-        ).contiguous()
+        attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.v_head_dim).contiguous()
         attn_output = self.o_proj(attn_output)
 
         if not output_attentions:
@@ -424,9 +381,7 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
                 indices_q,
                 cu_seq_lens,
                 max_seq_lens,
-            ) = self._upad_input(
-                query_states, key_states, value_states, attention_mask, query_length
-            )
+            ) = self._upad_input(query_states, key_states, value_states, attention_mask, query_length)
 
             cu_seqlens_q, cu_seqlens_k = cu_seq_lens
             max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
@@ -444,9 +399,7 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
                 causal=causal,
             )
 
-            attn_output = pad_input(
-                attn_output_unpad, indices_q, batch_size, query_length
-            )
+            attn_output = pad_input(attn_output_unpad, indices_q, batch_size, query_length)
         else:
             attn_output = flash_attn_func(
                 query_states,
@@ -459,9 +412,7 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
 
         return attn_output
 
-    def _upad_input(
-        self, query_layer, key_layer, value_layer, attention_mask, query_length
-    ):
+    def _upad_input(self, query_layer, key_layer, value_layer, attention_mask, query_length):
         indices_k, cu_seqlens_k, max_seqlen_in_batch_k = _get_unpad_data(attention_mask)
         batch_size, kv_seq_len, num_key_value_heads, head_dim = key_layer.shape
 
@@ -491,9 +442,7 @@ class DeepseekV2SwiftKVFlashAttention2(DeepseekV2SwiftKVAttention):
         else:
             # The -q_len: slice assumes left padding.
             attention_mask = attention_mask[:, -query_length:]
-            query_layer, indices_q, cu_seqlens_q, max_seqlen_in_batch_q = unpad_input(
-                query_layer, attention_mask
-            )
+            query_layer, indices_q, cu_seqlens_q, max_seqlen_in_batch_q = unpad_input(query_layer, attention_mask)
 
         return (
             query_layer,
@@ -517,9 +466,7 @@ class DeepseekV2SwiftKVDecoderLayer(DeepseekV2DecoderLayer):
         super(DeepseekV2DecoderLayer, self).__init__()
         self.hidden_size = config.hidden_size
 
-        self.self_attn = ATTENTION_CLASSES[config._attn_implementation](
-            config=config, layer_idx=layer_idx
-        )
+        self.self_attn = ATTENTION_CLASSES[config._attn_implementation](config=config, layer_idx=layer_idx)
 
         self.mlp = (
             DeepseekV2MoE(config)
@@ -530,12 +477,8 @@ class DeepseekV2SwiftKVDecoderLayer(DeepseekV2DecoderLayer):
             )
             else DeepseekV2MLP(config)
         )
-        self.input_layernorm = DeepseekV2RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
-        self.post_attention_layernorm = DeepseekV2RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.input_layernorm = DeepseekV2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = DeepseekV2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -548,9 +491,7 @@ class DeepseekV2SwiftKVDecoderLayer(DeepseekV2DecoderLayer):
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         **kwargs,
-    ) -> Tuple[
-        torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
-    ]:
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
         Args:
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
@@ -567,7 +508,8 @@ class DeepseekV2SwiftKVDecoderLayer(DeepseekV2DecoderLayer):
         """
         if "padding_mask" in kwargs:
             warnings.warn(
-                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use"
+                " `attention_mask` instead.`"
             )
         residual = hidden_states
 
@@ -613,20 +555,13 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = nn.Embedding(
-            config.vocab_size, config.hidden_size, self.padding_idx
-        )
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
-            [
-                DeepseekV2SwiftKVDecoderLayer(config, layer_idx)
-                for layer_idx in range(config.num_hidden_layers)
-            ]
+            [DeepseekV2SwiftKVDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self._use_flash_attention_2 = config._attn_implementation == "flash_attention_2"
         self.norm = DeepseekV2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.norm_swiftkv = DeepseekV2RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.norm_swiftkv = DeepseekV2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
         # Initialize weights and apply final processing
@@ -644,26 +579,16 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
-        output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time"
-            )
+            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
             batch_size, seq_length = input_ids.shape[:2]
         elif inputs_embeds is not None:
@@ -674,7 +599,8 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
         if self.gradient_checkpointing and self.training:
             if use_cache:
                 logger.warning_once(
-                    "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`transformers."
+                    "`use_cache=True` is incompatible with gradient checkpointing. Setting"
+                    " `use_cache=False`transformers."
                 )
                 use_cache = False
 
@@ -700,11 +626,7 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
 
         if self._use_flash_attention_2:
             # 2d mask is passed through the layers
-            attention_mask = (
-                attention_mask
-                if (attention_mask is not None and 0 in attention_mask)
-                else None
-            )
+            attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
         else:
             # 4d mask is passed through the layers
             attention_mask = _prepare_4d_causal_attention_mask(
@@ -724,9 +646,7 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
 
         swiftkv_kv_states = {}
         swiftkv_pe_states = {}
-        num_key_value_layers = (
-            self.config.num_key_value_layers or self.config.num_hidden_layers
-        )
+        num_key_value_layers = self.config.num_key_value_layers or self.config.num_hidden_layers
         for layer_idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -739,21 +659,17 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
                 for i, layer in enumerate(self.layers[num_key_value_layers:]):
                     attn = layer.self_attn
                     if i % self.config.key_value_group_size == 0:
-                        compressed_kv = attn.kv_a_proj_with_mqa_swiftkv(
-                            swiftkv_hidden_states
-                        )
+                        compressed_kv = attn.kv_a_proj_with_mqa_swiftkv(swiftkv_hidden_states)
                         compressed_kv, k_pe = torch.split(
                             compressed_kv,
                             [attn.kv_lora_rank, attn.qk_rope_head_dim],
                             dim=-1,
                         )
-                        swiftkv_pe_states[layer_idx + i] = k_pe.view(
-                            bsz, q_len, 1, attn.qk_rope_head_dim
-                        ).transpose(1, 2)
+                        swiftkv_pe_states[layer_idx + i] = k_pe.view(bsz, q_len, 1, attn.qk_rope_head_dim).transpose(
+                            1, 2
+                        )
                         swiftkv_kv_states[layer_idx + i] = (
-                            attn.kv_b_proj_swiftkv(
-                                attn.kv_a_layernorm_swiftkv(compressed_kv)
-                            )
+                            attn.kv_b_proj_swiftkv(attn.kv_a_layernorm_swiftkv(compressed_kv))
                             .view(
                                 bsz,
                                 q_len,
@@ -763,18 +679,10 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
                             .transpose(1, 2)
                         )
                     else:
-                        swiftkv_pe_states[layer_idx + i] = swiftkv_pe_states[
-                            layer_idx + i - 1
-                        ]
-                        swiftkv_kv_states[layer_idx + i] = swiftkv_kv_states[
-                            layer_idx + i - 1
-                        ]
+                        swiftkv_pe_states[layer_idx + i] = swiftkv_pe_states[layer_idx + i - 1]
+                        swiftkv_kv_states[layer_idx + i] = swiftkv_kv_states[layer_idx + i - 1]
 
-            if (
-                self.gradient_checkpointing
-                and self.training
-                and layer_idx >= num_key_value_layers
-            ):
+            if self.gradient_checkpointing and self.training and layer_idx >= num_key_value_layers:
                 layer_outputs = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,
@@ -814,17 +722,9 @@ class DeepseekV2SwiftKVModel(DeepseekV2Model):
 
         next_cache = None
         if use_cache:
-            next_cache = (
-                next_decoder_cache.to_legacy_cache()
-                if use_legacy_cache
-                else next_decoder_cache
-            )
+            next_cache = next_decoder_cache.to_legacy_cache() if use_legacy_cache else next_decoder_cache
         if not return_dict:
-            return tuple(
-                v
-                for v in [hidden_states, next_cache, all_hidden_states, all_self_attns]
-                if v is not None
-            )
+            return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=next_cache,
