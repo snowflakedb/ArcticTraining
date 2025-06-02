@@ -15,11 +15,8 @@
 
 from lm_eval.__main__ import cli_evaluate
 
-from projects.swiftkv import llama_swiftkv
-from projects.swiftkv import qwen2_swiftkv
-
-llama_swiftkv.register_auto()
-qwen2_swiftkv.register_auto()
+from projects.swiftkv.models import register_all_swiftkv
 
 if __name__ == "__main__":
+    register_all_swiftkv()
     cli_evaluate()
