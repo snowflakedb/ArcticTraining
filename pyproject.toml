@@ -50,7 +50,8 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed @ git+https://github.com/deepspeedai/DeepSpeed.git@ulysses",
+    # update to deepspeed>=0.16.10 once it's released
+    "deepspeed @ git+https://github.com/deepspeedai/DeepSpeed.git",
     #"deepspeed>=0.16.4", # XXX: needs to be >0.16.4 once it's released to include https://github.com/deepspeedai/DeepSpeed/pull/7268
     "devtools",
     "jsonlines",
