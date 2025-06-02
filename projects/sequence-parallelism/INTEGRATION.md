@@ -128,7 +128,7 @@ $ deepspeed --num_gpus 2 train.py
 3: loss=tensor(10.3818, device='cuda:0', grad_fn=<DivBackward0>)
 ```
 
-```
+
 This example has been derived from the [UlyssesSP unit test](https://github.com/deepspeedai/DeepSpeed/blob/master/tests/unit/ulysses_plus/test_ulysses_sp_hf.py).
 
 Let's study the parts not normally present in the vanilla training loop:
