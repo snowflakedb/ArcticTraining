@@ -18,22 +18,20 @@
 A module to place monkey patches until they are upstreamed
 """
 
+import contextlib
+import inspect
 
-if 1:  # CheckpointFunctionWithCPUOffload imports
-    import contextlib
-    import inspect
+import torch
+from torch.utils.checkpoint import _get_autocast_kwargs
+from torch.utils.checkpoint import _get_device_module
+from torch.utils.checkpoint import _infer_device_type
+from torch.utils.checkpoint import check_backward_validity
+from torch.utils.checkpoint import detach_variable
+from torch.utils.checkpoint import get_device_states
+from torch.utils.checkpoint import set_device_states
 
-    import torch
-    from torch.utils.checkpoint import _get_autocast_kwargs
-    from torch.utils.checkpoint import _get_device_module
-    from torch.utils.checkpoint import _infer_device_type
-    from torch.utils.checkpoint import check_backward_validity
-    from torch.utils.checkpoint import detach_variable
-    from torch.utils.checkpoint import get_device_states
-    from torch.utils.checkpoint import set_device_states
-
-    # support different pytorch versions
-    has_device_type = "device_type" in inspect.signature(set_device_states).parameters
+# support different pytorch versions
+has_device_type = "device_type" in inspect.signature(set_device_states).parameters
 
 
 class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
