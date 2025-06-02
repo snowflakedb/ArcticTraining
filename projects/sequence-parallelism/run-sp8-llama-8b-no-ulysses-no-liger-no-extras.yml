@@ -2,7 +2,6 @@ type: sft
 micro_batch_size: 1
 exit_iteration: 4
 min_iterations: 4
-#activation_checkpoint_cpu_offload: true
 sequence_parallel_size: 1
 
 deepspeed:
@@ -10,7 +9,6 @@ deepspeed:
     stage: 3
     offload_optimizer:
       device: cpu
-
 
   seq_parallel_communication_data_type: bf16
 

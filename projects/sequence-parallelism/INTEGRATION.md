@@ -1,121 +1,192 @@
-# Ulysses Sequence Parallelism for HF Transformers integration
+# Ulysses Sequence Parallelism Plus for HF Transformers integration
 
-XXX: the first pass is from the perspective of AT, there will be another pass to do the same for any framework
+XXX: this should probably go into Deepspeed?
 
-## config
 
-Define the desired sequence parallelism degree in the config yaml file with:
-```
-sequence_parallel_size: 8
-```
+1. Ulysses Sequence Parallelism for HF Transformers implements an efficient way of processing long sequences by employing sequence parallelism and attention head parallelism.
+2. Ulysses Plus enables even longer sequence lengths using a bag of tricks:
+- Activation checkpoint offload to CPU
+- Tiled MLP compute
+- Liger-kernel
+- PYTORCH_CUDA_ALLOC_CONF
 
-## DataLoader
 
-Currently Ulysses Sequence Parallelism requires samples that use `position_ids` and not `attention_mask`. If your implementation already does that, there is nothing to change.
+## Part 1: Ulysses Sequence Parallelism for HF Transformers
 
-Down the road we might figure out how to make it work with `attention_mask` but at the moment it doesn't work how HF Transformers has it implemented (because we are sharding batches).
-
-## trainer super class
-
-In theory nothing needs to be changed here, but to explain how we plug sp here:
-
-### model setup:
+If you want to integrate Ulysses Sequence Parallelism for HF Transformers into your framework, it's easy to do. Here is a full training loop with a hardcoded dataset:
 
 ```
-        mpu = UlyssesAttentionHF.register_with_transformers(
-            model_name_or_path=self.config.model.name_or_path,
-            core_attn_implementation=self.config.model.attn_implementation,
-            sequence_parallel_size=self.config.sequence_parallel_size,
-            max_length=self.config.data.max_length,
-            micro_batch_size=self.config.micro_batch_size,
-            seq_length_is_variable=True,
-        )
-        if self.config.sequence_parallel_size > 1:
-            # we are overriding the original core attn implementation with `ulysses` and we have already passed the original core attn implementation to `UlyssesAttentionHF`
-            self.config.model.attn_implementation = "ulysses"
+# train.py
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF, UlyssesSPDataLoaderAdapter
+from deepspeed.runtime.utils import move_to_device
+from deepspeed.utils import groups
+from torch import tensor
+from transformers import AutoModelForCausalLM
+import deepspeed
+import deepspeed.comm as dist
+import torch
 
-        dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
-        model_factory = self.config.model.factory(self)
-        self.model = model_factory()
+model_name_or_path = 'hf-internal-testing/tiny-random-LlamaForCausalLM'
+max_length = 64
+sequence_parallel_size = 2
+micro_batch_size = 1
 
-        UlyssesAttentionHF.validate_model(
-            model=self.model,
-            sequence_parallel_size=self.config.sequence_parallel_size,
-        )
+config_dict = {
+    "train_micro_batch_size_per_gpu": 1,
+    "zero_optimization": {
+        "stage": 3,
+    },
+    "optimizer": {
+        "type": "Adam",
+        "params": {
+            "lr": 1e-3
+        }
+    },
+    "sequence_parallel_size": sequence_parallel_size,
+}
+
+dtype = torch.bfloat16
+
+# a simple Dataset
+# replace with a real dataset but make sure `position_ids` are returned
+input_ids = tensor([[1, 10, 10, 10, 2, 2], [1, 20, 20, 20, 2, 2]], )
+position_ids = tensor([[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]])
+ds = torch.utils.data.TensorDataset(input_ids, position_ids)
+def collate_fn(batch):
+    input_ids, position_ids = batch[0]
+    return dict(input_ids=input_ids.unsqueeze(0),
+                position_ids=position_ids.unsqueeze(0),
+                labels=input_ids.unsqueeze(0))
+
+dist.init_distributed(dist_backend='nccl', dist_init_required=True)
+
+# Ulysses injection into HF Transformers
+mpu = UlyssesSPAttentionHF.register_with_transformers(
+    model_name_or_path=model_name_or_path,
+    core_attn_implementation="sdpa",
+    sequence_parallel_size=sequence_parallel_size,
+    max_length=max_length,
+    micro_batch_size=micro_batch_size,
+    seq_length_is_variable=True,
+)
+
+# Deepspeed setup
+model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+model, _, _, _ = deepspeed.initialize(config=config_dict,
+                                        model=model,
+                                        model_parameters=model.parameters(),
+                                        mpu=mpu)
+
+# UlyssesSPDataLoaderAdapter injection
+sp_group = groups._get_sequence_parallel_group()
+sp_world_size = groups._get_sequence_parallel_world_size()
+sp_rank = groups._get_sequence_parallel_rank()
+dl = torch.utils.data.DataLoader(ds, batch_size=micro_batch_size, collate_fn=collate_fn)
+dl = UlyssesSPDataLoaderAdapter(
+    dl,
+    sp_rank=sp_rank,
+    sp_group=sp_group,
+    sp_world_size=sp_world_size,
+    device=model.device,
+)
+
+# Normal training loop
+for iter, batch in enumerate(dl):
+    batch = move_to_device(batch, model.device)
+
+    outputs = model(**batch)
+    # as of this writing HF doesn't calculate loss with shift_labels yet and requires us to do it manually (liger does that automatically)
+    shift_labels = batch["shift_labels"]
+    loss = model.module.loss_function(
+        logits=outputs.logits,
+        labels=None,
+        shift_labels=shift_labels,
+        vocab_size=model.module.config.vocab_size,
+    )
+
+    # differentiable weighted per-shard-loss aggregation across ranks
+    losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=sp_group)
+    # special dealing with SFT that has prompt tokens that aren't used in loss computation
+    good_tokens = sum((shift_labels != -100).view(-1))
+    good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=sp_group)
+    total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(sp_world_size))
+    total_good_tokens = sum(good_tokens_per_rank)
+    loss = total_loss / total_good_tokens
+
+    if dist.get_rank() == 0:
+        print(f"{iter}: {loss=}")
+
+    model.backward(loss)
+```
+
+Now to train:
+```
+$ deepspeed --num_gpus 2 train.py
+0: loss=tensor(10.4248, device='cuda:0', grad_fn=<DivBackward0>)
+1: loss=tensor(10.4248, device='cuda:0', grad_fn=<DivBackward0>)
+2: loss=tensor(10.3818, device='cuda:0', grad_fn=<DivBackward0>)
+3: loss=tensor(10.3818, device='cuda:0', grad_fn=<DivBackward0>)
+```
 
 ```
-That's allmost everything, now just need to pass `mpu` to `deepspeed`.initialize`, like so:
+This example has been derived from the [UlyssesSP unit test](https://github.com/deepspeedai/DeepSpeed/blob/master/tests/unit/ulysses_plus/test_ulysses_sp_hf.py).
+
+Let's study the parts not normally present in the vanilla training loop:
+
+1. `UlyssesSPAttentionHF.register_with_transformers` injects Ulysses Attention adapter into HF Transformers.
 
 ```
-        self.model, *_ = deepspeed.initialize(
-            model=self.model,
-            optimizer=self.optimizer,
-            args=self.config,
-            lr_scheduler=self.scheduler,
-            config=self.config.deepspeed,
-            mpu=mpu,
-        )
+mpu = UlyssesSPAttentionHF.register_with_transformers(
+    model_name_or_path=model_name_or_path,
+    core_attn_implementation="sdpa",
+    sequence_parallel_size=sequence_parallel_size,
+    max_length=max_length,
+    micro_batch_size=micro_batch_size,
+    seq_length_is_variable=True,
+)
 ```
 
-in `step`:
+It also creates nccl process groups encapsulated by the `mpu` object it returns.
+
+`UlyssesSPAttentionHF.register_with_transformers` has to be called before `from_pretrained` is called.
+
+2. UlyssesSPDataLoaderAdapter
+```
+dl = UlyssesSPDataLoaderAdapter(
+    dl,
+    sp_rank=sp_rank,
+    sp_group=sp_group,
+    sp_world_size=sp_world_size,
+    device=model.device,
+)
+```
+This takes an existing DataLoader object and returns a new one that will shard the batches on the sequence dimension and synchronize all GPUs of the replica to return only its corresponding shard.
+
+It also takes care of pre-shifting labels and replacing `labels` with `shift_labels` in the batch.
+
+3. Loss averaging
+
+Since each rank processes a segment we need to average loss. To get the gradients right we need to use a differentiable `all_gather`
 
 ```
-        if self.config.sequence_parallel_size == 1:
-            # this is the original code
-            loss = self.loss(batch)
-            self.model.backward(loss)
-            ...
-
-        else:
-            # sp will do backward inside sp_fwd_bwd_loss
-            # the returned loss is already averaged across ranks
-            loss = self.sp_fwd_bwd_loss(batch)
+    # differentiable weighted per-shard-loss aggregation across ranks
+    losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=sp_group)
+    # special dealing with SFT that has prompt tokens that aren't used in loss computation
+    good_tokens = sum((shift_labels != -100).view(-1))
+    good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=sp_group)
+    total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(sp_world_size))
+    total_good_tokens = sum(good_tokens_per_rank)
+    loss = total_loss / total_good_tokens
 ```
 
-So the trainer subclass needs to have `self.sp_fwd_bwd_loss` - which we need to figure out for SwiftKV
-
-## `sp_fwd_bwd_loss`
-
-You will currently find it in `trainer/sft_trainer.py`. If your loss function is the same as sft then you can just reuse this method, if it's not - let's then talk about the differences and probably further split up `sp_fwd_bwd_loss` into chunks or provide some sort of callbacks.
-
-The original SFT loss is just:
-
-```
-    def loss(self, batch) -> torch.Tensor:
-        batch = to_device(batch, self.device)
-        outputs = self.model(**batch, use_cache=False)
-        loss = outputs.loss
-        return loss
-```
-the only things that Ulysses does are:
-1. gather data batches from all ranks
-
-2. then for each batch:
-
-a. split each into shards
-b. each shard runs fwd + loss + bwd on each rank
-c. then loss is averaged
-
-3. average loss again across batches
-
-One nuance is that we have to hack deepspeed to override its GAS functionality so that it will do the right thing wrt GAS with the help of `set_gradient_accumulation_boundary` - the overall logic goes:
-
-```
-      self.model.set_gradient_accumulation_boundary(False)
-      for batch in batches:
-          split and assign each shard to its corresponding processing rank
-          fwd + loss + bwd on each shard
-          average losses across ranks
-      average losses across batches
-      self.model.set_gradient_accumulation_boundary(True)
-```
+In theory you could just average `losses_per_rank`, but the system supports variable sequence length so the last rank is likely to have a shorter sequence length and also use cases like SFT may have a variable number of tokens that contribute to the loss calculation, so it's best to compute a weighted loss.
 
 
-## Implementation details
+## Nuances
 
-### labels need to be pre-shifted
+### why do labels need to be pre-shifted
 
-When using batch sharding one can't let the upstream `loss` function to do the labels shifting. Here is why:
+When using batch sharding one can't let the upstream `loss` function do the labels shifting. Here is why:
 
 When calculating loss in an unsharded batch we end up with (shift left):
 
@@ -140,3 +211,60 @@ input_ids: [1 2 3 4]  [5 6 7 8]
 labels   : [1 2 3 4]  [5 6 7 8]
 shiftedl : [2 3 4 5]  [6 7 8 -100]
 ```
+
+## Part 2. Ulysses Plus enables even longer sequence lengths using a bag of tricks
+
+### Tiled loss computation
+
+If you use [Liger-kernel](https://github.com/linkedin/Liger-Kernel) it'll automatically do the very memory efficient loss computation without manifesting full logits (which consume a huge amoung of GPU memory when long sequence lengths are used.)
+
+If your model isn't supported by Liger-kernel you can use our implementation, which uses about the same amount of memory, but which is slightly slower since it's written in plain PyTorch.
+
+```
+
+```
+
+
+### Tiled MLP computation
+
+If you want to use Tiled MLP computation you'd need to monkey patch the model you work with, for a full example see this [unit test](https://github.com/deepspeedai/DeepSpeed/blob/master/tests/unit/ulysses_plus/test_tiled_compute.py).
+
+```
+from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledMLP
+import transformers
+
+def tiled_mlp_forward_common(self, x):
+    """a monkey patch to replace modeling_llama.LlamaMLP.forward and other identical MLP implementations to perform a tiled compute of the same"""
+
+    # figure out the number of shards
+    bs, seqlen, hidden = x.shape
+    num_shards = math.ceil(seqlen / hidden)
+    # it's crucial that all ranks run the same number of shards, otherwise if one of the ranks
+    # runs fewer shards than the rest, there will be a deadlock as that rank will stop running
+    # sooner than others and will not supply its ZeRO-3 weights shard to other ranks. So we
+    # will use the max value across all ranks.
+    tensor = torch.tensor(num_shards, device=x.device)
+    dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+    num_shards = tensor.item()
+    # print(f"derived {num_shards} for {seqlen=} and {hidden=} max'ed across ranks")
+
+    # only needed for deepspeed
+    compute_params = [self.down_proj.weight, self.gate_proj.weight, self.up_proj.weight]
+
+    def mlp_forward(self, x):
+        return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+    return TiledMLP.apply(
+        mlp_forward,
+        self,
+        x,
+        num_shards,
+        compute_params,
+    )
+
+
+from transformers.models.llama import modeling_llama
+modeling_llama.LlamaMLP.forward = tiled_mlp_forward_common
+```
+
+You can of course come up with a different way of computing the number of shards to be used.
