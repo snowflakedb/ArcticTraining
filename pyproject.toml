@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.metadata]
-# this is needed when we want to point to a github branch in `dependencies`
+# this is needed when we want to point to a github branch in `dependencies` - leave it enabled
 allow-direct-references = true
 
 [tool.hatch.build]
@@ -50,9 +50,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    # update to deepspeed>=0.16.10 once it's released
-    "deepspeed @ git+https://github.com/deepspeedai/DeepSpeed.git",
-    #"deepspeed>=0.16.4", # XXX: needs to be >0.16.4 once it's released to include https://github.com/deepspeedai/DeepSpeed/pull/7268
+    "deepspeed>=0.17.0",
     "devtools",
     "jsonlines",
     "loguru",
