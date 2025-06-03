@@ -9,7 +9,7 @@ There are two parts to Ulysses Plus:
 - [Liger-kernel](#liger-kernel)
 - [PYTORCH_CUDA_ALLOC_CONF](#PYTORCH_CUDA_ALLOC_CONF)
 
-[READMEmd](README.md) contains multiple ready-to-run examples for you to start from and which you can then adapt to your needs as explained in this document.
+[README.md](README.md) contains multiple ready-to-run examples for you to start from and which you can then adapt to your needs as explained in this document.
 
 ## Configuration
 
