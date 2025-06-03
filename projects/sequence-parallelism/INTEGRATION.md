@@ -216,13 +216,51 @@ shiftedl : [2 3 4 5]  [6 7 8 -100]
 
 ### Tiled loss computation
 
-If you use [Liger-kernel](https://github.com/linkedin/Liger-Kernel) it'll automatically do the very memory efficient loss computation without manifesting full logits (which consume a huge amoung of GPU memory when long sequence lengths are used.)
+If you use [Liger-kernel](https://github.com/linkedin/Liger-Kernel) it'll automatically do the very memory efficient loss computation without manifesting intermediate full logits tensor, which consume a huge amoung of GPU memory when long sequence lengths are used.
 
-If your model isn't supported by Liger-kernel you can use our implementation, which uses about the same amount of memory, but which is slightly slower since it's written in plain PyTorch.
-
-```
+If your model isn't supported by Liger-kernel you can use our implementation, which uses about the same amount of memory, but which is slightly slower since it's written in plain PyTorch. Here is a simplified version of it:
 
 ```
+    def loss(self, batch):
+        num_shards = 4
+        outputs = model(**batch, use_cache=False)
+        hidden_states = outputs.last_hidden_state
+
+        kwargs_to_shard = dict(
+            hidden_states=hidden_states,
+            shift_labels=batch["shift_labels"],
+        )
+        kwargs_to_pass = dict(model=model, vocab_size=model.config.vocab_size)
+        grad_requiring_tensor_key = "hidden_states"
+        compute_params = [model.lm_head.weight]
+        seqlen = shift_labels.shape[1]
+
+        total_loss_sum = sequence_tiled_compute(
+            loss_fn,
+            seqlen,
+            num_shards,
+            kwargs_to_shard,
+            kwargs_to_pass,
+            grad_requiring_tensor_key,
+            compute_params,
+            output_unshard_dimension=0,  # loss is a scalar
+            output_reduction="sum",
+        )
+        total_good_items = sum((shift_labels != -100).squeeze())
+        loss = total_loss_sum / total_good_items
+
+        # differentiable weighted per-shard-loss aggregation across ranks
+        losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
+        good_tokens = sum((shift_labels != -100).view(-1))
+        good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
+        total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
+        total_good_tokens = sum(good_tokens_per_rank)
+        loss = total_loss / total_good_tokens
+
+        return loss
+```
+
+You can see the full version [here](https://github.com/snowflakedb/ArcticTraining/blob/stas/sp/arctic_training/trainer/sft_trainer.py#L45).
 
 
 ### Tiled MLP computation
@@ -268,3 +306,27 @@ modeling_llama.LlamaMLP.forward = tiled_mlp_forward_common
 ```
 
 You can of course come up with a different way of computing the number of shards to be used.
+
+### Activation checkpoint offload to CPU
+
+You will find a prototype implementation version [here](https://github.com/snowflakedb/ArcticTraining/blob/75758c863beff1c8a5c4e4987ba013ecaf377fc3/arctic_training/monkey_patches.py#L37)
+
+```
+from arctic_training.monkey_patches import monkey_patch_checkpoint_function_with_cpu_offload
+monkey_patch_checkpoint_function_with_cpu_offload()
+```
+
+We hope PyTorch core will provide an internal support for offloading. If not we will need to come up with some better solution - perhaps using a context manager.
+
+This currently implementation isn't yet efficient (blocking), but it barely makes any difference for very long sequence lengths where `matmuls` dominate the compute.
+
+
+### PYTORCH_CUDA_ALLOC_CONF
+
+Before launching your script add:
+```
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+```
+This will help with minimizing memory fragmentation and will allow a longer sequence length.
+
+
