@@ -2,7 +2,7 @@
 
 Ulysses Plus enables very long sequence length post-training using out-of-the-box HuggingFace Transformers models. There are two parts to Ulysses Plus:
 
-1. Ulysses Sequence Parallelism for HF Transformers implements an efficient way of processing long sequences by employing sequence parallelism and attention head parallelism. This is enabled with [sequence_parallel_size](#sequence_parallel_size)
+1. Ulysses Sequence Parallelism for HF Transformers implements an efficient way of processing long sequences by employing sequence parallelism and attention head parallelism. 
 2. Ulysses Plus enables even longer sequence lengths using multiple tricks such as activation checkpoint offload to CPU, tiled MLP and logit+loss compute and `PYTORCH_CUDA_ALLOC_CONF` optimizations.
 
 Where to do next:
