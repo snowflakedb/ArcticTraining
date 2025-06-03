@@ -111,15 +111,24 @@ class TrainerConfig(BaseConfig):
     # train_log_metrics_path: Path = Field(
     #     default_factory=lambda data: data["logger"].output_dir / "train-log-metrics.jsonl"
     # )
+    # """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
     train_log_metrics_path: Path = Path("train-log-metrics.jsonl")
-
-    """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
+    """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `./train-log-metrics.jsonl` """
 
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """
 
     micro_batch_size: int = Field(default=1, ge=1)
     """ Micro batch size per GPU. """
+
+    sequence_parallel_size: int = Field(default=1, ge=1)
+    """ Sequence Parallelism Degree. Disabled if set to 1 """
+
+    activation_checkpoint_cpu_offload: bool = False
+    """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
+
+    tiled_mlp_compute: bool = False
+    """ Tile the MLP computation to save GPU memory. Currently only limited architectures supported, but can be expanded to more. """
 
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
@@ -347,8 +356,11 @@ class TrainerConfig(BaseConfig):
     def build_deepspeed_config(self) -> Self:
         ds_config = self.deepspeed
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_batch_size
-        ds_config["train_batch_size"] = self.micro_batch_size * self.gradient_accumulation_steps * self.world_size
+        ds_config["train_batch_size"] = (
+            self.micro_batch_size * self.gradient_accumulation_steps * self.world_size / self.sequence_parallel_size
+        )
         ds_config["gradient_accumulation_steps"] = self.gradient_accumulation_steps
+        ds_config["sequence_parallel_size"] = self.sequence_parallel_size
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
         ds_config["zero_optimization"] = ds_config.get(
             "zero_optimization",

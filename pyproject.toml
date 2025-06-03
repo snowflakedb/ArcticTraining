@@ -2,6 +2,10 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+# this is needed when we want to point to a github branch in `dependencies` - leave it enabled
+allow-direct-references = true
+
 [tool.hatch.build]
 include = [
   "arctic_training_cli.py",
@@ -46,7 +50,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed",
+    "deepspeed>=0.17.0",
     "devtools",
     "jsonlines",
     "loguru",
@@ -58,7 +62,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.47.0",
+    "transformers>=4.51.3", # attention api + qwen
     "wandb",
     "yq",
 ]
