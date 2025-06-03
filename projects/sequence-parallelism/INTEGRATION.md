@@ -328,5 +328,3 @@ Before launching your script add:
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 This will help with minimizing memory fragmentation and will allow a longer sequence length.
-
-
