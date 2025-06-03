@@ -9,8 +9,7 @@ Where to do next:
 
 1. If you want to jump right into trying it out proceed to [SFT Training examples](#sft-training-examples).
 2. To go into more details refer to [USAGE.md](USAGE.md).
-3. To integrate UlyssesPlus into a different framework see [INTEGRATION.md](INTEGRATION.md)
-
+3. To integrate UlyssesPlus into a different framework see: https://www.deepspeed.ai/tutorials/ulysses-plus-sequence-pallellism
 
 ## SFT Training examples
 
