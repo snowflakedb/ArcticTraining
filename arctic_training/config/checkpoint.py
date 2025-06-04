@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING
 from typing import Type
 
 from pydantic import Field
+from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.registry import get_registered_checkpoint_engine
 
 if TYPE_CHECKING:
@@ -39,10 +41,10 @@ class CheckpointConfig(BaseConfig):
     auto_resume: bool = False
     """ If a checkpoint is found in the output directory, resume training from that checkpoint. """
 
-    save_every_n_steps: int = Field(default=0, ge=0)
+    save_every_n_steps: HumanInt = Field(default=0, ge=0)
     """ How often to trigger a checkpoint save by training global step count. """
 
-    save_every_n_epochs: int = Field(default=0, ge=0)
+    save_every_n_epochs: HumanInt = Field(default=0, ge=0)
     """ How often to trigger a checkpoint save by training epoch count. """
 
     save_end_of_training: bool = False
@@ -51,3 +53,8 @@ class CheckpointConfig(BaseConfig):
     @property
     def engine(self) -> Type["CheckpointEngine"]:
         return get_registered_checkpoint_engine(name=self.type)
+
+    @field_validator("output_dir", mode="after")
+    @classmethod
+    def resolve_output_dir(cls, v: Path) -> Path:
+        return v.resolve()

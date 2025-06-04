@@ -150,8 +150,7 @@ def setup_logger(config: "LoggerConfig") -> None:
     else:
         tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
         redirect_builtin_logging_and_set_level("ERROR")
-        #sys.stdout = open(os.devnull, "w")
-        #sys.stderr = open(os.devnull, "w")
+        sys.stdout = open(os.devnull, "w")
 
     _logger_setup = True
     logger.info("Logger initialized")

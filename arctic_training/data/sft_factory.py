@@ -16,19 +16,21 @@
 import random
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 
 import numpy as np
 import torch
-from datasets import Dataset
+from pydantic import model_validator
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
-from tqdm import tqdm
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
+from typing_extensions import Self
 
 from arctic_training.config.data import DataConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
 
@@ -133,19 +135,46 @@ class DataCollatorForCausalLM:
         # attention_mask = [
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
+
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
+            packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
+            packed_sample_seqlens = [[len(example["input_ids"])] for example in instances]
 
-        input_ids = pad(input_ids, divisible_by=self.config.div_length, padding_value=self.tokenizer.pad_token_id)
-        labels = pad(labels, divisible_by=self.config.div_length, padding_value=IGNORE_INDEX)
-        position_ids = pad(position_ids, divisible_by=self.config.div_length, padding_value=0, is_position_id=True)
+        fake_unpacked_long_seq = False
+        # fake_unpacked_long_seq = True
+        if fake_unpacked_long_seq:
+            from itertools import chain
+
+            total_len = sum(len(example["input_ids"]) for example in instances)
+            # to emulate fake full ~max_length samples - use value = 1
+            fake_samples = 1
+            fake_sample_len = total_len // fake_samples  # approximately is good enough for testing
+            position_ids_bs1 = list(chain.from_iterable(list(range(fake_sample_len) for _ in range(fake_samples))))
+            position_ids = [torch.tensor(position_ids_bs1) for _ in range(len(instances))]
+            packed_sample_seqlens_bs1 = [fake_sample_len for _ in range(fake_samples)]
+            packed_sample_seqlens = [packed_sample_seqlens_bs1 for _ in range(len(instances))]
+
+        if self.config.pad_to == "max_length":
+            pad_kwargs = {"max_seq": self.config.max_length}
+        elif self.config.pad_to == "div_length":
+            pad_kwargs = {"divisible_by": self.config.div_length}
+        else:
+            raise ValueError(
+                f"Unknown pad_to value: {self.config.pad_to}. Valid values are 'max_length' and 'div_length'."
+            )
+
+        input_ids = pad(input_ids, padding_value=self.tokenizer.pad_token_id, **pad_kwargs)
+        labels = pad(labels, padding_value=IGNORE_INDEX, **pad_kwargs)
+        position_ids = pad(position_ids, padding_value=0, is_position_id=True, **pad_kwargs)
 
         return {
             "input_ids": input_ids,
             "labels": labels,
             "position_ids": position_ids,
+            "packed_sample_seqlens": packed_sample_seqlens,
         }
 
 
@@ -158,7 +187,7 @@ def pack_sft_batch(
     fuse_position_ids_prob: float,
     seed: int,
 ) -> Dict[str, List[List[int]]]:
-    keys = ("input_ids", "labels", "position_ids", "attention_mask")
+    keys = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
@@ -185,8 +214,9 @@ def pack_sft_batch(
                 pad_len = max_length - len(current_sample["input_ids"])
                 current_sample["input_ids"].extend(input_ids[:pad_len])
                 current_sample["labels"].extend(labels[:pad_len])
-                current_sample["position_ids"].extend(list(range(pad_len)))
                 current_sample["attention_mask"].extend(attention_mask[:pad_len])
+                current_sample["position_ids"].extend(range(pad_len))
+                current_sample["packed_sample_seqlens"].extend([pad_len])
             if len(current_sample["input_ids"]) >= min_length:
                 flush()
             current_sample = {key: [] for key in keys}
@@ -197,8 +227,9 @@ def pack_sft_batch(
 
         current_sample["input_ids"].extend(input_ids)
         current_sample["labels"].extend(labels)
-        current_sample["position_ids"].extend(list(range(len(input_ids))))
         current_sample["attention_mask"].extend(attention_mask)
+        current_sample["position_ids"].extend(range(len(input_ids)))
+        current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
     # Add the last example if it fits
     if len(current_sample["input_ids"]) >= min_length and not always_max_length:
@@ -208,13 +239,11 @@ def pack_sft_batch(
 
 
 class SFTDataConfig(DataConfig):
-    max_length: int = 8192
-    """ Maximum length of the input sequence. """
 
-    min_length: int = 1
+    min_length: HumanInt = 1
     """ Minimum length of the input sequence. """
 
-    div_length: int = 256
+    div_length: HumanInt = 256
     """ The number that the length of the sequence should be divisible by. """
 
     mask_inputs: bool = True
@@ -227,12 +256,56 @@ class SFTDataConfig(DataConfig):
     cause the last sample to be truncated.
     """
 
+    pad_to: Literal["max_length", "div_length"] = "div_length"
+    """ Whether to pad sequences to a length of `max_length` or next length divisble by `div_length`. """
+
+    filter_samples: bool = True
+    """ Whether to filter loaded dataset to have maximum sequence length of `max_length`. """
+
+    pack_samples: bool = True
+    """ Whether to pack multiple samples into samples up to size `max_length`. """
+
     fuse_position_ids: bool = False
 
     fuse_position_ids_prob: float = 1.0
 
+    @model_validator(mode="after")
+    def validate_padding(self) -> Self:
+        if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
+            if self.max_length % self.div_length != 0:
+                lower_val = (self.max_length // self.div_length) * self.div_length
+                higher_val = lower_val + self.div_length
+                raise ValueError(
+                    "You have requested padding sequences to 'max_length' with incompatible max_length"
+                    f" ({self.max_length}) and div_length ({self.div_length}). Either remove `div_length` from your"
+                    f" config or set `max_length` to {lower_val} or {higher_val}, the two closest values divisible by"
+                    f" {self.div_length}.max_length ({self.max_length}) must be divisible by div_length"
+                    f" ({self.div_length}) when pad_to is 'max_length'"
+                )
+        return self
+
+
+def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
+    if not self.config.filter_samples:
+        return dataset
+
+    dataset = dataset.filter(
+        lambda x: len(x["input_ids"]) <= self.config.max_length,
+        num_proc=self.config.num_proc,
+        desc="Filtering dataset by max length",
+    )
+    if len(dataset) < 1:
+        raise ValueError(
+            f"No data left after filtering by max length {self.config.max_length} in"
+            f" {self.__class__.__name__}. Consider increasing the `max_length`."
+        )
+    return dataset
+
 
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
+    if not self.config.pack_samples:
+        return dataset
+
     batch_size = len(dataset) // self.config.num_proc + 1
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
@@ -281,6 +354,7 @@ class SFTDataFactory(DataFactory):
                     mask_inputs=self.config.mask_inputs,
                 )
             },
+            remove_columns=dataset.column_names,
             num_proc=self.config.num_proc,
             remove_columns=["messages"],
             desc="Tokenizing messages",
@@ -363,6 +437,6 @@ class SFTDataFactory(DataFactory):
             collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config),
             batch_size=self.micro_batch_size,
             sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
-            num_workers=self.config.num_proc,
+            num_workers=self.config.dl_num_workers,
             drop_last=True,
         )

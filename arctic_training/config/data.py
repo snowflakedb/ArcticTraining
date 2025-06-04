@@ -29,6 +29,7 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 from arctic_training.config.base import BaseConfig
+from arctic_training.config.utils import HumanInt
 from arctic_training.data.utils import is_local_fs
 from arctic_training.exceptions import RegistryError
 from arctic_training.logging import logger
@@ -80,8 +81,14 @@ class DataConfig(BaseConfig):
     train_eval_split: Tuple[float, float] = (1.0, 0.0)
     """ How much of the training data to use for evaluation. """
 
+    max_length: HumanInt = 8192
+    """ Maximum length of the input sequence. """
+
     num_proc: int = 16
     """ Number of processes to use for data loading. """
+
+    dl_num_workers: int = 2
+    """ Number of DL workers per gpu. """
 
     seed: int = 42
     """ Seed for data loading. """
@@ -110,6 +117,11 @@ class DataConfig(BaseConfig):
                 " Data cache is used by default now."
             )
         return v
+
+    @field_validator("cache_dir", mode="after")
+    @classmethod
+    def resolve_cache_dir(cls, v: Path) -> Path:
+        return v.resolve()
 
     @field_validator("sources", "eval_sources", mode="before")
     def init_source_configs(

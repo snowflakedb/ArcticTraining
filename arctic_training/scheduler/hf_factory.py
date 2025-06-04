@@ -19,12 +19,13 @@ from pydantic import Field
 from transformers import get_scheduler
 
 from arctic_training.config.scheduler import SchedulerConfig
+from arctic_training.config.utils import HumanFloat
 from arctic_training.scheduler.factory import SchedulerFactory
 
 
 class HFSchedulerConfig(SchedulerConfig):
     name: str = "linear"
-    warmup_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+    warmup_ratio: HumanFloat = Field(default=0.1, ge=0.0, le=1.0)
     """ The fraction of total training steps used for linear learning rate warmup. """
 
 

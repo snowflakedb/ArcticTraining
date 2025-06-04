@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import argparse
-import os
 import shutil
-import subprocess
 import textwrap
 from pathlib import Path
+
+from deepspeed.launcher.runner import main as ds_runner
 
 
 def main():
@@ -39,6 +40,14 @@ def main():
             """
         ),
     )
+    parser.add_argument(
+        "mode",
+        type=str,
+        nargs="?",
+        choices=["train", "process-data"],
+        default="train",
+        help="Operation mode, 'process-data' will run the data processing pipeline.",
+    )
     parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
     args, deepspeed_args = parser.parse_known_args()
 
@@ -47,49 +56,17 @@ def main():
 
     exe_path = shutil.which("arctic_training_run")
 
-    env = os.environ.copy()
-
-    subprocess.run(
+    ds_runner(
         [
-            "deepspeed",
             *deepspeed_args,
             exe_path,
+            "--mode",
+            args.mode,
             "--config",
             str(args.config),
-        ],
-        env=env,
-        check=True,
+        ]
     )
 
 
-def run_script():
-    import deepspeed.comm as dist
-
-    from arctic_training.config.trainer import get_config
-    from arctic_training.registry import get_registered_trainer
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="ArticTraining config to run.",
-    )
-    parser.add_argument(
-        "--local_rank",
-        type=int,
-        default=int(os.getenv("LOCAL_RANK", 0)),
-        help="Local rank of the process.",
-    )
-    args = parser.parse_args()
-
-    if not args.config.exists():
-        raise FileNotFoundError(f"Config file {args.config} not found.")
-
-    config = get_config(args.config)
-    trainer_cls = get_registered_trainer(name=config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
-    if dist.is_initialized():
-        dist.barrier()
-        dist.destroy_process_group()
+if __name__ == "__main__":
+    main()

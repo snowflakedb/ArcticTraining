@@ -49,6 +49,9 @@ class Metrics:
         self.summary_dict: Dict[str, Union[int, float]] = {}
         self.timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
         self.values: Dict[str, Union[int, float]] = defaultdict(float)
+        self.seqlens = None
+
+        self.losses: list = []
 
         # Store model size values for quickly calculating tflos later
         def numel_fn(p):
@@ -100,10 +103,14 @@ class Metrics:
         self.start_timer(key)
 
     def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
-        """Given a sequence length, estimates the number of floating point operations required to run the model."""
+        """Given a sequence length, estimates the number of floating point operations required to run the model.
+        It currently hardwires activation checkpointing always on (co-efficient 4, otherwise should be 3) so it measures hardware flops (used for HFU)
+        """
+        hardware_flops = True
+        coef = 4 if hardware_flops else 3
         return (
-            seq_len * self.model_size * 2 * 4
-            + self.model_num_layers * seq_len * seq_len * self.model_hidden_size * 2 * 2 * 4
+            2 * coef * self.model_size * seq_len
+            + 2 * 2 * coef * self.model_num_layers * self.model_hidden_size * seq_len**2
         ) / 1e12
 
     def get_value(self, key: str) -> Union[int, float]:
@@ -117,25 +124,40 @@ class Metrics:
 
         self.summary_dict.clear()
         self.summary_dict["epoch"] = self.trainer.epoch_idx
-        self.summary_dict["iter"] = self.trainer.train_batch_idx
+        self.summary_dict["iter"] = self.trainer.global_step
         self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
 
         tflos_total: float = 0.0
-        if "seqlen" in self.values:
+        if self.seqlens is not None:
+            # expects a bs-size list of lists, where each sub-list is seqlens of each sub-sample, or a single seqlen if these are unpacked samples.
+            # Examples of self.values["seqlens"]:
+            # - bs=1 + packed samples:   [[100, 200, 4090]]
+            # - bs=2 + packed samples:   [[100, 200, 4090], [4090, 100, 200]]
+            # - bs=1 + an unpacked sample: [[4090]]
+            # - bs=2 + unpacked samples: [[4090], [4090]]
+            seqlen_subtotal = 0
+            tflos_subtotal = 0
+            # iterate over batch size
+            for seqlens in self.seqlens:
+                tflos_subtotal += sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
+                seqlen_subtotal += sum(seqlens)
+
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
-            tflos_total = (
-                sum(
-                    gather_object(
-                        self._estimate_decoder_transformer_tflos(self.values["seqlen"]),
-                        self.trainer.world_size,
-                    )
-                )
-                / self.trainer.config.sequence_parallel_size
-            )
+            tflos_total = sum(gather_object(tflos_subtotal, self.trainer.world_size))
+            self.values["seqlen_total"] = seqlen_subtotal
 
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size
             self.summary_dict["loss"] = loss
+
+            # XXX: short term partial GAS support for reporting the correct loss
+            if self.trainer.config.gradient_accumulation_steps > 1:
+                if len(self.losses) < self.trainer.config.gradient_accumulation_steps:
+                    self.losses += [loss]
+
+                if len(self.losses) == self.trainer.config.gradient_accumulation_steps:
+                    self.summary_dict["loss"] = sum(self.losses) / self.trainer.config.gradient_accumulation_steps
+                    self.losses = []
 
         if "iter_time" in self.values:
             iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
@@ -143,8 +165,8 @@ class Metrics:
             if tflos_total > 0:
                 self.summary_dict["iter_tflops"] = tflos_total / iter_time_total
 
-        if "seqlen" in self.values:
-            seq_len_total = sum(gather_object(self.values["seqlen"], self.trainer.world_size))
+        if "seqlen_total" in self.values:
+            seq_len_total = sum(gather_object(self.values["seqlen_total"], self.trainer.world_size))
             self.summary_dict["seqlen"] = seq_len_total / self.trainer.world_size
 
         if "step_time" in self.values:

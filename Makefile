@@ -30,6 +30,12 @@ format: ## fix formatting
 	fi
 	. venv/bin/activate && pre-commit run --all-files && deactivate
 
-# this tool is optional not to be run automatically as it could have unexpected side-effects, but is useful when needing to remove a bulk of unused imports
+# this tool is optional not to be run automatically as it could have unexpected side-effects, but is useful when
+# needing to remove a bulk of unused imports
 autoflake: ## autoremove unused imports (careful!)
-	autoflake --quiet --in-place --remove-all-unused-imports --ignore-init-module-imports --ignore-pass-after-docstring -r arctic_training
+	@read -p "Running autoflake will remove unused imports and modify files in place. This could have unexpected side-effects. Do you want to continue? [y/n] " ans; \
+	if [ "$$ans" != "y" ]; then \
+		echo "Aborted."; \
+		exit 1; \
+	fi; \
+	autoflake --verbose --in-place --remove-all-unused-imports --ignore-init-module-imports --ignore-pass-after-docstring -r arctic_training
