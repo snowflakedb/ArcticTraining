@@ -27,7 +27,6 @@ from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
 from arctic_training import logger
-#from arctic_training.deepspeed import ChunkedMemEfficientLoss
 from arctic_training.trainer.sft_trainer import to_device
 from projects.swiftkv.models import DeepseekV2SwiftKVConfig
 from projects.swiftkv.models import LlamaSwiftKVConfig
@@ -208,34 +207,30 @@ class SwiftKVTrainer(SFTTrainer):
             # XXX: parameterize
             num_loss_logit_shards: Any = "auto"
 
-            if False:  # all((shift_labels == -100).squeeze()):
-                # this is the case where all labels in a micro-batch are -100 (very common for SFT) - CE returns `nan` in this case, so we don't want to call loss and instead create a differentiable loss `0` which will also set all the grads to `0` in `backward` - the effect of this is akin to a perfect score where the model needs no adjustment since grads will be all zeros.
-                # XXX: should this be float and not the original dtype?
-                loss = (logits.sum() * 0.0).float()
+            if num_loss_logit_shards == "auto":
+                # parameterize to about 1GB fp32 logits shards
+                slice_size_in_gb = 1  # XXX: make configurable?
+                size_in_gb = logits.numel() * 4 / 2**30  # fp32
+                # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
+                num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
+                # print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
+
+            if num_loss_logit_shards > 1:
+                loss = ChunkedMemEfficientLoss.apply(
+                    self.sp_loss,
+                    logits,
+                    self.model_unwrapped.config.vocab_size,
+                    shift_labels,
+                    num_loss_logit_shards,
+                )
             else:
-                if num_loss_logit_shards == "auto":
-                    # parameterize to about 1GB fp32 logits shards
-                    slice_size_in_gb = 1  # XXX: make configurable?
-                    size_in_gb = logits.numel() * 4 / 2**30  # fp32
-                    # the sp shard's seqlen sp shard can be easily not divisible by the derived number of chunked loss shards, so we use the uppper ceiling and allow the last chunk to be shorter than the rest
-                    num_loss_logit_shards = math.ceil(size_in_gb / slice_size_in_gb)
-                    # print(f"derived {num_loss_logit_shards} shards for size {size_in_gb}GB")
-                if num_loss_logit_shards > 1:
-                    loss = ChunkedMemEfficientLoss.apply(
-                        self.sp_loss,
-                        logits,
-                        self.model_unwrapped.config.vocab_size,
-                        shift_labels,
-                        num_loss_logit_shards,
-                    )
-                else:
-                    # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
-                    loss = self.sp_loss(
-                        logits=logits,
-                        labels=None,
-                        vocab_size=self.model_unwrapped.config.vocab_size,
-                        shift_labels=shift_labels,
-                    )
+                # XXX: for some reason this was failing with zero1 w/ previous design - need to retest with the new design
+                loss = self.sp_loss(
+                    logits=logits,
+                    labels=None,
+                    vocab_size=self.model_unwrapped.config.vocab_size,
+                    shift_labels=shift_labels,
+                )
 
             # differentiable weighted per-shard-loss aggregation across ranks
             import torch.distributed.nn.functional

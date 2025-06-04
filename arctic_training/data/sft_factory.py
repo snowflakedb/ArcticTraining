@@ -356,7 +356,6 @@ class SFTDataFactory(DataFactory):
             },
             remove_columns=dataset.column_names,
             num_proc=self.config.num_proc,
-            remove_columns=["messages"],
             desc="Tokenizing messages",
         )
 
