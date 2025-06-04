@@ -62,11 +62,7 @@ class AceMath(HFDataSource):
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         def process_example(example):
-            return {
-                "messages": example["messages"] + [
-                    {"role": "assistant", "content": example["answer"]}
-                ]
-            }
+            return {"messages": example["messages"] + [{"role": "assistant", "content": example["answer"]}]}
 
         return dataset.map(
             process_example,
