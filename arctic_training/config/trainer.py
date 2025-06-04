@@ -168,8 +168,7 @@ class TrainerConfig(BaseConfig):
         from deepspeed.accelerator import get_accelerator
 
         get_accelerator().set_device(self.local_rank)
-        import datetime
-        deepspeed.init_distributed(timeout=datetime.timedelta(seconds=60*60*10)) # 10h
+        deepspeed.init_distributed()
         return self
 
     @property

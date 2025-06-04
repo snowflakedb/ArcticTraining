@@ -81,7 +81,6 @@ dev = [
     "arctic_training[docs]",
     "arctic_training[formatting]",
     "arctic_training[testing]",
-    "pynvml",
 ]
 
 testing = [

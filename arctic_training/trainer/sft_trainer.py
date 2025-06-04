@@ -32,10 +32,6 @@ from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 
-# XXX: this will be moved to deepspeed
-if 1:
-    from arctic_training.deepspeed import ChunkedMemEfficientLoss
-
 
 class SFTTrainer(Trainer):
     name = "sft"

@@ -38,6 +38,6 @@ class HFSchedulerFactory(SchedulerFactory):
         return get_scheduler(
             name=self.config.name,
             optimizer=optimizer,
-            num_warmup_steps=num_warmup_steps * self.trainer.config.sequence_parallel_size,
-            num_training_steps=self.trainer.training_horizon * self.trainer.config.sequence_parallel_size,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=self.trainer.training_horizon,
         )
