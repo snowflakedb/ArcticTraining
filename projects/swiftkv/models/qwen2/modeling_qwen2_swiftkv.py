@@ -36,7 +36,7 @@ from transformers.models.qwen2.modeling_qwen2 import eager_attention_forward
 from transformers.processing_utils import Unpack
 from transformers.utils import logging
 
-from .config import Qwen2SwiftKVConfig
+from .configuration_qwen2_swiftkv import Qwen2SwiftKVConfig
 
 logger = logging.get_logger(__name__)
 

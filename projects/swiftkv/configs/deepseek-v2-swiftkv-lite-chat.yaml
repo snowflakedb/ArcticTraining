@@ -5,13 +5,13 @@ epochs: 1
 gradient_accumulation_steps: 1
 temperature: 2.0
 model:
-  name_or_path: Qwen/Qwen2.5-32B-Instruct
-  num_key_value_layers: 48
+  name_or_path: deepseek-ai/DeepSeek-V2-Lite-Chat
+  num_key_value_layers: 15
   key_value_group_size: 1
   attn_implementation: flash_attention_2
 deepspeed:
   zero_optimization:
-    stage: 3
+    stage: 2
 data:
   sources:
     - HuggingFaceH4/ultrachat_200k
@@ -34,5 +34,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /data/qwen2.5-swiftkv-32b-instruct
+    output_dir: /data/deepseek-v2-swiftkv-lite-chat
     save_end_of_training: true

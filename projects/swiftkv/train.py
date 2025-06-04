@@ -29,11 +29,14 @@ from arctic_training import TrainerConfig
 from arctic_training import logger
 #from arctic_training.deepspeed import ChunkedMemEfficientLoss
 from arctic_training.trainer.sft_trainer import to_device
-from projects.swiftkv import llama_swiftkv
-from projects.swiftkv import qwen2_swiftkv
+from projects.swiftkv.models import DeepseekV2SwiftKVConfig
+from projects.swiftkv.models import LlamaSwiftKVConfig
+from projects.swiftkv.models import Qwen2SwiftKVConfig
+from projects.swiftkv.models import register_all_swiftkv
+from projects.swiftkv.models.deepseek_v2 import register_deepseek_v2
 
-llama_swiftkv.register_auto()
-qwen2_swiftkv.register_auto()
+register_all_swiftkv()
+register_deepseek_v2()  # Explicitly register because it's not in transformers
 
 
 class SwiftKVModelConfig(ModelConfig):
@@ -49,10 +52,12 @@ class SwiftKVModelFactory(HFModelFactory):
         config_dict = hf_config.to_dict()
 
         model_type = config_dict.get("model_type")
-        if model_type in ["llama", "llama_swiftkv"]:
-            hf_config = llama_swiftkv.LlamaSwiftKVConfig.from_dict(config_dict)
+        if model_type in ["deepseek_v2", "deepseek_v2_swiftkv"]:
+            hf_config = DeepseekV2SwiftKVConfig.from_dict(config_dict)
+        elif model_type in ["llama", "llama_swiftkv"]:
+            hf_config = LlamaSwiftKVConfig.from_dict(config_dict)
         elif model_type in ["qwen2", "qwen2_swiftkv"]:
-            hf_config = qwen2_swiftkv.Qwen2SwiftKVConfig.from_dict(config_dict)
+            hf_config = Qwen2SwiftKVConfig.from_dict(config_dict)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
 
@@ -62,45 +67,59 @@ class SwiftKVModelFactory(HFModelFactory):
         return hf_config
 
     def post_create_model_callback(self, model):
+        if model.config.model_type == "deepseek_v2":
+            if model.config.q_lora_rank is None:
+                q_modules = ["q_proj"]
+            else:
+                q_modules = ["q_a_proj", "q_b_proj", "q_a_layernorm"]
+            kv_modules = ["kv_a_proj_with_mqa", "kv_b_proj", "kv_a_layernorm"]
+        else:
+            q_modules = ["q_proj"]
+            kv_modules = ["k_proj", "v_proj"]
+
         # Freeze all teacher parameters
         for param in model.parameters():
             param.requires_grad = False
 
-        # Initialize student layers
-        model.model.norm_swiftkv.weight.requires_grad = True
-        for layer in model.model.layers[model.config.num_key_value_layers :]:
-            # Initialize q_proj_swiftkv
-            q_proj_swiftkv = layer.self_attn.q_proj_swiftkv
-            if not model.config.swiftkv:
-                with GatheredParameters(layer.parameters(), modifier_rank=0):
-                    q_proj_swiftkv.weight.data.copy_(layer.self_attn.q_proj.weight.data)
-                    if getattr(q_proj_swiftkv, "bias", None) is not None:
-                        q_proj_swiftkv.bias.data.copy_(layer.self_attn.q_proj.bias.data)
-            q_proj_swiftkv.weight.requires_grad = True
-            if getattr(q_proj_swiftkv, "bias", None) is not None:
-                q_proj_swiftkv.bias.requires_grad = True
-        for layer_idx in range(
-            model.config.num_key_value_layers,
-            model.config.num_hidden_layers,
-            model.config.key_value_group_size,
+        # Initialize the swiftkv norm to the norm of the first non-kv layer.
+        layer = model.model.layers[model.config.num_key_value_layers]
+        with GatheredParameters(
+            list(model.model.norm_swiftkv.parameters()) + list(layer.input_layernorm.parameters()), modifier_rank=0
         ):
-            this_attn = model.model.layers[layer_idx].self_attn
-            next_attn = [model.model.layers[layer_idx + i].self_attn for i in range(model.config.key_value_group_size)]
-            for param in ("k_proj", "v_proj"):
-                kv_proj_swiftkv = getattr(this_attn, f"{param}_swiftkv")
-                # Initialize k_proj or v_proj weights
-                if not model.config.swiftkv:
-                    weights = [kv_proj_swiftkv.weight] + [getattr(attn, f"{param}").weight for attn in next_attn]
-                    with GatheredParameters(weights, modifier_rank=0):
-                        weights[0].data.copy_(sum(weights[1:]) / model.config.key_value_group_size)
-                    # Initialize k_proj or v_proj biases (if they exist)
-                    if getattr(kv_proj_swiftkv, "bias", None) is not None:
-                        biases = [kv_proj_swiftkv.bias] + [getattr(attn, f"{param}").bias for attn in next_attn]
-                        with GatheredParameters(biases, modifier_rank=0):
-                            biases[0].data.copy_(sum(biases[1:]) / model.config.key_value_group_size)
-                kv_proj_swiftkv.weight.requires_grad = True
-                if getattr(kv_proj_swiftkv, "bias", None) is not None:
-                    kv_proj_swiftkv.bias.requires_grad = True
+            model.model.norm_swiftkv.weight.data.copy_(layer.input_layernorm.weight.data)
+        model.model.norm_swiftkv.weight.requires_grad = True
+
+        # Initialize all query parameters directly from the corresponding teacher layer.
+        for layer in model.model.layers[model.config.num_key_value_layers :]:
+            attn = layer.self_attn
+            with GatheredParameters(attn.parameters(), modifier_rank=0):
+                for q_module in q_modules:
+                    teacher_params = getattr(attn, q_module).parameters()
+                    student_params = getattr(attn, f"{q_module}_swiftkv").parameters()
+                    for teacher_param, student_param in zip(teacher_params, student_params):
+                        student_param.data.copy_(teacher_param.data)
+                        student_param.requires_grad = True
+
+        # Initialize all kv parameters to the mean of the teacher layers in each kv group.
+        for idx, layer in enumerate(model.model.layers[model.config.num_key_value_layers :]):
+            attn = layer.self_attn
+            if idx % model.config.key_value_group_size == 0:
+                # This layer has swiftkv parameters, zero them out.
+                kv_attn = attn
+                with GatheredParameters(kv_attn.parameters(), modifier_rank=0):
+                    # Zero out the swiftkv parameters
+                    for kv_module in kv_modules:
+                        for param in getattr(kv_attn, f"{kv_module}_swiftkv").parameters():
+                            param.data.zero_()
+                            param.requires_grad = True
+            with GatheredParameters(attn.parameters(), modifier_rank=0):
+                # Accumulate the teacher parameters into the swiftkv parameters.
+                for kv_module in kv_modules:
+                    teacher_params = getattr(attn, kv_module).parameters()
+                    student_params = getattr(kv_attn, f"{kv_module}_swiftkv").parameters()
+                    for teacher_param, student_param in zip(teacher_params, student_params):
+                        student_param.data.add_(teacher_param.data / model.config.key_value_group_size)
+
         model.gradient_checkpointing_enable()
         return model
 

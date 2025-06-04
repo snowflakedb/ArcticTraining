@@ -2,6 +2,10 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+# this is needed when we want to point to a github branch in `dependencies` - leave it enabled
+allow-direct-references = true
+
 [tool.hatch.build]
 include = [
   "arctic_training_cli.py",
@@ -13,7 +17,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.4.dev0"
+version = "0.0.5.dev0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -46,7 +50,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>=0.16.4", # XXX: needs to be >0.16.4 once it's released to include https://github.com/deepspeedai/DeepSpeed/pull/7175
+    "deepspeed>=0.17.0",
     "devtools",
     "jsonlines",
     "loguru",
@@ -58,7 +62,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.51.0", # attention api
+    "transformers>=4.51.3", # attention api + qwen
     "wandb",
     "yq",
 ]
