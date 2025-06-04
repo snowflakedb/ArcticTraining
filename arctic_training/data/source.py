@@ -71,9 +71,10 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         sample_count = None
 
         if self.config.sample_ratio is not None:
+            assert self.config.sample_count is None, (
+                "sample_ratio and sample_count cannot both be set.")
             sample_count = int(len(dataset) * self.config.sample_ratio)
-
-        if self.config.sample_count is not None:
+        elif self.config.sample_count is not None:
             sample_count = self.config.sample_count
 
         if sample_count is not None:
