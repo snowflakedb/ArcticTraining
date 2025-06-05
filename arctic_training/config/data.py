@@ -74,7 +74,9 @@ class DataSourceConfig(BaseConfig):
 
     @model_validator(mode="after")
     def sample_ratio_or_sample_count(self) -> Self:
-        assert self.sample_ratio is None or self.sample_count is None, "sample_ratio and sample_count cannot both be set."
+        assert (
+            self.sample_ratio is None or self.sample_count is None
+        ), "sample_ratio and sample_count cannot both be set."
         return self
 
 
