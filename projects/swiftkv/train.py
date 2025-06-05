@@ -163,10 +163,9 @@ class SwiftKVTrainer(SFTTrainer):
                 mask=(batch["labels"] != -100),
             )
 
-            hidden_loss = self.hidden_loss(
-                student_outputs.hidden_states[self.config.hidden_loss_layer],
-                teacher_outputs.hidden_states[self.config.hidden_loss_layer],
-            )
+            teacher_kv_states = torch.cat(teacher_outputs.kv_states, dim=-1)
+            student_kv_states = torch.cat(student_outputs.kv_states, dim=-1)
+            hidden_loss = self.hidden_loss(student_kv_states, teacher_kv_states)
 
             logger.info(
                 f"student loss: {student_outputs.loss.item()}, "
@@ -195,14 +194,13 @@ class SwiftKVTrainer(SFTTrainer):
 
             shift_labels = batch.pop("shift_labels")
             student_outputs, teacher_outputs = self.forward(batch)
+            student_kv_states = torch.cat(student_outputs.kv_states, dim=-1)
+            teacher_kv_states = torch.cat(teacher_outputs.kv_states, dim=-1)
+            assert student_kv_states.shape == teacher_kv_states.shape
             logits = torch.cat([
-                student_outputs.logits,
-                student_outputs.hidden_states[self.config.hidden_loss_layer],
-                teacher_outputs.logits,
-                teacher_outputs.hidden_states[self.config.hidden_loss_layer],
+                student_outputs.logits, student_kv_states,
+                teacher_outputs.logits, teacher_kv_states,
             ], dim=-1)
-            del student_outputs.hidden_states
-            del teacher_outputs.hidden_states
 
             # XXX: parameterize
             num_loss_logit_shards: Any = "auto"
@@ -275,10 +273,15 @@ class SwiftKVTrainer(SFTTrainer):
 
     def sp_loss(self, logits, labels=None, vocab_size=None, shift_labels=None):
         vocab_size = self.model_unwrapped.config.vocab_size
-        hidden_size = self.model_unwrapped.config.hidden_size
-        student_logits, student_hidden, teacher_logits, teacher_hidden = torch.split(
-            logits, [vocab_size, hidden_size, vocab_size, hidden_size], dim=-1
-        )
+        #hidden_size = self.model_unwrapped.config.hidden_size
+        student_outputs, teacher_outputs = logits.chunk(2, dim=-1)
+        student_logits = student_outputs[:, :, :vocab_size]
+        student_kv_states = student_outputs[:, :, vocab_size:]
+        teacher_logits = teacher_outputs[:, :, :vocab_size]
+        teacher_kv_states = teacher_outputs[:, :, vocab_size:]
+        # student_logits, student_hidden, teacher_logits, teacher_hidden = torch.split(
+        #     logits, [vocab_size, hidden_size, vocab_size, hidden_size], dim=-1
+        # )
         # logits loss
         logits_loss = self.logits_loss(
             student_logits,
@@ -288,8 +291,8 @@ class SwiftKVTrainer(SFTTrainer):
         )
         # hidden loss
         hidden_loss = self.hidden_loss(
-            student_hidden,
-            teacher_hidden,
+            student_kv_states,
+            teacher_kv_states,
         )
         return logits_loss + self.config.hidden_loss_mult * hidden_loss
 

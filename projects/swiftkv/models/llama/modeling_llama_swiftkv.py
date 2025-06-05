@@ -89,6 +89,7 @@ class LlamaSwiftKVAttention(LlamaAttention):
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
+        kv_states = torch.cat([key_states, value_states], dim=-1)
 
         query_states = query_states.view(hidden_shape).transpose(1, 2)
         key_states = key_states.view(hidden_shape).transpose(1, 2)
@@ -126,7 +127,7 @@ class LlamaSwiftKVAttention(LlamaAttention):
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
-        return attn_output, attn_weights
+        return attn_output, attn_weights, kv_states
 
 
 class LlamaSwiftKVDecoderLayer(nn.Module):
@@ -158,7 +159,7 @@ class LlamaSwiftKVDecoderLayer(nn.Module):
         hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
-        hidden_states, self_attn_weights = self.self_attn(
+        hidden_states, self_attn_weights, kv_states = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             swiftkv_key_states=swiftkv_key_states,
@@ -183,7 +184,7 @@ class LlamaSwiftKVDecoderLayer(nn.Module):
         if output_attentions:
             outputs += (self_attn_weights,)
 
-        return outputs
+        return outputs, kv_states
 
 
 class LlamaSwiftKVModel(LlamaModel):
@@ -281,6 +282,7 @@ class LlamaSwiftKVModel(LlamaModel):
         swiftkv_key_states = {}
         swiftkv_value_states = {}
         num_key_value_layers = self.config.num_key_value_layers or self.config.num_hidden_layers
+        all_kv_states = []
         for layer_idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -302,7 +304,7 @@ class LlamaSwiftKVModel(LlamaModel):
                     )
 
             if self.gradient_checkpointing and self.training and layer_idx >= num_key_value_layers:
-                layer_outputs = self._gradient_checkpointing_func(
+                layer_outputs, kv_states = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,
                     swiftkv_key_states.get(layer_idx, None),
@@ -316,7 +318,7 @@ class LlamaSwiftKVModel(LlamaModel):
                     position_embeddings,
                 )
             else:
-                layer_outputs = decoder_layer(
+                layer_outputs, kv_states = decoder_layer(
                     hidden_states,
                     swiftkv_key_states.get(layer_idx, None),
                     swiftkv_value_states.get(layer_idx, None),
@@ -335,6 +337,9 @@ class LlamaSwiftKVModel(LlamaModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
+            if layer_idx >= num_key_value_layers:
+                all_kv_states.append(kv_states)
+
         hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer
@@ -347,6 +352,7 @@ class LlamaSwiftKVModel(LlamaModel):
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
         )
+        self.kv_states = all_kv_states
         return output if return_dict else output.to_tuple()
 
 
@@ -362,6 +368,12 @@ class LlamaSwiftKVForCausalLM(LlamaForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def forward(self, *args, **kwargs):
+        outputs = super().forward(*args, **kwargs)
+        outputs.kv_states = self.model.kv_states
+        del self.model.kv_states
+        return outputs
 
     def swiftkv(self, swiftkv: bool = True):
         self.config.swiftkv = swiftkv
