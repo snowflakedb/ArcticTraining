@@ -72,6 +72,11 @@ class DataSourceConfig(BaseConfig):
     def data_source(self) -> Type["DataSource"]:
         return get_registered_data_source(self.type)
 
+    @model_validator(mode="after")
+    def sample_ratio_or_sample_count(self) -> Self:
+        assert self.sample_ratio is None or self.sample_count is None, "sample_ratio and sample_count cannot both be set."
+        return self
+
 
 class DataConfig(BaseConfig):
     type: str = ""
