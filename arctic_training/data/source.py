@@ -85,7 +85,6 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
                 sample_count = len(dataset)
             else:
                 logger.info(f"Sampling {sample_count} examples from {self.name}")
-                sample_count = min(sample_count, len(dataset))
             rng = random.Random(self.config.sample_seed)
             indices = rng.sample(range(len(dataset)), sample_count)
             dataset = dataset.select(indices)
