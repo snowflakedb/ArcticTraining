@@ -57,6 +57,20 @@ class HFDataSource(DataSource):
         return dataset
 
 
+class AceMath(HFDataSource):
+    name = "nvidia/AceMath-Instruct-Training-Data"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        def process_example(example):
+            return {"messages": example["messages"] + [{"role": "assistant", "content": example["answer"]}]}
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc=f"Loading {self.name}",
+        )
+
+
 class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
@@ -65,6 +79,36 @@ class UltraChat200K(HFDataSource):
         for original, modified in split_map.items():
             split = split.replace(original, modified)
         return split
+
+
+class OpenOrca(HFDataSource):
+    name = "Open-Orca/OpenOrca"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                system_key="system_prompt",
+                query_key="question",
+                response_key="response",
+                source_name="OpenOrca",
+            ),
+            num_proc=self.data_factory.config.num_proc,
+            desc=f"Loading {self.name}",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, system_key, query_key, response_key, source_name):
+        conversation = [
+            {"role": "system", "content": example[system_key]},
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
 
 
 class SlimOrca(HFDataSource):
@@ -153,6 +197,7 @@ class LMSysChat1M(HFDataSource):
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         formatted_dataset = dataset.map(
             partial(self.vicuna_format_conversation, source_name="LMSYS-CHAT-1M"),
+            num_proc=self.data_factory.config.num_proc,
             desc="Loading lmsys",
         )
         return formatted_dataset
