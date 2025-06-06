@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
 from typing import Dict
 from typing import List
 from typing import Literal
@@ -178,26 +179,51 @@ class DataCollatorForCausalLM:
 
 
 def pack_sft_batch(
-    batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
+    batch: Dict[str, List[List[int]]],
+    max_length: int,
+    min_length: int,
+    always_max_length: bool,
+    fuse_position_ids: bool,
+    fuse_position_ids_prob: float,
+    seed: int,
 ) -> Dict[str, List[List[int]]]:
     keys = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
 
-    def should_flush() -> bool:
-        total_len = len(current_sample["input_ids"])
-        return total_len > max_length or (not always_max_length and total_len + len(input_ids) > max_length)
+    rng = random.Random(seed)
 
     def flush() -> None:
         if len(current_sample["input_ids"]) > 0:
+            if fuse_position_ids and rng.random() <= fuse_position_ids_prob:
+                current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
             for k in keys:
                 packed_batch[k].append(current_sample[k])
                 current_sample[k] = []
 
-    # Pack multiple samples into one sample
+    # pack multiple samples into one sample
     for input_ids, labels, attention_mask in zip(batch["input_ids"], batch["labels"], batch["attention_mask"]):
-        if should_flush():
-            flush()
+
+        if len(input_ids) > max_length and not always_max_length:
+            continue
+
+        pad_len = 0
+        if len(current_sample["input_ids"]) + len(input_ids) > max_length:
+            if always_max_length and len(current_sample["input_ids"]) < max_length:
+                # Pad the packed example using the current sequence
+                pad_len = max_length - len(current_sample["input_ids"])
+                current_sample["input_ids"].extend(input_ids[:pad_len])
+                current_sample["labels"].extend(labels[:pad_len])
+                current_sample["attention_mask"].extend(attention_mask[:pad_len])
+                current_sample["position_ids"].extend(range(pad_len))
+                current_sample["packed_sample_seqlens"].extend([pad_len])
+            if len(current_sample["input_ids"]) >= min_length:
+                flush()
+            current_sample = {key: [] for key in keys}
+
+        if pad_len:
+            # Current input_ids were used for padding, so skip them
+            continue
 
         current_sample["input_ids"].extend(input_ids)
         current_sample["labels"].extend(labels)
@@ -205,13 +231,18 @@ def pack_sft_batch(
         current_sample["position_ids"].extend(range(len(input_ids)))
         current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
-    # Add the last example
-    flush()
+    # Add the last example if it fits
+    if len(current_sample["input_ids"]) >= min_length and not always_max_length:
+        flush()
 
     return packed_batch
 
 
 class SFTDataConfig(DataConfig):
+
+    min_length: HumanInt = 1
+    """ Minimum length of the input sequence. """
+
     div_length: HumanInt = 256
     """ The number that the length of the sequence should be divisible by. """
 
@@ -233,6 +264,10 @@ class SFTDataConfig(DataConfig):
 
     pack_samples: bool = True
     """ Whether to pack multiple samples into samples up to size `max_length`. """
+
+    fuse_position_ids: bool = False
+
+    fuse_position_ids_prob: float = 1.0
 
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
@@ -274,9 +309,14 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     batch_size = len(dataset) // self.config.num_proc + 1
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
-        lambda x: pack_sft_batch(
-            x, max_length=self.config.max_length, always_max_length=self.config.always_max_length
-        ),
+        lambda batch: pack_sft_batch(
+            batch,
+            max_length=self.config.max_length,
+            min_length=self.config.min_length,
+            always_max_length=self.config.always_max_length,
+            fuse_position_ids=self.config.fuse_position_ids,
+            fuse_position_ids_prob=self.config.fuse_position_ids_prob,
+            seed=self.config.seed),
         batched=True,
         batch_size=batch_size,
         num_proc=self.config.num_proc,
@@ -291,7 +331,6 @@ class SFTDataFactory(DataFactory):
     name = "sft"
     config: SFTDataConfig
     callbacks = [
-        ("post-load", filter_dataset_length),
         ("post-load", pack_dataset),
     ]
 
