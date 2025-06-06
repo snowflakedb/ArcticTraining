@@ -62,16 +62,12 @@ class AceMath(HFDataSource):
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         def process_example(example):
-            return {
-                "messages": example["messages"] + [
-                    {"role": "assistant", "content": example["answer"]}
-                ]
-            }
+            return {"messages": example["messages"] + [{"role": "assistant", "content": example["answer"]}]}
 
         return dataset.map(
             process_example,
             num_proc=self.data_factory.config.num_proc,
-            desc="Loading AceMath",
+            desc=f"Loading {self.name}",
         )
 
 
@@ -146,6 +142,36 @@ class UltraChat200K(HFDataSource):
         return split
 
 
+class OpenOrca(HFDataSource):
+    name = "Open-Orca/OpenOrca"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                system_key="system_prompt",
+                query_key="question",
+                response_key="response",
+                source_name="OpenOrca",
+            ),
+            num_proc=self.data_factory.config.num_proc,
+            desc=f"Loading {self.name}",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, system_key, query_key, response_key, source_name):
+        conversation = [
+            {"role": "system", "content": example[system_key]},
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
+
+
 class LongAlign10K(HFDataSource):
     name = "THUDM/LongAlign-10k"
 
@@ -168,36 +194,6 @@ class LongAlpaca12K(HFDataSource):
     @staticmethod
     def instruct_format_conversation(example, query_key, response_key, source_name):
         conversation = [
-            {"role": "user", "content": example[query_key]},
-            {"role": "assistant", "content": example[response_key]},
-        ]
-        return {
-            "source": source_name,
-            "messages": conversation,
-        }
-
-
-class OpenOrca(HFDataSource):
-    name = "Open-Orca/OpenOrca"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        formatted_dataset = dataset.map(
-            partial(
-                self.instruct_format_conversation,
-                system_key="system_prompt",
-                query_key="question",
-                response_key="response",
-                source_name="OpenOrca",
-            ),
-            num_proc=self.data_factory.config.num_proc,
-            desc="Loading meta-math",
-        )
-        return formatted_dataset
-
-    @staticmethod
-    def instruct_format_conversation(example, system_key, query_key, response_key, source_name):
-        conversation = [
-            {"role": "system", "content": example[system_key]},
             {"role": "user", "content": example[query_key]},
             {"role": "assistant", "content": example[response_key]},
         ]

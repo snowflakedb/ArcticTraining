@@ -57,8 +57,13 @@ class DataSourceConfig(BaseConfig):
     """
 
     sample_ratio: Optional[float] = None
+    """Ratio of the dataset to randomly sample. If None, all examples are used."""
 
     sample_count: Optional[int] = None
+    """Number of examples to randomly sample. If None, all examples are used."""
+
+    sample_seed: int = 42
+    """Seed for random sampling. Used only if `sample_ratio` or `sample_count` is set."""
 
     process: bool = True
     """ Whether to process the data with the data factory `process` function (e.g., tokenization for SFTDataFactory). """
@@ -66,6 +71,13 @@ class DataSourceConfig(BaseConfig):
     @property
     def data_source(self) -> Type["DataSource"]:
         return get_registered_data_source(self.type)
+
+    @model_validator(mode="after")
+    def sample_ratio_or_sample_count(self) -> Self:
+        assert (
+            self.sample_ratio is None or self.sample_count is None
+        ), "sample_ratio and sample_count cannot both be set."
+        return self
 
 
 class DataConfig(BaseConfig):

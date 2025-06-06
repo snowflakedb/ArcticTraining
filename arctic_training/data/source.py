@@ -67,17 +67,28 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
             return load_from_disk(self.cache_path.as_posix())
 
         dataset = self.load(self.config, self.config.split)
+
         sample_count = None
+
         if self.config.sample_ratio is not None:
+            assert self.config.sample_count is None
             sample_count = int(len(dataset) * self.config.sample_ratio)
-        if self.config.sample_count is not None:
+        elif self.config.sample_count is not None:
             sample_count = self.config.sample_count
+
         if sample_count is not None:
-            sample_count = min(sample_count, len(dataset))
-            logger.info(f"Sampling {sample_count} rows from {self.name}")
-            rng = random.Random(self.data_factory.config.seed)
+            if len(dataset) < sample_count:
+                logger.warning(
+                    f"Requested sample count {sample_count} is larger than the dataset size {len(dataset)}. "
+                    f"Using the full dataset {self.name} instead."
+                )
+                sample_count = len(dataset)
+            else:
+                logger.info(f"Sampling {sample_count} examples from {self.name}")
+            rng = random.Random(self.config.sample_seed)
             indices = rng.sample(range(len(dataset)), sample_count)
             dataset = dataset.select(indices)
+
         if len(dataset) < 1:
             raise ValueError(
                 f"Empty dataset from load() for data source type {self.name} with"
