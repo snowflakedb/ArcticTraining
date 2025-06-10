@@ -47,7 +47,7 @@ class HFDataSource(DataSource):
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
         # Support loading local datasets
-        if config.name_or_path.exists():
+        if config.name_or_path.exists() or "data_files" in config.kwargs:
             dataset = load_from_disk(config.name_or_path.as_posix(), **config.kwargs)
             if isinstance(dataset, DatasetDict):
                 dataset = dataset[split]
