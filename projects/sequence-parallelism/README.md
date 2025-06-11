@@ -1,15 +1,15 @@
-# Ulysses Plus - very long sequence length post-training
+# Arctic Long Sequence Training (ALST)
 
-Ulysses Plus enables very long sequence length post-training using out-of-the-box HuggingFace Transformers models. There are two parts to Ulysses Plus:
+Arctic Long Sequence Training (ALST) enables very long sequence length post-training using out-of-the-box HuggingFace Transformers models. There are two parts to ALST:
 
 1. Ulysses Sequence Parallelism for HF Transformers implements an efficient way of processing long sequences by employing sequence parallelism and attention head parallelism.
-2. Ulysses Plus enables even longer sequence lengths using multiple tricks such as activation checkpoint offload to CPU, tiled MLP and logit+loss compute and `PYTORCH_CUDA_ALLOC_CONF` optimizations.
+2. Arctic Long Sequence Training enables even longer sequence lengths using multiple tricks such as activation checkpoint offload to CPU, tiled MLP and logit+loss compute and `PYTORCH_CUDA_ALLOC_CONF` optimizations.
 
 Where to do next:
 
 1. If you want to jump right into trying it out proceed to [SFT Training examples](#sft-training-examples).
 2. To go into more details refer to [USAGE.md](USAGE.md).
-3. To integrate UlyssesPlus into a different framework see: https://www.deepspeed.ai/tutorials/ulysses-plus-sequence-pallellism
+3. To integrate ALST into a different framework see: https://www.deepspeed.ai/tutorials/ulysses-alst-sequence-pallellism
 
 ## SFT Training examples
 
