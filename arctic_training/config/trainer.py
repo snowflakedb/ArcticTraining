@@ -417,7 +417,6 @@ def load_user_module_from_path(script_path: Path) -> None:
     symlink_path = shared_tmp_dir / f"{unique_module_name}.py"
     try:
         symlink_path.symlink_to(script_path)
-        print(f"CREATED symlink for user script: {symlink_path}")
     except FileExistsError:
         # Another proc created the symlink first, use that one
         pass
