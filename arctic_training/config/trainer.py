@@ -15,6 +15,8 @@
 
 import importlib.util
 import sys
+import tempfile
+import uuid
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -403,6 +405,35 @@ class TrainerConfig(BaseConfig):
         return self
 
 
+def load_user_module_from_path(script_path: Path) -> None:
+    # Symlink the script to a temporary directory to avoid clashing with other modules
+    tmp_root = Path(tempfile.gettempdir())
+    shared_tmp_dir = tmp_root / "arctic_training_custom_module_symlinks"
+    shared_tmp_dir.mkdir(exist_ok=True)
+    # Generate the same unique name for a given script path across all processes
+    unique_module_name = (
+        f"user_{script_path.stem}_{uuid.uuid5(uuid.NAMESPACE_URL, str(script_path.resolve())).hex[:8]}"
+    )
+    symlink_path = shared_tmp_dir / f"{unique_module_name}.py"
+    try:
+        symlink_path.symlink_to(script_path)
+        print(f"CREATED symlink for user script: {symlink_path}")
+    except FileExistsError:
+        # Another proc created the symlink first, use that one
+        pass
+
+    # Insert into path so child procs can import it
+    sys.path.insert(0, str(shared_tmp_dir))
+    spec = importlib.util.spec_from_file_location(unique_module_name, symlink_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load script from {symlink_path}")
+
+    # Load user module
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[unique_module_name] = module
+    spec.loader.exec_module(module)
+
+
 def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
     if isinstance(config_file_or_dict, dict):
         config_dict = config_file_or_dict.copy()
@@ -415,28 +446,14 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
     trainer_type = config_dict.get("type", TRAINER_DEFAULT)
     config_dict["type"] = trainer_type
 
-    trainer_script = config_dict.get("code", CUSTOM_CODE_DEFAULT)
-
-    script_path = Path(trainer_script)
+    script_path = Path(config_dict.get("code", CUSTOM_CODE_DEFAULT))
     if not script_path.is_absolute():
         script_path = config_dir / script_path
     script_path = script_path.resolve()
 
     if script_path.exists():
-        config_dict["code"] = trainer_script
-        module_name = "custom_trainer"
-        script_dir = str(script_path.parent)
-        original_sys_path = sys.path.copy()
-        sys.path.insert(0, script_dir)
-        try:
-            spec = importlib.util.spec_from_file_location(module_name, script_path)
-            if spec is None:
-                raise ImportError(f"Cannot load script from {script_path}")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)  # type: ignore
-        finally:
-            sys.path = original_sys_path
+        config_dict["code"] = script_path
+        load_user_module_from_path(script_path)
     elif config_dict.get("code") is not None:
         # User specified a script that doesn't exist
         raise FileNotFoundError(f"Cannot find script at {script_path}")
