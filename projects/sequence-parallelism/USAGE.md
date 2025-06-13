@@ -1,9 +1,9 @@
-# Ulysses Sequence Parallelism Plus for HF Transformers Usage
+# Arctic Long Sequence Training (ALST) for HF Transformers Usage
 
-There are two parts to Ulysses Plus:
+There are two parts to Arctic Long Sequence Training (ALST):
 
 1. Ulysses Sequence Parallelism for HF Transformers implements an efficient way of processing long sequences by employing sequence parallelism and attention head parallelism. This is enabled with [sequence_parallel_size](#sequence_parallel_size)
-2. Ulysses Plus enables even longer sequence lengths using a bag of tricks:
+2. Arctic Long Sequence Training (ALST) enables even longer sequence lengths using a bag of tricks:
 - [Activation checkpoint offload to CPU](#activation_checkpoint_cpu_offload)
 - [Tiled MLP compute](#tiled_mlp_compute)
 - [Liger-kernel](#liger-kernel)
@@ -142,10 +142,10 @@ which makes the reduction bucket 4x smaller than `5e8` you will incur only 1GB o
 
 ### Testing correctness
 
-If you want to ensure you get the same outcome with and without UlyssesPlus, you can easily perform the comparison. For example for 8 GPUs you'd use the same config yaml, with the exception of these lines:
+If you want to ensure you get the same outcome with and without ALST, you can easily perform the comparison. For example for 8 GPUs you'd use the same config yaml, with the exception of these lines:
 
 ```
-# non-UlyssesPlus
+# non-ALST
 sequence_parallel_size: 1
 gradient_accumulation_steps: 1
 #activation_checkpoint_cpu_offload: true
@@ -153,7 +153,7 @@ gradient_accumulation_steps: 1
 ```
 vs.
 ```
-# UlyssesPlus
+# ALST
 sequence_parallel_size: 8
 gradient_accumulation_steps: 8
 activation_checkpoint_cpu_offload: true
