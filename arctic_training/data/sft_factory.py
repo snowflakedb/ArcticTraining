@@ -181,7 +181,6 @@ class DataCollatorForCausalLM:
 def pack_sft_batch(
     batch: Dict[str, List[List[int]]],
     max_length: int,
-    min_length: int,
     always_max_length: bool,
     fuse_position_ids: bool,
     fuse_position_ids_prob: float,
@@ -217,8 +216,7 @@ def pack_sft_batch(
                 current_sample["attention_mask"].extend(attention_mask[:pad_len])
                 current_sample["position_ids"].extend(range(pad_len))
                 current_sample["packed_sample_seqlens"].extend([pad_len])
-            if len(current_sample["input_ids"]) >= min_length:
-                flush()
+            flush()
             current_sample = {key: [] for key in keys}
 
         if pad_len:
@@ -232,16 +230,13 @@ def pack_sft_batch(
         current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
     # Add the last example if it fits
-    if len(current_sample["input_ids"]) >= min_length and not always_max_length:
+    if len(current_sample["input_ids"]) == max_length or not always_max_length:
         flush()
 
     return packed_batch
 
 
 class SFTDataConfig(DataConfig):
-
-    min_length: HumanInt = 1
-    """ Minimum length of the input sequence. """
 
     div_length: HumanInt = 256
     """ The number that the length of the sequence should be divisible by. """
@@ -312,7 +307,6 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
         lambda batch: pack_sft_batch(
             batch,
             max_length=self.config.max_length,
-            min_length=self.config.min_length,
             always_max_length=self.config.always_max_length,
             fuse_position_ids=self.config.fuse_position_ids,
             fuse_position_ids_prob=self.config.fuse_position_ids_prob,

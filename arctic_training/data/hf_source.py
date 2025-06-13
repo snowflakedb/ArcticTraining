@@ -71,25 +71,6 @@ class AceMath(HFDataSource):
         )
 
 
-class LocPdBooks(HFDataSource):
-    name = "storytracer/LoC-PD-Books"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-
-        def process_example(example):
-            return {
-                "messages": [
-                    {"role": "user", "content": example["text"]}
-                ]
-            }
-
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc="Loading LoC-PD-Books",
-        )
-
-
 class ProjectGutenberg(HFDataSource):
     name = "manu/project_gutenberg"
 
