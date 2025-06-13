@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.metadata]
 # this is needed when we want to point to a github branch in `dependencies` - leave it enabled
 allow-direct-references = true
+license-files = [
+  "LICENSE",
+]
 
 [tool.hatch.build]
 include = [
@@ -29,7 +32,6 @@ authors = [
     {author = "Canwen Xu", email = "canwen.xu@snowflake.com"}
 ]
 license = "Apache-2.0"
-license-files = ["LICENSE"]
 readme = "README.md"
 homepage = "https://github.com/snowflakedb/ArcticTraining"
 repository = "https://github.com/snowflakedb/ArcticTraining"
