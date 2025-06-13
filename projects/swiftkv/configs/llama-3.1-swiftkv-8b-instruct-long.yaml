@@ -83,5 +83,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/aqiao/llama-3.1-swiftkv-8b-instruct-long
+    output_dir: /checkpoint/llama-3.1-swiftkv-8b-instruct-long
     save_end_of_training: true
