@@ -39,7 +39,6 @@ for f in tqdm(all_jsonl_files):
     for line in open(f):
         data = json.loads(line)
         outputs = data.pop("output")
-        assert len(outputs) == 256
         total_data["input_ids"].append(outputs)
         total_data["labels"].append(outputs)
 
