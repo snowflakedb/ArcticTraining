@@ -77,11 +77,7 @@ class ProjectGutenberg(HFDataSource):
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
 
         def process_example(example):
-            return {
-                "messages": [
-                    {"role": "user", "content": example["text"]}
-                ]
-            }
+            return {"messages": [{"role": "user", "content": example["text"]}]}
 
         return dataset.map(
             process_example,
@@ -96,11 +92,7 @@ class ProjectGutenbergLong400K(HFDataSource):
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
 
         def process_example(example):
-            return {
-                "messages": [
-                    {"role": "user", "content": example["text"]}
-                ]
-            }
+            return {"messages": [{"role": "user", "content": example["text"]}]}
 
         return dataset.map(
             process_example,

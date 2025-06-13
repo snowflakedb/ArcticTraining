@@ -26,7 +26,6 @@ from arctic_training import HFModelFactory
 from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
-from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
 from projects.swiftkv.models import DeepseekV2SwiftKVConfig
 from projects.swiftkv.models import LlamaSwiftKVConfig
@@ -168,6 +167,7 @@ class SwiftKVTrainer(SFTTrainer):
 
     def loss(self, batch) -> torch.Tensor:
         import torch
+
         batch = to_device(batch, self.device)
 
         student_outputs, teacher_outputs = self.forward(batch)
@@ -190,7 +190,7 @@ class SwiftKVTrainer(SFTTrainer):
             # authors of the paper "Distilling the knowledge in a neural network"
             logits_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob), dim=-1)
             logits_loss = logits_loss * mask  # Zero out the masked positions
-            logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp ** 2)
+            logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp**2)
 
             hidden_loss = F.mse_loss(student_hidden, teacher_hidden)
             return logits_loss + self.config.hidden_loss_mult * hidden_loss
@@ -203,7 +203,7 @@ class SwiftKVTrainer(SFTTrainer):
                 "student_concat": torch.cat([student_logits, student_hidden], dim=-1),
                 "teacher_logits": teacher_logits,
                 "teacher_hidden": teacher_hidden,
-                "mask": (shift_labels != -100),
+                "mask": shift_labels != -100,
             }
 
             return sequence_tiled_compute(
