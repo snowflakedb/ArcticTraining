@@ -182,6 +182,7 @@ def pack_sft_batch(
     batch: Dict[str, List[List[int]]],
     max_length: int,
     always_max_length: bool,
+    drop_last: bool,
     fuse_positions_prob: float,
     seed: int,
 ) -> Dict[str, List[List[int]]]:
@@ -215,7 +216,7 @@ def pack_sft_batch(
         current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
     # Add the last example
-    if should_flush():
+    if not drop_last:
         flush()
 
     return packed_batch
@@ -243,6 +244,9 @@ class SFTDataConfig(DataConfig):
 
     pack_samples: bool = True
     """ Whether to pack multiple samples into samples up to size `max_length`. """
+
+    drop_last: bool = False
+    """ Whether to drop the last packed sample, which might be shorter than `max_length`. """
 
     fuse_positions_prob: float = 0.0
     """
@@ -296,6 +300,7 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
             x,
             max_length=self.config.max_length,
             always_max_length=self.config.always_max_length,
+            drop_last=self.config.drop_last,
             fuse_positions_prob=self.config.fuse_positions_prob,
             seed=self.config.seed,
         ),
