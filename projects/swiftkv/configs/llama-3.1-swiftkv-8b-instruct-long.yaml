@@ -69,6 +69,7 @@ data:
   max_length: 163840
   always_max_length: true
   mask_inputs: true
+  drop_last: true
   fuse_positions_prob: 0.1
 logger:
   level: INFO
