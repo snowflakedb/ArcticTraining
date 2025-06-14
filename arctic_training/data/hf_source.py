@@ -71,6 +71,40 @@ class AceMath(HFDataSource):
         )
 
 
+class ProjectGutenberg(HFDataSource):
+    name = "manu/project_gutenberg"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+
+        def process_example(example):
+            return {"messages": [{"role": "user", "content": example["text"]}]}
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading Project Gutenberg",
+        )
+
+
+class ProjectGutenbergLong400K(HFDataSource):
+    name = "ProjectGutenbergLong400K"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+
+        def process_example(example):
+            return {"messages": [{"role": "user", "content": example["text"]}]}
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Loading Project Gutenberg",
+        ).filter(
+            lambda x: len(x["text"]) > 400000,
+            num_proc=self.data_factory.config.num_proc,
+            desc="Filtering examples (<400K chars)",
+        )
+
+
 class UltraChat200K(HFDataSource):
     name = "HuggingFaceH4/ultrachat_200k"
 
@@ -102,6 +136,37 @@ class OpenOrca(HFDataSource):
     def instruct_format_conversation(example, system_key, query_key, response_key, source_name):
         conversation = [
             {"role": "system", "content": example[system_key]},
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
+        ]
+        return {
+            "source": source_name,
+            "messages": conversation,
+        }
+
+
+class LongAlign10K(HFDataSource):
+    name = "THUDM/LongAlign-10k"
+
+
+class LongAlpaca12K(HFDataSource):
+    name = "Yukang/LongAlpaca-12k"
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        formatted_dataset = dataset.map(
+            partial(
+                self.instruct_format_conversation,
+                query_key="instruction",
+                response_key="output",
+                source_name="LongAlpaca-12k",
+            ),
+            desc="Loading LongAlpaca-12K",
+        )
+        return formatted_dataset
+
+    @staticmethod
+    def instruct_format_conversation(example, query_key, response_key, source_name):
+        conversation = [
             {"role": "user", "content": example[query_key]},
             {"role": "assistant", "content": example[response_key]},
         ]
