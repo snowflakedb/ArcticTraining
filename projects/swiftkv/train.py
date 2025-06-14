@@ -18,9 +18,9 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from torch.distributed import ReduceOp
 from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
 from deepspeed.runtime.zero import GatheredParameters
+from torch.distributed import ReduceOp
 
 from arctic_training import HFCheckpointEngine
 from arctic_training import HFModelFactory
