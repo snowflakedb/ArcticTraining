@@ -187,16 +187,19 @@ class SwiftKVTrainer(SFTTrainer):
             # Soften the student logits by applying softmax first and log() second
             soft_targets = F.softmax(teacher_logits / self.config.logits_loss_temp, dim=-1)
             soft_prob = F.log_softmax(student_logits / self.config.logits_loss_temp, dim=-1)
+
             # Calculate the soft logits loss. Scaled by T**2 as suggested by the
             # authors of the paper "Distilling the knowledge in a neural network"
             logits_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob), dim=-1)
             logits_loss = logits_loss * mask  # Zero out the masked positions
             logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp**2)
 
-            # 2. Hidden states MSE loss for all masked and non-masked positions.
-            hidden_loss = F.mse_loss(student_hidden, teacher_hidden)
-
-            return logits_loss + self.config.hidden_loss_mult * hidden_loss
+            if self.config.hidden_loss_mult > 0:
+                # 2. Hidden states MSE loss for all masked and non-masked positions.
+                hidden_loss = F.mse_loss(student_hidden, teacher_hidden)
+                return logits_loss + self.config.hidden_loss_mult * hidden_loss
+            else:
+                return logits_loss
 
         if self.config.sequence_parallel_size > 1:
             shift_labels = batch["shift_labels"]
