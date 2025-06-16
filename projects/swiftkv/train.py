@@ -223,7 +223,7 @@ class SwiftKVTrainer(SFTTrainer):
                 output_unshard_dimension=0,  # loss is a scalar
             )
 
-            # Average the loss across all sequence parallel ranks
+            # Average the loss across all sequence parallel ranks using a differentiable all_reduce.
             loss = torch.distributed.nn.functional.all_reduce(loss, op=ReduceOp.AVG, group=self.sp_group)
 
             return loss

@@ -22,6 +22,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from pydantic import Field
 from pydantic import model_validator
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
@@ -248,7 +249,7 @@ class SFTDataConfig(DataConfig):
     drop_last: bool = False
     """ Whether to drop the last packed sample, which might be shorter than `max_length`. """
 
-    fuse_positions_prob: float = 0.0
+    fuse_positions_prob: float = Field(0.0, ge=0.0, le=1.0)
     """
     Data augmentation technique for long-context distillation. If set, some
     packed samples will have their position ids fused into a single sequence of
