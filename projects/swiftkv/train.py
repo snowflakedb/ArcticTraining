@@ -13,19 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
+import math
 from typing import Union
 
 import torch
 import torch.nn.functional as F
+from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
 from deepspeed.runtime.zero import GatheredParameters
+from torch.distributed import ReduceOp
 
 from arctic_training import HFCheckpointEngine
 from arctic_training import HFModelFactory
 from arctic_training import ModelConfig
 from arctic_training import SFTTrainer
 from arctic_training import TrainerConfig
-from arctic_training import logger
 from arctic_training.trainer.sft_trainer import to_device
 from projects.swiftkv.models import DeepseekV2SwiftKVConfig
 from projects.swiftkv.models import LlamaSwiftKVConfig
@@ -39,7 +40,30 @@ register_deepseek_v2()  # Explicitly register because it's not in transformers
 
 class SwiftKVModelConfig(ModelConfig):
     num_key_value_layers: int
+    """
+    Initial number of layers that compute KV cache. The output from layer
+    `num_key_value_layers` is used to compute the KV for all subsequent layers.
+    """
+
     key_value_group_size: int = 1
+    """
+    Number of consecutive layers that share the same KV cache, only applies to
+    layers after `num_key_value_layers`.
+    """
+
+
+class SwiftKVTrainerConfig(TrainerConfig):
+    logits_loss_temp: float = 2.0
+    """Temperature for the distillation (KL-div) loss on logits."""
+
+    hidden_loss_mult: float = 1.0
+    """
+    Weight for the distillation (MSE) loss on hidden states. The final loss
+    is computed as `logits_loss + hidden_loss_mult * hidden_loss`.
+    """
+
+    hidden_loss_layer: int = -2
+    """The index of the layer whose output is used for the hidden loss."""
 
 
 class SwiftKVModelFactory(HFModelFactory):
@@ -50,11 +74,11 @@ class SwiftKVModelFactory(HFModelFactory):
         config_dict = hf_config.to_dict()
 
         model_type = config_dict.get("model_type")
-        if model_type == "deepseek_v2":
+        if model_type in ["deepseek_v2", "deepseek_v2_swiftkv"]:
             hf_config = DeepseekV2SwiftKVConfig.from_dict(config_dict)
-        elif model_type == "llama":
+        elif model_type in ["llama", "llama_swiftkv"]:
             hf_config = LlamaSwiftKVConfig.from_dict(config_dict)
-        elif model_type == "qwen2":
+        elif model_type in ["qwen2", "qwen2_swiftkv"]:
             hf_config = Qwen2SwiftKVConfig.from_dict(config_dict)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -65,7 +89,7 @@ class SwiftKVModelFactory(HFModelFactory):
         return hf_config
 
     def post_create_model_callback(self, model):
-        if model.config.model_type == "deepseek_v2":
+        if model.config.model_type in ["deepseek_v2", "deepseek_v2_swiftkv"]:
             if model.config.q_lora_rank is None:
                 q_modules = ["q_proj"]
             else:
@@ -122,52 +146,102 @@ class SwiftKVModelFactory(HFModelFactory):
         return model
 
 
-class SwiftKVTrainerConfig(TrainerConfig):
-    temperature: float = 1.0
-
-
 class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
     config: SwiftKVTrainerConfig
     model_factory: SwiftKVModelFactory
     checkpoint_engine: Union[HFCheckpointEngine]
 
-    def loss(self, batch: Any) -> torch.Tensor:
+    def forward(self, batch):
         batch = to_device(batch, self.device)
 
         with torch.no_grad():
             self.model.swiftkv(False)
             self.model.eval()
-            teacher_outputs = self.model(**batch)
+            teacher_outputs = self.model(**batch, output_hidden_states=True)
 
         self.model.swiftkv(True)
         self.model.train()
-        student_outputs = self.model(**batch)
+        student_outputs = self.model(**batch, output_hidden_states=True)
 
-        loss = self.distillation_loss(
-            student_outputs.logits,
-            teacher_outputs.logits,
-            temperature=self.config.temperature,
-        )
+        return student_outputs, teacher_outputs
 
-        logger.info(
-            f"student loss: {student_outputs.loss.item()}, teacher loss:"
-            f" {teacher_outputs.loss.item()}, distill loss: {loss.item()}"
-        )
+    def loss(self, batch) -> torch.Tensor:
+        import torch
 
-        return loss
+        batch = to_device(batch, self.device)
 
-    def distillation_loss(self, student_output, teacher_output, temperature=1.0, dim=-1):
-        # Soften the student logits by applying softmax() first and log() second
-        soft_targets = F.softmax(teacher_output / temperature, dim=dim)
-        soft_prob = F.log_softmax(student_output / temperature, dim=dim)
+        student_outputs, teacher_outputs = self.forward(batch)
 
-        # Calculate the soft targets loss. Scaled by T**2 as suggested by the
-        # authors of the paper "Distilling the knowledge in a neural network"
-        return torch.mean(
-            torch.sum(
-                soft_targets * (soft_targets.log() - soft_prob),
-                dim=dim,
+        student_logits = student_outputs.logits
+        student_hidden = student_outputs.hidden_states[self.config.hidden_loss_layer]
+        teacher_logits = teacher_outputs.logits
+        teacher_hidden = teacher_outputs.hidden_states[self.config.hidden_loss_layer]
+
+        def loss_fn(student_concat, teacher_logits, teacher_hidden, mask):
+            student_logits, student_hidden = student_concat.split(
+                [teacher_logits.size(-1), teacher_hidden.size(-1)], dim=-1
             )
-            * temperature**2
-        )
+
+            # 1. Logits distillation loss for non-masked positions.
+            # Soften the student logits by applying softmax first and log() second
+            soft_targets = F.softmax(teacher_logits / self.config.logits_loss_temp, dim=-1)
+            soft_prob = F.log_softmax(student_logits / self.config.logits_loss_temp, dim=-1)
+
+            # Calculate the soft logits loss. Scaled by T**2 as suggested by the
+            # authors of the paper "Distilling the knowledge in a neural network"
+            logits_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob), dim=-1)
+            logits_loss = logits_loss * mask  # Zero out the masked positions
+            logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp**2)
+
+            if self.config.hidden_loss_mult > 0:
+                # 2. Hidden states MSE loss for all masked and non-masked positions.
+                hidden_loss = F.mse_loss(student_hidden, teacher_hidden)
+                return logits_loss + self.config.hidden_loss_mult * hidden_loss
+            else:
+                return logits_loss
+
+        if self.config.sequence_parallel_size > 1:
+            shift_labels = batch["shift_labels"]
+            batch_size, seqlen = shift_labels.shape
+            num_shards = self.get_num_shards(batch_size, seqlen)
+            kwargs_to_shard = {
+                "student_concat": torch.cat([student_logits, student_hidden], dim=-1),
+                "teacher_logits": teacher_logits,
+                "teacher_hidden": teacher_hidden,
+                "mask": shift_labels != -100,
+            }
+
+            loss = sequence_tiled_compute(
+                loss_fn,
+                seqlen,
+                num_shards,
+                kwargs_to_shard,
+                kwargs_to_pass={},
+                grad_requiring_tensor_key="student_concat",
+                compute_params=[],
+                output_unshard_dimension=0,  # loss is a scalar
+            )
+
+            # Average the loss across all sequence parallel ranks using a differentiable all_reduce.
+            loss = torch.distributed.nn.functional.all_reduce(loss, op=ReduceOp.AVG, group=self.sp_group)
+
+            return loss
+        else:
+            student_concat = torch.cat([student_logits, student_hidden], dim=-1)
+            return loss_fn(
+                student_concat=student_concat,
+                teacher_logits=teacher_logits,
+                teacher_hidden=teacher_hidden,
+                mask=(batch["labels"] != -100),
+            )
+
+    def get_num_shards(self, batch_size, seqlen):
+        slice_size_in_gb = 1  # XXX: make configurable?
+        vocab_size = self.model_unwrapped.config.vocab_size
+        logits_numel = batch_size * seqlen * vocab_size
+        size_in_gb = logits_numel * 4 / 2**30  # fp32
+        # the sp shard's seqlen sp shard can be easily not divisible by the derived number
+        # of chunked loss shards, so we use the uppper ceiling and allow the last chunk to
+        # be shorter than the rest
+        return math.ceil(size_in_gb / slice_size_in_gb)
