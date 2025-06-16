@@ -66,7 +66,7 @@ data:
   cache_processed_data: true
   cache_dir: /data-fast/data-cache
   num_proc: 16
-  max_length: 163840
+  max_length: 196608
   always_max_length: true
   mask_inputs: true
   drop_last: true
