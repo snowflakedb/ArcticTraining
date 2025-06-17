@@ -189,7 +189,9 @@ class Metrics:
             f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
             f" {100*self.summary_dict['iter']//self.max_iter:>3}%"
         )
-        summary_str += f" | loss/train: {self.summary_dict['loss']:.4f}"
+        if "loss" in self.summary_dict:
+            loss_label = "loss" + ("/eval" if self.trainer.config.eval_frequency > 0 else "")
+            summary_str += f" | {loss_label}: {self.summary_dict['loss']:.4f}"
         if "loss/eval" in self.summary_dict:
             summary_str += f" | loss/eval: {self.summary_dict['loss/eval']:.4f}"
         if "iter_time" in self.summary_dict:
