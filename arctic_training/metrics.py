@@ -162,6 +162,10 @@ class Metrics:
                     self.summary_dict["loss"] = sum(self.losses) / self.trainer.config.gradient_accumulation_steps
                     self.losses = []
 
+        if "loss/eval" in self.values:
+            loss = sum(gather_object(self.values["loss/eval"], self.trainer.world_size)) / self.trainer.world_size
+            self.summary_dict["loss/eval"] = loss
+
         if "iter_time" in self.values:
             iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
             self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
@@ -185,8 +189,9 @@ class Metrics:
             f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
             f" {100*self.summary_dict['iter']//self.max_iter:>3}%"
         )
-        if "loss" in self.summary_dict:
-            summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
+        summary_str += f" | loss/train: {self.summary_dict['loss']:.4f}"
+        if "loss/eval" in self.summary_dict:
+            summary_str += f" | loss/eval: {self.summary_dict['loss/eval']:.4f}"
         if "iter_time" in self.summary_dict:
             summary_str += f" | iter time: {human_format_secs(self.summary_dict['iter_time'])}"
         if "iter_tflops" in self.summary_dict:
