@@ -19,6 +19,11 @@ from pathlib import Path
 
 import pytest
 
+# allow having multiple repository checkouts and not needing to remember to rerun
+# 'pip install -e .[dev]' when switching between checkouts and running tests.
+git_repo_path = str(Path(__file__).resolve().parents[1])
+sys.path.insert(1, git_repo_path)
+
 
 def pytest_configure(config):
     # allow having multiple repository checkouts and not needing to remember to rerun

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import math
 import random
 from abc import ABC
@@ -27,8 +28,12 @@ from typing import Tuple
 import deepspeed
 import numpy as np
 import torch
+import torch.cuda
+import torch.distributed.nn
 import wandb
 from deepspeed.accelerator import get_accelerator
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
+from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderAdapter
 from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
@@ -45,6 +50,7 @@ from arctic_training.data.utils import OverfitOneBatchDataLoader
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
+from arctic_training.model.tiled_compute import enable_tiled_mlp_compute
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
 from arctic_training.registry import _validate_class_attribute_set
@@ -52,6 +58,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
+from arctic_training.utils import append_json_file
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -168,9 +175,50 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
+        # XXX: We can abstract this section further with AT-specific wrapper, but
+        # UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
+        mpu = UlyssesSPAttentionHF.register_with_transformers(
+            model_name_or_path=self.config.model.name_or_path,
+            core_attn_implementation=self.config.model.attn_implementation,
+            sequence_parallel_size=self.config.sequence_parallel_size,
+            max_length=self.config.data.max_length,
+            micro_batch_size=self.config.micro_batch_size,
+            seq_length_is_variable=True,
+        )
+
+        # Important: this is most likely not beneficial under seqlen=64k
+        if self.config.activation_checkpoint_cpu_offload:
+            # activation_checkpointing_cpu_offload becomes very benefitial at very long seqlen
+            # e.g., llama 8b at 800k (100k effective per gpu) will save 24GB per gpu:
+            # ((100_000*4096)*2*32/2**30), but for short sequences the offload will just slow things
+            # down,
+            #
+            # XXX: could parameterize or run a few lengths to see at which threshold it becomes
+            # beneficial - a user might still want this on even at shorter seqlen if they don't
+            # mind slower performance. discussing adding this functionality to pytorch core
+            # (https://pytorch.slack.com/archives/C3PDTEV8E/p1745274102600729)
+            from arctic_training.monkey_patches import monkey_patch_checkpoint_function_with_cpu_offload
+
+            monkey_patch_checkpoint_function_with_cpu_offload()
+
+        # MLP tiling - has to happen before model is instantiated
+        if self.config.tiled_mlp_compute:
+            enable_tiled_mlp_compute(self.config.model.name_or_path)
+
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
+
+        # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to
+        # override this properly - apparently there is a plan to do so in the future versions of
+        # transformers.
+        # 1. definitely needed for SP
+        # 2. but it also should benefit a single gpu use case
+        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation != "flash_attention_2":
+            # prevent from causal mask being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
+            model_without_head = self.model_unwrapped.model
+            if hasattr(model_without_head, "_update_causal_mask"):
+                model_without_head._update_causal_mask = lambda *args: None
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -181,9 +229,29 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
+            args=self.config,
             lr_scheduler=self.scheduler,
             config=self.config.deepspeed,
+            mpu=mpu,
         )
+
+        if self.config.sequence_parallel_size > 1:
+            # deepspeed.initialize needs to run first
+            from deepspeed.utils import groups
+
+            # set SP-trainer attributes to be used later
+            self.sp_group = groups._get_sequence_parallel_group()
+            self.sp_world_size = groups._get_sequence_parallel_world_size()
+            self.sp_rank = groups._get_sequence_parallel_rank()
+
+            # wrap the DL with Ulysses one
+            self.train_dataloader = UlyssesSPDataLoaderAdapter(
+                self.train_dataloader,
+                sp_rank=self.sp_rank,
+                sp_group=self.sp_group,
+                sp_world_size=self.sp_world_size,
+                device=self.device,
+            )
 
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
@@ -265,7 +333,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             raise ValueError("Train dataloader not initialized.")
         if self.config.train_iters:
             return self.config.train_iters
-        return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
+
+        # XXX: this was incorrect for GAS
+        return self.config.epochs * len(self.train_dataloader)  # // self.config.gradient_accumulation_steps
 
     @callback_wrapper("loss")
     @abstractmethod
@@ -290,10 +360,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Step function for the trainer. Each batch of training data is passed to
         this method.
         """
+
         self.model.train()
+
         loss = self.loss(batch)
-        self.metrics.record("loss", loss.item())
+
         self.backward(loss)
+
+        def maybe_item(v):
+            return v.item() if torch.is_tensor(v) else v
+
+        self.metrics.record("loss", maybe_item(loss))
+
         self.model.step()
 
         # use deepspeed global step as golden truth
@@ -317,18 +395,29 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.metrics.start_timer("iter")
 
-        # enable memory history, which will add tracebacks and event history to snapshots
+        # enable memory allocation history, which will add tracebacks and event history to memory snapshots
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         for batch in self.train_batches:
             self.train_batch_idx += 1
 
+            if (
+                self.config.gradient_accumulation_steps == 1
+                or self.train_batch_idx % self.config.gradient_accumulation_steps == 0
+            ):
+                self.gas_boundary = True
+            else:
+                self.gas_boundary = False
+
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
-                sample_seqlens = [[len(batch["input_ids"][idx])] for idx in range(len(batch["input_ids"]))]
+                sample_seqlens = [
+                    [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
+                    for idx in range(len(batch["input_ids"]))
+                ]
             self.metrics.seqlens = sample_seqlens
 
             self.metrics.start_timer("step")
@@ -342,15 +431,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 and self.train_batch_idx % self.config.train_log_iter_interval == 0
             ):
                 self.metrics.print_summary()
-                if (
-                    self.global_rank == 0
-                    and self.train_batch_idx > 1  # first iter is a massive outlier
-                    and self.wandb_experiment is not None
-                ):
-                    self.wandb_experiment.log(
-                        {k: v for k, v in self.metrics.summary_dict.items() if k != "iter"},
-                        step=self.model.global_steps,
-                    )
+                if self.global_rank == 0 and self.gas_boundary:
+
+                    metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+
+                    append_json_file(self.config.train_log_metrics_path, metrics)
+
+                    # first iter is a massive outlier for many fields - so skip it in wandb
+                    if self.wandb_experiment is not None and self.train_batch_idx > 1:
+                        metrics.pop("iter")  # not needed for wandb
+                        self.wandb_experiment.log(metrics, step=self.model.global_steps)
 
             if self.config.eval_frequency > 0 and self.train_batch_idx % self.config.eval_frequency == 0:
                 self.evaluate()

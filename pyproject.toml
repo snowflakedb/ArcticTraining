@@ -2,13 +2,25 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+# this is needed when we want to point to a github branch in `dependencies` - leave it enabled
+allow-direct-references = true
+license-files = [
+  "LICENSE",
+]
+
+[tool.hatch.build]
+include = [
+  "arctic_training_cli.py",
+]
+
 [project.urls]
 Homepage = "https://github.com/snowflakedb/ArcticTraining"
 Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.4.dev0"
+version = "0.0.5.dev0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -20,7 +32,6 @@ authors = [
     {author = "Canwen Xu", email = "canwen.xu@snowflake.com"}
 ]
 license = "Apache-2.0"
-license-files = ["LICENSE"]
 readme = "README.md"
 homepage = "https://github.com/snowflakedb/ArcticTraining"
 repository = "https://github.com/snowflakedb/ArcticTraining"
@@ -41,7 +52,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed",
+    "deepspeed>=0.17.0",
     "devtools",
     "jsonlines",
     "loguru",
@@ -53,7 +64,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.47.0",
+    "transformers>=4.51.3", # attention api + qwen
     "wandb",
     "yq",
 ]
@@ -102,6 +113,6 @@ cortex = [
 ]
 
 [project.scripts]
-arctic_training = "arctic_training.cli:main"
-arctic_training_run = "arctic_training.cli:run_script"
+arctic_training = "arctic_training_cli:main"
+arctic_training_run = "arctic_training.entrypoint:launch"
 arctic_synth = "arctic_training.synth:main"

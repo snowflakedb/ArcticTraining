@@ -13,24 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from transformers import AutoConfig
-from transformers import AutoModel
-from transformers import AutoModelForCausalLM
+import nltk
 
-from .config import Qwen2SwiftKVConfig
-from .model import Qwen2SwiftKVForCausalLM
-from .model import Qwen2SwiftKVModel
-
-
-def register_auto():
-    AutoConfig.register("qwen2_swiftkv", Qwen2SwiftKVConfig)
-    AutoModel.register(Qwen2SwiftKVConfig, Qwen2SwiftKVModel)
-    AutoModelForCausalLM.register(Qwen2SwiftKVConfig, Qwen2SwiftKVForCausalLM)
-
-
-__all__ = [
-    "Qwen2SwiftKVConfig",
-    "Qwen2SwiftKVForCausalLM",
-    "Qwen2SwiftKVModel",
-    "register_auto",
-]
+nltk.download("punkt")

@@ -15,6 +15,8 @@
 
 import importlib.util
 import sys
+import tempfile
+import uuid
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,9 +28,7 @@ from typing import Literal
 from typing import Union
 from typing import cast
 
-import deepspeed
 import yaml
-from deepspeed.accelerator import get_accelerator
 from pydantic import Field
 from pydantic import ValidationInfo
 from pydantic import field_validator
@@ -109,11 +109,28 @@ class TrainerConfig(BaseConfig):
     train_log_iter_interval: Literal[0, 1] = 1
     """ Iters between training metric log outputs. `0` is off, only intervals of `1` currently supported. """
 
+    # XXX: fixme: the default output dir is broken
+    # train_log_metrics_path: Path = Field(
+    #     default_factory=lambda data: data["logger"].output_dir / "train-log-metrics.jsonl"
+    # )
+    # """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `logger.output_dir/train-log-metrics.jsonl` """
+    train_log_metrics_path: Path = Path("train-log-metrics.jsonl")
+    """ .jsonl path to log precise metrics according to the `train_log_iter_interval` schedule. Defaults to `./train-log-metrics.jsonl` """
+
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     """ Number of gradient accumulation steps. """
 
     micro_batch_size: int = Field(default=1, ge=1)
     """ Micro batch size per GPU. """
+
+    sequence_parallel_size: int = Field(default=1, ge=1)
+    """ Sequence Parallelism Degree. Disabled if set to 1 """
+
+    activation_checkpoint_cpu_offload: bool = False
+    """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
+
+    tiled_mlp_compute: bool = False
+    """ Tile the MLP computation to save GPU memory. Currently only limited architectures supported, but can be expanded to more. """
 
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
@@ -150,6 +167,9 @@ class TrainerConfig(BaseConfig):
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
+        import deepspeed
+        from deepspeed.accelerator import get_accelerator
+
         get_accelerator().set_device(self.local_rank)
         deepspeed.init_distributed()
         return self
@@ -343,7 +363,11 @@ class TrainerConfig(BaseConfig):
     def build_deepspeed_config(self) -> Self:
         ds_config = self.deepspeed
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_batch_size
-        ds_config["train_batch_size"] = self.micro_batch_size * self.gradient_accumulation_steps * self.world_size
+        ds_config["train_batch_size"] = (
+            self.micro_batch_size * self.gradient_accumulation_steps * self.world_size / self.sequence_parallel_size
+        )
+        ds_config["gradient_accumulation_steps"] = self.gradient_accumulation_steps
+        ds_config["sequence_parallel_size"] = self.sequence_parallel_size
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
         ds_config["zero_optimization"] = ds_config.get(
             "zero_optimization",
@@ -373,10 +397,45 @@ class TrainerConfig(BaseConfig):
         return self
 
     @model_validator(mode="after")
+    def train_log_metrics_path_prep(self) -> Self:
+        if self.local_rank == 0:
+            self.train_log_metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            self.train_log_metrics_path.open(mode="a")
+        return self
+
+    @model_validator(mode="after")
     def mem_profiler_mkdir(self) -> Self:
         if self.mem_profiler is not None:
             self.mem_profiler_dir.mkdir(parents=True, exist_ok=True)
         return self
+
+
+def load_user_module_from_path(script_path: Path) -> None:
+    # Symlink the script to a temporary directory to avoid clashing with other modules
+    tmp_root = Path(tempfile.gettempdir())
+    shared_tmp_dir = tmp_root / "arctic_training_custom_module_symlinks"
+    shared_tmp_dir.mkdir(exist_ok=True)
+    # Generate the same unique name for a given script path across all processes
+    unique_module_name = (
+        f"user_{script_path.stem}_{uuid.uuid5(uuid.NAMESPACE_URL, str(script_path.resolve())).hex[:8]}"
+    )
+    symlink_path = shared_tmp_dir / f"{unique_module_name}.py"
+    try:
+        symlink_path.symlink_to(script_path)
+    except FileExistsError:
+        # Another proc created the symlink first, use that one
+        pass
+
+    # Insert into path so child procs can import it
+    sys.path.insert(0, str(shared_tmp_dir))
+    spec = importlib.util.spec_from_file_location(unique_module_name, symlink_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load script from {symlink_path}")
+
+    # Load user module
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[unique_module_name] = module
+    spec.loader.exec_module(module)
 
 
 def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
@@ -391,28 +450,14 @@ def get_config(config_file_or_dict: Union[Path, Dict]) -> BaseConfig:
     trainer_type = config_dict.get("type", TRAINER_DEFAULT)
     config_dict["type"] = trainer_type
 
-    trainer_script = config_dict.get("code", CUSTOM_CODE_DEFAULT)
-
-    script_path = Path(trainer_script)
+    script_path = Path(config_dict.get("code", CUSTOM_CODE_DEFAULT))
     if not script_path.is_absolute():
         script_path = config_dir / script_path
     script_path = script_path.resolve()
 
     if script_path.exists():
-        config_dict["code"] = trainer_script
-        module_name = "custom_trainer"
-        script_dir = str(script_path.parent)
-        original_sys_path = sys.path.copy()
-        sys.path.insert(0, script_dir)
-        try:
-            spec = importlib.util.spec_from_file_location(module_name, script_path)
-            if spec is None:
-                raise ImportError(f"Cannot load script from {script_path}")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)  # type: ignore
-        finally:
-            sys.path = original_sys_path
+        config_dict["code"] = script_path
+        load_user_module_from_path(script_path)
     elif config_dict.get("code") is not None:
         # User specified a script that doesn't exist
         raise FileNotFoundError(f"Cannot find script at {script_path}")

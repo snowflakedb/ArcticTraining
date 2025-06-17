@@ -17,12 +17,12 @@ from transformers import AutoConfig
 from transformers import AutoModel
 from transformers import AutoModelForCausalLM
 
-from .config import LlamaSwiftKVConfig
-from .model import LlamaSwiftKVForCausalLM
-from .model import LlamaSwiftKVModel
+from .configuration_llama_swiftkv import LlamaSwiftKVConfig
+from .modeling_llama_swiftkv import LlamaSwiftKVForCausalLM
+from .modeling_llama_swiftkv import LlamaSwiftKVModel
 
 
-def register_auto():
+def register_llama_swiftkv():
     AutoConfig.register("llama_swiftkv", LlamaSwiftKVConfig)
     AutoModel.register(LlamaSwiftKVConfig, LlamaSwiftKVModel)
     AutoModelForCausalLM.register(LlamaSwiftKVConfig, LlamaSwiftKVForCausalLM)
@@ -32,5 +32,5 @@ __all__ = [
     "LlamaSwiftKVConfig",
     "LlamaSwiftKVForCausalLM",
     "LlamaSwiftKVModel",
-    "register_auto",
+    "register_llama_swiftkv",
 ]

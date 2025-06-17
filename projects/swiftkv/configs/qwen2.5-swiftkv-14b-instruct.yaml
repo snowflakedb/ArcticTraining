@@ -1,0 +1,38 @@
+type: swiftkv
+code: ../train.py
+micro_batch_size: 1
+epochs: 1
+gradient_accumulation_steps: 1
+temperature: 2.0
+model:
+  name_or_path: Qwen/Qwen2.5-14B-Instruct
+  num_key_value_layers: 36
+  key_value_group_size: 1
+  attn_implementation: flash_attention_2
+deepspeed:
+  zero_optimization:
+    stage: 2
+data:
+  sources:
+    - HuggingFaceH4/ultrachat_200k
+    - lmsys/lmsys-chat-1m
+    - meta-math/MetaMathQA
+    - ise-uiuc/Magicoder-OSS-Instruct-75K
+  cache_dir: /data/data-cache
+  num_proc: 16
+  max_length: 8192
+logger:
+  level: INFO
+  output_dir: "./"
+  file_output_ranks: [0]
+scheduler:
+  warmup_ratio: 0.05
+optimizer:
+  betas: [0.9,0.999]
+  weight_decay: 0.0
+  lr: 0.0002
+checkpoint:
+  - type: huggingface
+    save_every_n_epochs: 1
+    output_dir: /data/qwen2.5-swiftkv-14b-instruct
+    save_end_of_training: true

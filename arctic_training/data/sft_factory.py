@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
 from typing import Dict
 from typing import List
 from typing import Literal
@@ -21,6 +22,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from pydantic import Field
 from pydantic import model_validator
 from torch.utils.data import DataLoader
 from torch.utils.data import DistributedSampler
@@ -178,11 +180,18 @@ class DataCollatorForCausalLM:
 
 
 def pack_sft_batch(
-    batch: Dict[str, List[List[int]]], max_length: int, always_max_length: bool
+    batch: Dict[str, List[List[int]]],
+    max_length: int,
+    always_max_length: bool,
+    drop_last: bool,
+    fuse_positions_prob: float,
+    seed: int,
 ) -> Dict[str, List[List[int]]]:
     keys = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
+
+    rng = random.Random(seed)
 
     def should_flush() -> bool:
         total_len = len(current_sample["input_ids"])
@@ -190,6 +199,8 @@ def pack_sft_batch(
 
     def flush() -> None:
         if len(current_sample["input_ids"]) > 0:
+            if fuse_positions_prob and rng.random() <= fuse_positions_prob:
+                current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
             for k in keys:
                 packed_batch[k].append(current_sample[k])
                 current_sample[k] = []
@@ -206,7 +217,8 @@ def pack_sft_batch(
         current_sample["packed_sample_seqlens"].extend([len(input_ids)])
 
     # Add the last example
-    flush()
+    if not drop_last:
+        flush()
 
     return packed_batch
 
@@ -233,6 +245,17 @@ class SFTDataConfig(DataConfig):
 
     pack_samples: bool = True
     """ Whether to pack multiple samples into samples up to size `max_length`. """
+
+    drop_last: bool = False
+    """ Whether to drop the last packed sample, which might be shorter than `max_length`. """
+
+    fuse_positions_prob: float = Field(0.0, ge=0.0, le=1.0)
+    """
+    Data augmentation technique for long-context distillation. If set, some
+    packed samples will have their position ids fused into a single sequence of
+    position ids (0 .. packed_length). The packed samples are chosen randomly
+    with probability equal to the value of this configuration parameter.
+    """
 
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
@@ -275,7 +298,12 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
         lambda x: pack_sft_batch(
-            x, max_length=self.config.max_length, always_max_length=self.config.always_max_length
+            x,
+            max_length=self.config.max_length,
+            always_max_length=self.config.always_max_length,
+            drop_last=self.config.drop_last,
+            fuse_positions_prob=self.config.fuse_positions_prob,
+            seed=self.config.seed,
         ),
         batched=True,
         batch_size=batch_size,
