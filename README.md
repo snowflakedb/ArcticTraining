@@ -27,6 +27,11 @@ The projects folder contains various special projects we have released that buil
 * [Speculative Decoding](projects/mlp_speculator)
 * [Arctic-Embed](projects/arctic_embed)
 
+# Papers
+
+* [Arctic Long Sequence Training: Scalable And Efficient Training For Multi-Million Token Sequences](https://arxiv.org/abs/2506.13996)
+
+
 # Quickstart
 
 To get started training a model with ArcticTraining, follow the steps below:
