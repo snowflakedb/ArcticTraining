@@ -78,7 +78,7 @@ class ProjectGutenbergSFT(HFDataSource):
     response. This is intended for distillation on prompt tokens like SwiftKV.
     """
 
-    name = "manu/project_gutenberg"
+    name = "ProjectGutenbergSFT"
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
 
