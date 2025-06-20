@@ -71,7 +71,13 @@ class AceMath(HFDataSource):
         )
 
 
-class ProjectGutenberg(HFDataSource):
+class ProjectGutenbergSFT(HFDataSource):
+    """
+    Simple SFT wrapper around the Project Gutenberg dataset. Each example only
+    contains a single user message with the text content, and no assistant
+    response. This is intended for distillation on prompt tokens like SwiftKV.
+    """
+
     name = "manu/project_gutenberg"
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
@@ -83,25 +89,6 @@ class ProjectGutenberg(HFDataSource):
             process_example,
             num_proc=self.data_factory.config.num_proc,
             desc="Loading Project Gutenberg",
-        )
-
-
-class ProjectGutenbergLong400K(HFDataSource):
-    name = "ProjectGutenbergLong400K"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-
-        def process_example(example):
-            return {"messages": [{"role": "user", "content": example["text"]}]}
-
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc="Loading Project Gutenberg",
-        ).filter(
-            lambda x: len(x["text"]) > 400000,
-            num_proc=self.data_factory.config.num_proc,
-            desc="Filtering examples (<400K chars)",
         )
 
 

@@ -3,7 +3,8 @@ code: ../train.py
 micro_batch_size: 1
 epochs: 1
 gradient_accumulation_steps: 1
-temperature: 2.0
+logits_loss_temp: 2.0
+hidden_loss_layer: -2
 model:
   name_or_path: Qwen/Qwen2.5-7B-Instruct
   num_key_value_layers: 21
@@ -14,11 +15,19 @@ deepspeed:
     stage: 2
 data:
   sources:
-    - HuggingFaceH4/ultrachat_200k
-    - lmsys/lmsys-chat-1m
-    - meta-math/MetaMathQA
-    - ise-uiuc/Magicoder-OSS-Instruct-75K
-  cache_dir: /data/data-cache
+    - type: Open-Orca/OpenOrca
+      name_or_path: Open-Orca/OpenOrca
+      sample_count: 500000
+    - type: nvidia/AceMath-Instruct-Training-Data
+      name_or_path: nvidia/AceMath-Instruct-Training-Data
+      split: general_sft_stage2
+      sample_count: 500000
+      kwargs:
+        verification_mode: no_checks
+    - type: lmsys/lmsys-chat-1m
+      name_or_path: lmsys/lmsys-chat-1m
+      sample_count: 500000
+  cache_dir: /data-fast/data-cache
   num_proc: 16
   max_length: 8192
 logger:
@@ -34,5 +43,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /data/qwen2.5-swiftkv-7b-instruct
+    output_dir: /checkpoint/qwen2.5-swiftkv-7b-instruct
     save_end_of_training: true
