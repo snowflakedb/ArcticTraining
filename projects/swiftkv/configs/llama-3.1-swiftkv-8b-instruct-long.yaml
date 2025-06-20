@@ -30,35 +30,35 @@ data:
       sample_count: 1000000
     - THUDM/LongAlign-10k
     - Yukang/LongAlpaca-12k
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: en
       sample_count: 2400
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: fr
       sample_count: 1200
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: de
       sample_count: 1200
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: es
       sample_count: 800
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: nl
       sample_count: 800
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: it
       sample_count: 640
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: pt
       sample_count: 640
-    - type: manu/project_gutenberg
+    - type: ProjectGutenbergSFT
       name_or_path: manu/project_gutenberg
       split: zh
       sample_count: 320
