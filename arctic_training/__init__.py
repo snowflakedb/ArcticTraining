@@ -30,6 +30,7 @@ from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
+from arctic_training.data.causal_factory import CausalDataFactory
 from arctic_training.data.dpo_factory import DPODataFactory
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_source import HFDataSource
@@ -46,6 +47,7 @@ from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
+from arctic_training.trainer.causal_trainer import CausalTrainer
 from arctic_training.trainer.dpo_trainer import DPOTrainer
 from arctic_training.trainer.dpo_trainer import DPOTrainerConfig
 from arctic_training.trainer.sft_trainer import SFTTrainer
