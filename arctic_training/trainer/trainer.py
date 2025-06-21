@@ -30,7 +30,6 @@ import numpy as np
 import torch
 import torch.cuda
 import torch.distributed.nn
-import wandb
 from deepspeed.accelerator import get_accelerator
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderAdapter
@@ -40,6 +39,7 @@ from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from wandb.sdk.wandb_run import Run as WandbRun
 
+import wandb
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
 from arctic_training.callback.mixin import callback_wrapper
