@@ -27,8 +27,8 @@ from arctic_training.data.hf_source import HFDataSourceConfig
 from arctic_training.data.utils import DatasetType
 
 
-class HFInstructDataSourceConfig(HFDataSourceConfig):
-    role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "question", "assistant": "response"})
+class HFDataSourceConfigInstruct(HFDataSourceConfig):
+    role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "user", "assistant": "assistant"})
     """
     Flexible mapping from message roles to data extraction paths. Supports:
     - Simple field: {"user": "question", "assistant": "response"}
@@ -60,7 +60,7 @@ class HFInstructDataSource(HFDataSource):
     """Base DataSource class for instruction-following datasets used in SFT."""
 
     name = "huggingface_instruct"
-    config: HFInstructDataSourceConfig
+    config: HFDataSourceConfigInstruct
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         def process_example(example: Dict[str, Any]) -> Dict[str, Any]:
