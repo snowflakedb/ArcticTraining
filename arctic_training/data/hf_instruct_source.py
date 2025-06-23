@@ -15,13 +15,15 @@
 
 from typing import Dict
 
+from pydantic import Field
+
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
 from arctic_training.data.utils import DatasetType
 
 
 class HFInstructDataSourceConfig(HFDataSourceConfig):
-    role_mapping: Dict[str, str] = {"user": "user", "assistant": "assistant"}
+    role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "user", "assistant": "assistant"})
     """
     Map dataset columns to message roles OR map role field values to standard roles.
     For column mapping: {"question": "user", "response": "assistant"}
