@@ -1,6 +1,10 @@
 # Minimal makefile for Sphinx documentation
 #
 
+#
+# first install the dependencies
+# cd .. && python scripts/install_deps.py docs && cd -
+
 # You can set these variables from the command line, and also
 # from the environment for the first two.
 SPHINXOPTS    ?=
