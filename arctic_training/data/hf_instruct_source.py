@@ -13,9 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
 from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Union
 
 from pydantic import Field
+from pydantic import validator
 
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
@@ -23,21 +28,31 @@ from arctic_training.data.utils import DatasetType
 
 
 class HFInstructDataSourceConfig(HFDataSourceConfig):
-    role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "user", "assistant": "assistant"})
+    role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "question", "assistant": "response"})
     """
-    Map dataset columns to message roles OR map role field values to standard roles.
-    For column mapping: {"question": "user", "response": "assistant"}
-    For role value mapping: {"human": "user", "ai": "assistant"}
+    Flexible mapping from message roles to data extraction paths. Supports:
+    - Simple field: {"user": "question", "assistant": "response"}
+    - Conversation filter: {"user": "conversations.role.user", "assistant": "conversations.role.assistant"}
+    - Conversation filter with field: {"user": "conversations.from.human,value", "assistant": "conversations.from.agent,value"}
     """
 
-    conversation_column: str = "messages"
-    """Column name containing pre-formatted conversation arrays."""
-
-    role_field: str = "role"
-    """Field name for role in conversation dicts."""
-
-    content_field: str = "content"
-    """Field name for content in conversation dicts."""
+    @validator("role_mapping")
+    def validate_role_mapping(cls, v):
+        """Simple validation for role_mapping paths."""
+        for role, path_spec in v.items():
+            if "," in path_spec:
+                # Format: "path,content_field"
+                parts = path_spec.split(",")
+                if len(parts) != 2:
+                    raise ValueError(f"Invalid format for role '{role}': expected 'path,content_field'")
+                path, content_field = parts
+                if "." in path and len(path.split(".")) != 3:
+                    raise ValueError(f"Invalid conversation path for role '{role}': expected 'array.field.value'")
+            elif "." in path_spec:
+                # Conversation path: must have exactly 3 parts
+                if len(path_spec.split(".")) != 3:
+                    raise ValueError(f"Invalid conversation path for role '{role}': expected 'array.field.value'")
+        return v
 
 
 class HFInstructDataSource(HFDataSource):
@@ -47,55 +62,125 @@ class HFInstructDataSource(HFDataSource):
     config: HFInstructDataSourceConfig
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        if self.config.conversation_column in dataset.column_names:
-            dataset = self._format_conversation_column(dataset)
-        elif all(col in dataset.column_names for col in self.config.role_mapping.keys()):
-            dataset = self._format_role_mapping(dataset)
+        def process_example(example: Dict[str, Any]) -> Dict[str, Any]:
+            messages = self._extract_messages_from_paths(example)
+
+            if not messages:
+                # If no messages extracted, try to provide helpful error info
+                available_keys = self._get_available_keys(example)
+                raise ValueError(
+                    f"Could not extract messages using role_mapping: {self.config.role_mapping}. "
+                    f"Available data structure: {available_keys}"
+                )
+
+            return {"messages": messages}
+
+        return dataset.map(
+            process_example,
+            num_proc=self.data_factory.config.num_proc,
+            desc=f"Loading {self.config.name_or_path}",
+        )
+
+    def _extract_messages_from_paths(self, example: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Extract messages using flexible path-based mapping."""
+        messages = []
+
+        for role, path_spec in self.config.role_mapping.items():
+            contents = self._extract_content_from_path(example, path_spec)
+
+            for content in contents:
+                if content:
+                    messages.append({"role": role, "content": content})
+
+        return messages
+
+    def _extract_content_from_path(self, data: Dict[str, Any], path_spec: str) -> List[str]:
+        """
+        Extract content from data using path specification.
+
+        Supports:
+        - Simple field: "question" -> data["question"]
+        - Conversation filter: "conversations.role.user" -> find items where role=="user", extract content
+        - Conversation filter with field: "conversations.from.human,value" -> find items where from=="human", extract "value" field
+        """
+        # Parse path specification
+        if "," in path_spec:
+            parts = path_spec.split(",")
+            if len(parts) != 2:
+                raise ValueError("Invalid format for path: expected 'path,content_field'")
+            path, content_field = parts
         else:
+            path = path_spec
+            content_field = None
+
+        # Simple field access (no dots)
+        if "." not in path:
+            value = data.get(path)
+            if value is not None:
+                return [str(value)]
+            return []
+
+        # Parse conversation filter: array_path.filter_field.filter_value
+        parts = path.split(".")
+        if len(parts) != 3:
             raise ValueError(
-                "Dataset does not contain expected columns. "
-                f"Available columns: {sorted(dataset.column_names)}. "
-                f"Expected either conversation column '{self.config.conversation_column}' "
-                f"or role mapping columns: {sorted(self.config.role_mapping.keys())}."
+                f"Invalid conversation path format: {path}. Expected: array_path.filter_field.filter_value"
             )
 
-        return dataset
+        array_path = parts[0]  # e.g., "conversations"
+        filter_field = parts[1]  # e.g., "role" or "from"
+        filter_value = parts[2]  # e.g., "user" or "human"
 
-    def _format_conversation_column(self, dataset: DatasetType) -> DatasetType:
-        """Format dataset when using a pre-existing conversation column."""
+        # Get the conversation array
+        conversations = data.get(array_path)
+        if not isinstance(conversations, list):
+            return []
 
-        def process_example(example):
-            conversation = example[self.config.conversation_column]
-            messages = []
+        # Find matching items and extract content
+        contents = []
+        for item in conversations:
+            if not isinstance(item, dict):
+                continue
 
-            for item in conversation:
-                role = item.get(self.config.role_field)
-                content = item.get(self.config.content_field)
-                if role in self.config.role_mapping:
-                    role = self.config.role_mapping[role]
-                messages.append({"role": role, "content": content})
+            # Check if this item matches our filter
+            if item.get(filter_field) == filter_value:
+                # Extract content from the matching item
+                if content_field:
+                    # Use specified content field
+                    content = item.get(content_field)
+                else:
+                    # Use default content field
+                    content = self._get_default_content(item)
 
-            return {"messages": messages}
+                if content is not None:
+                    contents.append(str(content))
 
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc=f"Loading {self.name}",
-        )
+        return contents
 
-    def _format_role_mapping(self, dataset: DatasetType) -> DatasetType:
-        """Format dataset when using role mapping."""
+    def _get_default_content(self, item: Dict[str, Any]) -> Optional[str]:
+        """Extract content from an item using common field names."""
+        content_candidates = ["content", "text", "message", "value"]
+        for candidate in content_candidates:
+            if candidate in item and item[candidate] is not None:
+                return str(item[candidate])
+        return None
 
-        def process_example(example):
-            messages = []
+    def _get_available_keys(
+        self, example: Dict[str, Any], prefix: str = "", max_depth: int = 3
+    ) -> Union[Dict[str, Any], str]:
+        """Get available keys/structure for error reporting."""
+        if max_depth <= 0:
+            return "..."
 
-            for column, role in self.config.role_mapping.items():
-                messages.append({"role": role, "content": example[column]})
+        result: Dict[str, Any] = {}
+        for key, value in example.items():
+            full_key = f"{prefix}.{key}" if prefix else key
 
-            return {"messages": messages}
+            if isinstance(value, dict):
+                result[full_key] = self._get_available_keys(value, full_key, max_depth - 1)
+            elif isinstance(value, list) and value and isinstance(value[0], dict):
+                result[f"{full_key}[0]"] = self._get_available_keys(value[0], f"{full_key}[0]", max_depth - 1)
+            else:
+                result[full_key] = type(value).__name__
 
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc=f"Loading {self.name}",
-        )
+        return result
