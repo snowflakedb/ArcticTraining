@@ -263,7 +263,7 @@ Config:
 
 .. code:: python
 
-   {"conversations": [{"from": "human", "value": "Hello world"}, {"from": "agent", "value": "Hi there"}]}
+   {"conversations": [{"sender": "human", "message": "Hello world"}, {"sender": "system", "message": "Hi there"}]}
 
 Config:
 
