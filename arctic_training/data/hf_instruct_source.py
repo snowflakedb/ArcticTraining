@@ -20,7 +20,7 @@ from typing import Optional
 from typing import Union
 
 from pydantic import Field
-from pydantic import validator
+from pydantic import field_validator
 
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
@@ -36,8 +36,9 @@ class HFInstructDataSourceConfig(HFDataSourceConfig):
     - Conversation filter with field: {"user": "conversations.from.human,value", "assistant": "conversations.from.agent,value"}
     """
 
-    @validator("role_mapping")
-    def validate_role_mapping(cls, v):
+    @field_validator("role_mapping", mode="before")
+    @classmethod
+    def validate_role_mapping(cls, v: Dict[str, str]) -> Dict[str, str]:
         """Simple validation for role_mapping paths."""
         for role, path_spec in v.items():
             if "," in path_spec:
