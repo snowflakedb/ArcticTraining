@@ -5,6 +5,8 @@ Arctic Long Sequence Training (ALST) enables very long sequence length post-trai
 1. Ulysses Sequence Parallelism for HF Transformers implements an efficient way of processing long sequences by employing sequence parallelism and attention head parallelism.
 2. Arctic Long Sequence Training enables even longer sequence lengths using multiple tricks such as activation checkpoint offload to CPU, tiled MLP and logit+loss compute and `PYTORCH_CUDA_ALLOC_CONF` optimizations.
 
+To learn about this technology please read this paper: [Arctic Long Sequence Training: Scalable And Efficient Training For Multi-Million Token Sequences](https://arxiv.org/abs/2506.13996).
+
 Where to do next:
 
 1. If you want to jump right into trying it out proceed to [SFT Training examples](#sft-training-examples).
