@@ -21,6 +21,8 @@ from typing import Union
 
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
+from typing_extensions import Self
 
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
@@ -28,7 +30,9 @@ from arctic_training.data.utils import DatasetType
 
 
 class HFInstructDataSourceConfig(HFDataSourceConfig):
-    role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "question", "assistant": "response"})
+    role_mapping: Dict[str, str] = Field(
+        default_factory=lambda: {"user": "messages.role.user", "assistant": "messages.role.assistant"},
+    )
     """
     Flexible mapping from message roles to data extraction paths. Supports:
     - Simple field: {"user": "question", "assistant": "response"}
@@ -54,6 +58,26 @@ class HFInstructDataSourceConfig(HFDataSourceConfig):
                 if len(path_spec.split(".")) != 3:
                     raise ValueError(f"Invalid conversation path for role '{role}': expected 'array.field.value'")
         return v
+
+    @model_validator(mode="after")
+    def autofill_known_datasets_role_mapping(self) -> Self:
+        """Autofill known datasets with default role mappings."""
+        known_datasets = {
+            "nvidia/AceMath-Instruct-Training-Data": {
+                "user": "messages.role.user,content",
+                "assistant": "answers.role.assistant,content",
+            },
+            "HuggingFaceH4/ultrachat_200k": {
+                "user": "messages.role.user,content",
+                "assistant": "messages.role.assistant,content",
+            },
+        }
+        dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
+        if dataset_name in known_datasets:
+            # Don't override if user provided a custom role_mapping
+            if "role_mapping" not in self.model_fields_set:
+                self.role_mapping = known_datasets[dataset_name]
+        return self
 
 
 class HFInstructDataSource(HFDataSource):
