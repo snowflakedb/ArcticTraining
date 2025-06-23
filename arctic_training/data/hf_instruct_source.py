@@ -37,7 +37,14 @@ class HFInstructDataSourceConfig(HFDataSourceConfig):
     Flexible mapping from message roles to data extraction paths. Supports:
     - Simple field: {"user": "question", "assistant": "response"}
     - Conversation filter: {"user": "conversations.role.user", "assistant": "conversations.role.assistant"}
-    - Conversation filter with field: {"user": "conversations.from.human,value", "assistant": "conversations.from.agent,value"}
+    - Conversation filter with field: {"user": "conversations.from.human", "assistant": "conversations.from.agent"}
+    """
+
+    content_key: Optional[str] = Field(default=None)
+    """
+    The field name to extract content from when using conversation filters.
+    If None, will auto-detect using common field names (content, text, message, value).
+    Only applies to conversation filter paths (those with dots).
     """
 
     @field_validator("role_mapping", mode="before")
@@ -45,15 +52,7 @@ class HFInstructDataSourceConfig(HFDataSourceConfig):
     def validate_role_mapping(cls, v: Dict[str, str]) -> Dict[str, str]:
         """Simple validation for role_mapping paths."""
         for role, path_spec in v.items():
-            if "," in path_spec:
-                # Format: "path,content_field"
-                parts = path_spec.split(",")
-                if len(parts) != 2:
-                    raise ValueError(f"Invalid format for role '{role}': expected 'path,content_field'")
-                path, content_field = parts
-                if "." in path and len(path.split(".")) != 3:
-                    raise ValueError(f"Invalid conversation path for role '{role}': expected 'array.field.value'")
-            elif "." in path_spec:
+            if "." in path_spec:
                 # Conversation path: must have exactly 3 parts
                 if len(path_spec.split(".")) != 3:
                     raise ValueError(f"Invalid conversation path for role '{role}': expected 'array.field.value'")
@@ -62,21 +61,32 @@ class HFInstructDataSourceConfig(HFDataSourceConfig):
     @model_validator(mode="after")
     def autofill_known_datasets_role_mapping(self) -> Self:
         """Autofill known datasets with default role mappings."""
-        known_datasets = {
+        known_datasets: Dict[str, Dict[str, Any]] = {
             "nvidia/AceMath-Instruct-Training-Data": {
-                "user": "messages.role.user,content",
-                "assistant": "answers.role.assistant,content",
+                "role_mapping": {
+                    "user": "messages.role.user",
+                    "assistant": "answers.role.assistant",
+                },
+                "content_key": "content",
             },
             "HuggingFaceH4/ultrachat_200k": {
-                "user": "messages.role.user,content",
-                "assistant": "messages.role.assistant,content",
+                "role_mapping": {
+                    "user": "messages.role.user",
+                    "assistant": "messages.role.assistant",
+                },
+                "content_key": "content",
             },
         }
         dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
         if dataset_name in known_datasets:
-            # Don't override if user provided a custom role_mapping
-            if "role_mapping" not in self.model_fields_set:
-                self.role_mapping = known_datasets[dataset_name]
+            dataset_config = known_datasets[dataset_name]
+            # Don't override if user provided custom values
+            if "role_mapping" not in self.model_fields_set and "role_mapping" in dataset_config:
+                role_mapping = dataset_config["role_mapping"]
+                self.role_mapping = role_mapping
+            if "content_key" not in self.model_fields_set and "content_key" in dataset_config:
+                content_key = dataset_config["content_key"]
+                self.content_key = content_key
         return self
 
 
@@ -125,31 +135,20 @@ class HFInstructDataSource(HFDataSource):
 
         Supports:
         - Simple field: "question" -> data["question"]
-        - Conversation filter: "conversations.role.user" -> find items where role=="user", extract content
-        - Conversation filter with field: "conversations.from.human,value" -> find items where from=="human", extract "value" field
+        - Conversation filter: "conversations.role.user" -> find items where role=="user", extract content using content_key
         """
-        # Parse path specification
-        if "," in path_spec:
-            parts = path_spec.split(",")
-            if len(parts) != 2:
-                raise ValueError("Invalid format for path: expected 'path,content_field'")
-            path, content_field = parts
-        else:
-            path = path_spec
-            content_field = None
-
         # Simple field access (no dots)
-        if "." not in path:
-            value = data.get(path)
+        if "." not in path_spec:
+            value = data.get(path_spec)
             if value is not None:
                 return [str(value)]
             return []
 
         # Parse conversation filter: array_path.filter_field.filter_value
-        parts = path.split(".")
+        parts = path_spec.split(".")
         if len(parts) != 3:
             raise ValueError(
-                f"Invalid conversation path format: {path}. Expected: array_path.filter_field.filter_value"
+                f"Invalid conversation path format: {path_spec}. Expected: array_path.filter_field.filter_value"
             )
 
         array_path = parts[0]  # e.g., "conversations"
@@ -170,11 +169,11 @@ class HFInstructDataSource(HFDataSource):
             # Check if this item matches our filter
             if item.get(filter_field) == filter_value:
                 # Extract content from the matching item
-                if content_field:
-                    # Use specified content field
-                    content = item.get(content_field)
+                if self.config.content_key:
+                    # Use explicit content key
+                    content = item.get(self.config.content_key)
                 else:
-                    # Use default content field
+                    # Use default content field detection
                     content = self._get_default_content(item)
 
                 if content is not None:
