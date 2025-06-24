@@ -33,8 +33,7 @@ cd projects/sequence-parallelism
 To launch a 1-GPU job:
 ```
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=0
-arctic_training run-sp1-llama-8b.yml
+arctic_training run-sp1-llama-8b.yml --num_gpus 0
 ```
 
 You have 2 examples for 1 gpu:
@@ -47,7 +46,6 @@ You have 2 examples for 1 gpu:
 To launch an 8-GPU job:
 ```
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=0
 arctic_training run-sp8-llama-8b.yml
 ```
 
