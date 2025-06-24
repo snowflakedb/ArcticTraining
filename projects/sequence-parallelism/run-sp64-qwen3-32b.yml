@@ -26,7 +26,13 @@ model:
 
 data:
   sources:
-    - HuggingFaceH4/ultrachat_200k
+    - type: huggingface_instruct
+      name_or_path: HuggingFaceH4/ultrachat_200k
+      split: train_sft
+      role_mapping:
+        user: messages.role.user
+        assistant: messages.role.assistant
+
 
   cache_dir: data-cache
   dl_num_workers: 1
