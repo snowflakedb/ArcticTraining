@@ -33,6 +33,7 @@ from arctic_training.config.trainer import get_config
 from arctic_training.data.causal_factory import CausalDataFactory
 from arctic_training.data.dpo_factory import DPODataFactory
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.data.source import DataSource
