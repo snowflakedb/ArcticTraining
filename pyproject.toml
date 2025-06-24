@@ -20,7 +20,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.5.dev0"
+version = "0.0.5"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
