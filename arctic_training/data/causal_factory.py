@@ -199,8 +199,9 @@ class CausalDataFactory(DataFactory):
         text: List[Dict[str, str]],
         tokenizer: PreTrainedTokenizerBase,
     ) -> BatchEncoding:
-        # only want input_ids
-        return tokenizer(text, return_attention_mask=False, add_special_tokens=False)
+        # - we only want input_ids, as we rely on position_ids and not the attention_mask
+        # - verbose=False because we potentially tokenize much longer sequences than the model can handle because later we slice the outcome into something that a model can handle, therefore tokenizer warnings like "Token indices sequence length is longer than the specified maximum sequence length" are irrelevant.
+        return tokenizer(text, return_attention_mask=False, add_special_tokens=False, verbose=False)
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         return DataLoader(
