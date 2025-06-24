@@ -263,7 +263,7 @@ Config:
 
 .. code:: python
 
-   {"conversations": [{"sender": "human", "message": "Hello world"}, {"sender": "system", "message": "Hi there"}]}
+   {"conversations": [{"sender": "system", "message": "Hello world"}, {"sender": "user, "message": "Hi there"}]}
 
 Config:
 
