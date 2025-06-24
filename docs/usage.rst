@@ -174,7 +174,7 @@ within the dataset structure. We accept two types of inputs:
 
 2. ``{role_name} : {column_name.filter_field.filter_value}``
 
-Additionally ``content_field`` can be used when a deep structure with
+Additionally ``content_key`` can be used when a deep structure with
 complex columns is used and the value name needs remapping, see example
 5 below for such a use-case.
 
