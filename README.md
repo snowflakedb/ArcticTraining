@@ -10,6 +10,7 @@
 
 ## Latest News
 
+* [2025/06] [Arctic Long Sequence Training (ALST): Scalable And Efficient Training For Multi-Million Token Sequences](https://www.snowflake.com/en/engineering-blog/arctic-long-sequence-training-multi-million-token-ai/)
 * [2025/05] [Fastest Speculative Decoding in vLLM with Arctic Inference and Arctic Training](https://www.snowflake.com/en/engineering-blog/fast-speculative-decoding-vllm-arctic/)
 * [2025/03] [Snowflake Arctic Embed Joins ArcticTraining: Simple And Scalable Embedding Model Training](https://www.snowflake.com/en/engineering-blog/arctic-embed-joins-arctictraining/)
 * [2025/01] [ArcticTraining: Simplifying and Accelerating Post-Training for LLMs](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/)
