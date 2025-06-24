@@ -116,12 +116,17 @@ You have multiple examples for 2+ node jobs:
 
 ### Modifying the dataset
 
-If you want to use your own database, edit this section of the desired `yaml` file and replace it with the dataset of your choice.
+If you want to use your own instruct type of dataset instead of [HuggingFaceH4/ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k), edit this section of the desired `yaml` recipe file and replace it with the dataset of your choice, while remapping the column and role names and the dataset split name if needed. You will find multiple supported dataset types and examples [here](https://arctictraining.readthedocs.io/en/latest/usage.html#sft-datasets).
 
 ```
 data:
   sources:
-    - HuggingFaceH4/ultrachat_200k
+    - type: huggingface_instruct
+      name_or_path: HuggingFaceH4/ultrachat_200k
+      split: train_sft
+      role_mapping:
+        user: messages.role.user
+        assistant: messages.role.assistant
 ```
 
 ### Environment used to create these examples
