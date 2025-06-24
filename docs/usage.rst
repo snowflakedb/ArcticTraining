@@ -202,7 +202,7 @@ See https://huggingface.co/datasets/Josephgflowers/Finance-Instruct-500k
 
 .. code:: python
 
-   {"question": "What is the capital of France?", "response": "The capital of France is Paris."}
+   {"instruction": "What is the capital of France?", "demonstration": "The capital of France is Paris."}
 
 Config:
 
