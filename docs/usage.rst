@@ -174,7 +174,7 @@ within the dataset structure. We accept two types of inputs:
 
 2. ``{role_name} : {column_name.filter_field.filter_value}``
 
-Additionally ``content_field`` can be used when a deep structure with
+Additionally ``content_key`` can be used when a deep structure with
 complex columns is used and the value name needs remapping, see example
 5 below for such a use-case.
 
@@ -202,7 +202,7 @@ See https://huggingface.co/datasets/Josephgflowers/Finance-Instruct-500k
 
 .. code:: python
 
-   {"question": "What is the capital of France?", "response": "The capital of France is Paris."}
+   {"instruction": "What is the capital of France?", "demonstration": "The capital of France is Paris."}
 
 Config:
 

@@ -88,7 +88,7 @@ class HFDataSourceConfigInstruct(HFDataSourceConfig):
         return self
 
 
-class HFInstructDataSource(HFDataSource):
+class HFDataSourceInstruct(HFDataSource):
     """Base DataSource class for instruction-following datasets used in SFT."""
 
     name = "huggingface_instruct"
