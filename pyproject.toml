@@ -64,7 +64,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.51.3", # attention api + qwen
+    "transformers>=4.53", # update_causal_mask
     "wandb",
     "yq",
 ]
@@ -88,6 +88,7 @@ dev = [
 testing = [
     "pytest",
     "pytest-instafail",
+    "parameterized",
 ]
 
 formatting = [
