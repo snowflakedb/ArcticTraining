@@ -22,10 +22,10 @@ import torch
 from torch import nn
 from transformers.cache_utils import Cache
 from transformers.cache_utils import DynamicCache
+from transformers.masking_utils import create_causal_mask
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.masking_utils import create_causal_mask
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
 from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
@@ -281,7 +281,7 @@ class Qwen2SwiftKVModel(Qwen2Model):
             input_embeds=inputs_embeds,
             attention_mask=attention_mask,
             cache_position=cache_position,
-            past_key_values=past_key_values
+            past_key_values=past_key_values,
         )
 
         hidden_states = inputs_embeds
