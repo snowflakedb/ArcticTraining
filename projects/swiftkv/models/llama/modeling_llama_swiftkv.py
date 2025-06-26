@@ -25,6 +25,7 @@ from transformers.cache_utils import DynamicCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+from transformers.masking_utils import create_causal_mask
 from transformers.models.llama.modeling_llama import LlamaAttention
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.models.llama.modeling_llama import LlamaMLP
@@ -261,12 +262,12 @@ class LlamaSwiftKVModel(LlamaModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask,
-            inputs_embeds,
-            cache_position,
-            past_key_values,
-            output_attentions,
+        causal_mask = create_causal_mask(
+            config=self.config,
+            input_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            cache_position=cache_position,
+            past_key_values=past_key_values
         )
 
         hidden_states = inputs_embeds
