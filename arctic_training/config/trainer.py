@@ -406,26 +406,35 @@ class TrainerConfig(BaseConfig):
 
 
 def load_user_module_from_path(script_path: Path) -> None:
-    # Symlink the script to a temporary directory to avoid clashing with other modules
+    # Symlink the entire directory containing the script to avoid issues with relative imports
+    script_dir = script_path.parent
     tmp_root = Path(tempfile.gettempdir())
     shared_tmp_dir = tmp_root / "arctic_training_custom_module_symlinks"
     shared_tmp_dir.mkdir(exist_ok=True)
-    # Generate the same unique name for a given script path across all processes
-    unique_module_name = (
-        f"user_{script_path.stem}_{uuid.uuid5(uuid.NAMESPACE_URL, str(script_path.resolve())).hex[:8]}"
-    )
-    symlink_path = shared_tmp_dir / f"{unique_module_name}.py"
+
+    # Generate the same unique name for a given script directory across all processes
+    unique_dir_name = f"user_dir_{uuid.uuid5(uuid.NAMESPACE_URL, str(script_dir.resolve())).hex[:8]}"
+    symlink_dir_path = shared_tmp_dir / unique_dir_name
+
     try:
-        symlink_path.symlink_to(script_path)
+        symlink_dir_path.symlink_to(script_dir)
     except FileExistsError:
         # Another proc created the symlink first, use that one
         pass
 
-    # Insert into path so child procs can import it
-    sys.path.insert(0, str(shared_tmp_dir))
-    spec = importlib.util.spec_from_file_location(unique_module_name, symlink_path)
+    # Add the symlinked directory to sys.path so that child procs can import it
+    user_path_str = str(symlink_dir_path)
+    if user_path_str not in sys.path:
+        sys.path.append(user_path_str)
+
+    # Now load the specific script from the symlinked directory
+    script_name = script_path.stem
+    unique_module_name = f"{unique_dir_name}_{script_name}"
+    symlinked_script_path = symlink_dir_path / script_path.name
+
+    spec = importlib.util.spec_from_file_location(unique_module_name, symlinked_script_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load script from {symlink_path}")
+        raise ImportError(f"Cannot load script from {symlinked_script_path}")
 
     # Load user module
     module = importlib.util.module_from_spec(spec)
