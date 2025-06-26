@@ -22,10 +22,18 @@ from typing import List
 from datasets import DatasetDict
 from datasets import load_dataset
 from datasets import load_from_disk
+from pydantic import model_validator
+from typing_extensions import Self
 
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
+
+# Known datasets with split mappings
+KNOWN_DATASETS_SPLIT_MAP: Dict[str, Dict[str, str]] = {
+    "HuggingFaceH4/ultrachat_200k": {"train": "train_sft", "eval": "test_sft"},
+    "HuggingFaceH4/ultrafeedback_binarized": {"train": "train_prefs", "eval": "test_prefs"},
+}
 
 
 class HFDataSourceConfig(DataSourceConfig):
@@ -38,12 +46,49 @@ class HFDataSourceConfig(DataSourceConfig):
     kwargs: Dict[str, Any] = {}
     """ Keyword arguments to pass to the datasets.load_dataset function. """
 
+    split_mapping: Dict[str, str] = {}
+    """
+    Mapping from standard split names to dataset-specific split names.
+    E.g., {"train": "train_sft", "eval": "test_sft"} for ultrachat_200k.
+    """
+
+    @model_validator(mode="after")
+    def populate_split_mapping(self) -> Self:
+        """Autofill split mappings for known datasets."""
+        dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
+        if dataset_name in KNOWN_DATASETS_SPLIT_MAP and not self.split_mapping:
+            self.split_mapping = KNOWN_DATASETS_SPLIT_MAP[dataset_name]
+        return self
+
 
 class HFDataSource(DataSource):
     """Base DataSource class for loading data with HuggingFace datasets library."""
 
     name = "huggingface"
     config: HFDataSourceConfig
+
+    def pre_load_callback(self, split: str) -> str:
+        """Apply split mapping if configured for this dataset."""
+        if self.config.split_mapping:
+            # Extract the base split name (before any slice notation like [:5])
+            base_split = split.split("[")[0] if "[" in split else split
+
+            # Check if the base split is already a target split (already mapped)
+            target_splits = set(self.config.split_mapping.values())
+            if base_split in target_splits:
+                # Already in target form, no mapping needed
+                return split
+
+            # Apply mapping only if we have an exact match for the base split
+            if base_split in self.config.split_mapping:
+                mapped_split = self.config.split_mapping[base_split]
+                # Replace only the base split part, preserve any slice notation
+                if "[" in split:
+                    slice_part = split[split.index("[") :]
+                    split = mapped_split + slice_part
+                else:
+                    split = mapped_split
+        return split
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
         # Support loading local datasets
@@ -55,20 +100,6 @@ class HFDataSource(DataSource):
             dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
 
         return dataset
-
-
-class AceMath(HFDataSource):
-    name = "nvidia/AceMath-Instruct-Training-Data"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        def process_example(example):
-            return {"messages": example["messages"] + [{"role": "assistant", "content": example["answer"]}]}
-
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc=f"Loading {self.name}",
-        )
 
 
 class ProjectGutenbergSFT(HFDataSource):
@@ -92,187 +123,8 @@ class ProjectGutenbergSFT(HFDataSource):
         )
 
 
-class UltraChat200K(HFDataSource):
-    name = "HuggingFaceH4/ultrachat_200k"
-
-    def pre_load_callback(self, split: str) -> str:
-        split_map = dict(train="train_sft", eval="test_sft")
-        for original, modified in split_map.items():
-            split = split.replace(original, modified)
-        return split
-
-
-class OpenOrca(HFDataSource):
-    name = "Open-Orca/OpenOrca"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        formatted_dataset = dataset.map(
-            partial(
-                self.instruct_format_conversation,
-                system_key="system_prompt",
-                query_key="question",
-                response_key="response",
-                source_name="OpenOrca",
-            ),
-            num_proc=self.data_factory.config.num_proc,
-            desc=f"Loading {self.name}",
-        )
-        return formatted_dataset
-
-    @staticmethod
-    def instruct_format_conversation(example, system_key, query_key, response_key, source_name):
-        conversation = [
-            {"role": "system", "content": example[system_key]},
-            {"role": "user", "content": example[query_key]},
-            {"role": "assistant", "content": example[response_key]},
-        ]
-        return {
-            "source": source_name,
-            "messages": conversation,
-        }
-
-
-class LongAlign10K(HFDataSource):
-    name = "THUDM/LongAlign-10k"
-
-
-class LongAlpaca12K(HFDataSource):
-    name = "Yukang/LongAlpaca-12k"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        formatted_dataset = dataset.map(
-            partial(
-                self.instruct_format_conversation,
-                query_key="instruction",
-                response_key="output",
-                source_name="LongAlpaca-12k",
-            ),
-            desc="Loading LongAlpaca-12K",
-        )
-        return formatted_dataset
-
-    @staticmethod
-    def instruct_format_conversation(example, query_key, response_key, source_name):
-        conversation = [
-            {"role": "user", "content": example[query_key]},
-            {"role": "assistant", "content": example[response_key]},
-        ]
-        return {
-            "source": source_name,
-            "messages": conversation,
-        }
-
-
-class SlimOrca(HFDataSource):
-    name = "Open-Orca/SlimOrca"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        def process_example(example):
-            return {
-                "messages": [
-                    {
-                        "content": message["value"],
-                        "role": {
-                            "system": "system",
-                            "human": "user",
-                            "gpt": "assistant",
-                        }[message["from"]],
-                    }
-                    for message in example["conversations"]
-                ]
-            }
-
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc="Loading slim orca",
-        )
-
-
-class MetaMathQA(HFDataSource):
-    name = "meta-math/MetaMathQA"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        formatted_dataset = dataset.map(
-            partial(
-                self.instruct_format_conversation,
-                query_key="query",
-                response_key="response",
-                source_name="MetaMathQA",
-            ),
-            desc="Loading meta-math",
-        )
-        return formatted_dataset
-
-    @staticmethod
-    def instruct_format_conversation(example, query_key, response_key, source_name):
-        conversation = [
-            {"role": "user", "content": example[query_key]},
-            {"role": "assistant", "content": example[response_key]},
-        ]
-        return {
-            "source": source_name,
-            "messages": conversation,
-        }
-
-
-class MagicoderOSSInstruct75k(HFDataSource):
-    name = "ise-uiuc/Magicoder-OSS-Instruct-75K"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        formatted_dataset = dataset.map(
-            partial(
-                self.instruct_format_conversation,
-                query_key="problem",
-                response_key="solution",
-                source_name="Magicoder",
-            ),
-            desc="Loading magicoder",
-        )
-        return formatted_dataset
-
-    @staticmethod
-    def instruct_format_conversation(example, query_key, response_key, source_name):
-        conversation = [
-            {"role": "user", "content": example[query_key]},
-            {"role": "assistant", "content": example[response_key]},
-        ]
-        return {
-            "source": source_name,
-            "messages": conversation,
-        }
-
-
-class LMSysChat1M(HFDataSource):
-    name = "lmsys/lmsys-chat-1m"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        formatted_dataset = dataset.map(
-            partial(self.vicuna_format_conversation, source_name="LMSYS-CHAT-1M"),
-            num_proc=self.data_factory.config.num_proc,
-            desc="Loading lmsys",
-        )
-        return formatted_dataset
-
-    @staticmethod
-    def vicuna_format_conversation(example, source_name):
-        messages = []
-        for conv in example["conversation"]:
-            messages.append({"role": conv["role"], "content": conv["content"]})
-        return {
-            "source": source_name,
-            "messages": messages,
-        }
-
-
 class UltraFeedbackBinarized(HFDataSource):
     name = "HuggingFaceH4/ultrafeedback_binarized"
-
-    def pre_load_callback(self, split: str) -> str:
-        split_map = dict(train="train_prefs", eval="test_prefs")
-        for original, modified in split_map.items():
-            split = split.replace(original, modified)
-        return split
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
         dataset = dataset.select_columns(["chosen", "rejected"])

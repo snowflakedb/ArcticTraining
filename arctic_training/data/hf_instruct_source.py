@@ -28,6 +28,64 @@ from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
 from arctic_training.data.utils import DatasetType
 
+# Known datasets with their default role mappings
+KNOWN_DATASETS: Dict[str, Dict[str, Any]] = {
+    "nvidia/AceMath-Instruct-Training-Data": {
+        "role_mapping": {
+            "user": "messages.role.user",
+            "assistant": "answers",
+        },
+    },
+    "HuggingFaceH4/ultrachat_200k": {
+        "role_mapping": {
+            "user": "messages.role.user",
+            "assistant": "messages.role.assistant",
+        },
+    },
+    "Open-Orca/OpenOrca": {
+        "role_mapping": {
+            "user": "question",
+            "assistant": "response",
+        },
+    },
+    "THUDM/LongAlign-10k": {
+        "role_mapping": {
+            "user": "messages.role.user",
+            "assistant": "messages.role.assistant",
+        },
+    },
+    "Yukang/LongAlpaca-12k": {
+        "role_mapping": {
+            "user": "instruction",
+            "assistant": "output",
+        },
+    },
+    "Open-Orca/SlimOrca": {
+        "role_mapping": {
+            "user": "conversations.from.human",
+            "assistant": "conversations.from.gpt",
+        },
+    },
+    "meta-math/MetaMathQA": {
+        "role_mapping": {
+            "user": "query",
+            "assistant": "response",
+        },
+    },
+    "ise-uiuc/Magicoder-OSS-Instruct-75K": {
+        "role_mapping": {
+            "user": "problem",
+            "assistant": "solution",
+        },
+    },
+    "lmsys/lmsys-chat-1m": {
+        "role_mapping": {
+            "user": "conversation.role.user",
+            "assistant": "conversation.role.assistant",
+        },
+    },
+}
+
 
 class HFDataSourceConfigInstruct(HFDataSourceConfig):
     role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "user", "assistant": "assistant"})
@@ -59,25 +117,9 @@ class HFDataSourceConfigInstruct(HFDataSourceConfig):
     @model_validator(mode="after")
     def autofill_known_datasets_role_mapping(self) -> Self:
         """Autofill known datasets with default role mappings."""
-        known_datasets: Dict[str, Dict[str, Any]] = {
-            "nvidia/AceMath-Instruct-Training-Data": {
-                "role_mapping": {
-                    "user": "messages.role.user",
-                    "assistant": "answers.role.assistant",
-                },
-                "content_key": "content",
-            },
-            "HuggingFaceH4/ultrachat_200k": {
-                "role_mapping": {
-                    "user": "messages.role.user",
-                    "assistant": "messages.role.assistant",
-                },
-                "content_key": "content",
-            },
-        }
         dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
-        if dataset_name in known_datasets:
-            dataset_config = known_datasets[dataset_name]
+        if dataset_name in KNOWN_DATASETS:
+            dataset_config = KNOWN_DATASETS[dataset_name]
             # Don't override if user provided custom values
             if "role_mapping" not in self.model_fields_set and "role_mapping" in dataset_config:
                 role_mapping = dataset_config["role_mapping"]
