@@ -50,7 +50,7 @@ class DataSourceConfig(BaseConfig):
 
     split: str = ""
     """
-    Which split the data source is used for. This will be automatically set to either "train" or "eval" if no value is passed.
+    Which split to load for a given data source. This will be automatically set to either "train" or "eval" if no value is passed.
 
     For HFDataSource, this can be any value supported by Dataset slice splits:
     https://huggingface.co/docs/datasets/en/loading#slice-splits.
@@ -141,16 +141,19 @@ class DataConfig(BaseConfig):
         v: List[Union[str, Dict, DataSourceConfig]],
         info: ValidationInfo,
     ) -> List[DataSourceConfig]:
-        """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
+        """Convert string and dict input to correct subclass of DataSourceConfig."""
         data_configs = []
         for config in v:
-            split = "train" if info.field_name == "sources" else "eval"
+            default_split = "train" if info.field_name == "sources" else "eval"
 
             # Support passing just a dataset name or path
             if isinstance(config, str):
-                # User has passed split suffix as part of the name
-                if ":" in config:
-                    config, split = config.split(":", 1)
+                dataset_name, split_spec = parse_dataset_string(config)
+                split = split_spec if split_spec else default_split
+
+                # Determine default data source type based on context
+                data_factory_type = info.data.get("type", "") if info.data else ""
+                default_data_source_type = get_default_data_source_for_factory(data_factory_type)
 
                 try:
                     _ = get_registered_data_source(config)
