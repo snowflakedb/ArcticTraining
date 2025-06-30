@@ -72,7 +72,7 @@ dconf = ContrastivePretokenizedDataConfig(
     eval_max_seq_length_doc=512,
     eval_max_seq_length_query=512,
 )
-sconf = WSDSchedulerConfig(num_warmup_steps=500, num_decay_steps=1_000, learning_rate=LEARNING_RATE)
+sconf = WSDSchedulerConfig(num_warmup_steps=500, num_decay_steps=1_000)
 oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
 lconf = LoggerConfig(level="INFO")
 wconf = WandBConfig(
