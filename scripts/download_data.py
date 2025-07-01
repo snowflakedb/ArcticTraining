@@ -19,6 +19,8 @@ import tempfile
 from pathlib import Path
 
 from datasets import load_dataset
+from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer
 
 from arctic_training.config.trainer import get_config
 
@@ -32,6 +34,16 @@ def get_args():
         required=True,
         help="ArticTraining config to run.",
     )
+
+    parser.add_argument(
+        "-d",
+        "--download",
+        type=str,
+        choices=["data", "model"],
+        required=True,
+        help="Download data sources or model weights.",
+    )
+
     parser.add_argument(
         "-t",
         "--tmp-path",
@@ -40,6 +52,18 @@ def get_args():
         help="Path to a temporary directory to download data to.",
     )
     return parser.parse_args()
+
+
+def download_data(config):
+    for source in config.data.sources:
+        print(f"{source.name_or_path=}, {source.split=}, {source.kwargs=}")
+        load_dataset(path=str(source.name_or_path), split=source.split, **source.kwargs)
+
+
+def download_model(config):
+    print(f"Downloading model: {config.model.name_or_path=}")
+    AutoModelForCausalLM.from_pretrained(config.model.name_or_path)
+    AutoTokenizer.from_pretrained(config.model.name_or_path)
 
 
 if __name__ == "__main__":
@@ -58,6 +82,10 @@ if __name__ == "__main__":
     os.makedirs(args.tmp_path, exist_ok=True)
 
     config = get_config(args.config)
-    for source in config.data.sources:
-        print(f"{source.name_or_path=}, {source.split=}, {source.kwargs=}")
-        load_dataset(path=str(source.name_or_path), split=source.split, **source.kwargs)
+
+    if args.download == "data":
+        download_data(config)
+    elif args.download == "model":
+        download_model(config)
+    else:
+        raise ValueError(f"Invalid download type: {args.download}")
