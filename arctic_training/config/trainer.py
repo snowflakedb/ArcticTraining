@@ -422,15 +422,30 @@ def load_user_module_from_path(script_path: Path) -> None:
         # Another proc created the symlink first, use that one
         pass
 
-    # Add the symlinked directory to sys.path so that child procs can import it
-    user_path_str = str(symlink_dir_path)
-    if user_path_str not in sys.path:
-        sys.path.append(user_path_str)
-
     # Now load the specific script from the symlinked directory
     script_name = script_path.stem
     unique_module_name = f"{unique_dir_name}_{script_name}"
     symlinked_script_path = symlink_dir_path / script_path.name
+
+    # Create a symlink in the shared directory with the unique module name
+    # so that child processes can import it by name
+    unique_module_file = shared_tmp_dir / f"{unique_module_name}.py"
+    try:
+        unique_module_file.symlink_to(symlinked_script_path)
+    except FileExistsError:
+        # Another proc created the symlink first, use that one
+        pass
+
+    # Add both the shared temp dir and the symlinked directory to sys.path
+    # - shared_tmp_dir: so child processes can import the uniquely named module
+    # - symlink_dir_path: so user modules can import from each other
+    shared_path_str = str(shared_tmp_dir)
+    if shared_path_str not in sys.path:
+        sys.path.append(shared_path_str)
+
+    user_path_str = str(symlink_dir_path)
+    if user_path_str not in sys.path:
+        sys.path.append(user_path_str)
 
     spec = importlib.util.spec_from_file_location(unique_module_name, symlinked_script_path)
     if spec is None or spec.loader is None:
