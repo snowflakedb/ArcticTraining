@@ -12,6 +12,7 @@ license-files = [
 [tool.hatch.build]
 include = [
   "arctic_training_cli.py",
+  "arctic_training",
 ]
 
 [project.urls]
