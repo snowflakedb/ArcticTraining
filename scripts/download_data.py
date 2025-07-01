@@ -18,11 +18,10 @@ import os
 import tempfile
 from pathlib import Path
 
+import yaml
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
-
-from arctic_training.config.trainer import get_config
 
 
 def get_args():
@@ -55,35 +54,41 @@ def get_args():
 
 
 def download_data(config):
-    for source in config.data.sources:
-        print(f"{source.name_or_path=}, {source.split=}, {source.kwargs=}")
-        load_dataset(path=str(source.name_or_path), split=source.split, **source.kwargs)
+    sources = config["data"]["sources"]
+    for source in sources:
+        if isinstance(source, dict):
+            name_or_path = source["name_or_path"]
+            split = source.get("split", None)
+            kwargs = source.get("kwargs", {})
+        else:
+            name_or_path = source
+            split = None
+            kwargs = {}
+        print(f"{name_or_path=}, {split=}, {kwargs=}")
+        load_dataset(path=str(name_or_path), split=split, **kwargs)
 
 
 def download_model(config):
-    print(f"Downloading model: {config.model.name_or_path=}")
-    AutoModelForCausalLM.from_pretrained(config.model.name_or_path)
-    AutoTokenizer.from_pretrained(config.model.name_or_path)
+    name_or_path = config["model"]["name_or_path"]
+    print(f"Downloading model: {name_or_path=}")
+    AutoModelForCausalLM.from_pretrained(name_or_path)
+    AutoTokenizer.from_pretrained(name_or_path)
+
+
+def get_config(config_path):
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    return config
 
 
 if __name__ == "__main__":
     args = get_args()
 
-    # FIXME(jeff): currently `get_config` requires a distributed environment, we should
-    # be able to parse a trainer config yaml without having to initialize torch distributed.
-    # This is a hack to get around this for now.
-    os.environ["LOCAL_RANK"] = "0"
-    os.environ["WORLD_SIZE"] = "1"
-    os.environ["RANK"] = "0"
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "29500"
-
-    tempfile.tempdir = args.tmp_path
-    os.makedirs(args.tmp_path, exist_ok=True)
-
     config = get_config(args.config)
 
     if args.download == "data":
+        tempfile.tempdir = args.tmp_path
+        os.makedirs(args.tmp_path, exist_ok=True)
         download_data(config)
     elif args.download == "model":
         download_model(config)
