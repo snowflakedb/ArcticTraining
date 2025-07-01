@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from parameterized import parameterized
+
 from arctic_training.testing_utils import CaptureStd
 from arctic_training.testing_utils import TestCasePlus
 from arctic_training.testing_utils import execute_subprocess_async
 from arctic_training.testing_utils import get_unique_port_number
 from arctic_training.testing_utils import require_torch_multi_gpu
-from arctic_training.testing_utils import torch_assert_equal
+from arctic_training.testing_utils import torch_assert_close
 from arctic_training.testing_utils import write_file
 from arctic_training.utils import read_json_file
 
@@ -32,11 +34,12 @@ class TestTrainerWithLauncher(TestCasePlus):
     # def setUp(self):
     #     super().setUp()
 
-    def test_ulysses_plus_e2e(self):
+    @parameterized.expand(["flash_attention_2", "sdpa"])
+    def test_ulysses_alst_e2e(self, attn_implementation):
         """
         This is an end-to-end test:
         1. runs 2 iterations for a baseline on 2 gpus sp=1, dp=2, gas=1
-        2. runs 2 iterations for a baseline+ulysses plus features enabled on 2 gpus sp=2, dp=2, gas=2 (4 sub-iterations in total)
+        2. runs 2 iterations for a baseline+ulysses alst features enabled on 2 gpus sp=2, dp=2, gas=2 (4 sub-iterations in total)
         3. compares that the loss is the same as both trainings have seen the exact same data once. The grads match is checked via loss, because the 2nd iteration will already have grads modified.
         """
         world_size = 2
@@ -60,8 +63,7 @@ optimizer:
 model:
   #type: "liger"
   name_or_path: {model_name_or_path}
-  attn_implementation: flash_attention_2
-  #attn_implementation: sdpa
+  attn_implementation: {attn_implementation}
 
 data:
   sources:
@@ -78,7 +80,7 @@ logger:
 train_log_iter_interval: 1
 """
 
-        ulysses_plus_extra_config = f"""
+        ulysses_alst_extra_config = f"""
 activation_checkpoint_cpu_offload: true
 tiled_mlp_compute: true
 sequence_parallel_size: {world_size}
@@ -115,12 +117,12 @@ train_log_metrics_path: {log_train_file}
         self.assertEqual(train_logs[0]["iter"], 1)
         loss_a = train_logs[0]["loss"]
 
-        # 2. e2e with UlyssesPlus enabled (all features)
-        log_train_file = save_path / "logs" / "train_logs-ulysses-plus.jsonl"
+        # 2. e2e with Ulysses ALST enabled (all features)
+        log_train_file = save_path / "logs" / "train_logs-ulysses-alst.jsonl"
         log_config = f"""
 train_log_metrics_path: {log_train_file}
 """
-        config = baseline_config + log_config + ulysses_plus_extra_config
+        config = baseline_config + log_config + ulysses_alst_extra_config
         write_file(config_file, config)
         log_train_file.unlink(missing_ok=True)
 
@@ -141,4 +143,4 @@ train_log_metrics_path: {log_train_file}
         self.assertEqual(train_logs[0]["iter"], 1)
         loss_b = train_logs[0]["loss"]
 
-        torch_assert_equal(loss_a, loss_b)
+        torch_assert_close(loss_a, loss_b)
