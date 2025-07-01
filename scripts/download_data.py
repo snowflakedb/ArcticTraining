@@ -17,11 +17,9 @@ import argparse
 import os
 import tempfile
 from pathlib import Path
-from typing import cast
 
 from datasets import load_dataset
 
-from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
 
 
@@ -59,7 +57,7 @@ if __name__ == "__main__":
     tempfile.tempdir = args.tmp_path
     os.makedirs(args.tmp_path, exist_ok=True)
 
-    config = cast(TrainerConfig, get_config(args.config))
+    config = get_config(args.config)
     for source in config.data.sources:
         print(f"{source.name_or_path=}, {source.split=}, {source.kwargs=}")
         load_dataset(path=str(source.name_or_path), split=source.split, **source.kwargs)
