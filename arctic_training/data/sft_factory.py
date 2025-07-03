@@ -33,6 +33,7 @@ from typing_extensions import Self
 from arctic_training.config.data import DataConfig
 from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
 
 IGNORE_INDEX = -100
@@ -318,6 +319,7 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
 class SFTDataFactory(DataFactory):
     name = "sft"
     config: SFTDataConfig
+    default_source_cls = HFDataSourceInstruct
     callbacks = [
         ("post-load", filter_dataset_length),
         ("post-load", pack_dataset),

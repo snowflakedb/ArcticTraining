@@ -20,6 +20,7 @@ from typing import List
 from typing import Mapping
 from typing import Optional
 from typing import Tuple
+from typing import Type
 
 import deepspeed.comm as dist
 from datasets import concatenate_datasets
@@ -60,6 +61,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
     The type of the DataConfig object that this DataFactory uses. Any
     DataFactory-specific options should be specified in this class.
     """
+
+    default_source_cls: Optional[Type] = None
 
     @classmethod
     def _validate_subclass(cls) -> None:
