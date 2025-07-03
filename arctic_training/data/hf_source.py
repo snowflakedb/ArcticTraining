@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import partial
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -37,7 +36,7 @@ KNOWN_DATASETS_SPLIT_MAP: Dict[str, Dict[str, str]] = {
 
 
 class HFDataSourceConfig(DataSourceConfig):
-    name_or_path: Path
+    name_or_path: str
     """
     Name or path of the dataset to load. Also accepts values for the split field
     after a colon (e.g. "name:split", "name:split[10:20]").
@@ -53,11 +52,16 @@ class HFDataSourceConfig(DataSourceConfig):
     """
 
     @model_validator(mode="after")
+    def get_split_from_name_or_path(self) -> Self:
+        if ":" in self.name_or_path:
+            self.name_or_path, self.split = self.name_or_path.split(":", 1)
+        return self
+
+    @model_validator(mode="after")
     def populate_split_mapping(self) -> Self:
         """Autofill split mappings for known datasets."""
-        dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
-        if dataset_name in KNOWN_DATASETS_SPLIT_MAP and not self.split_mapping:
-            self.split_mapping = KNOWN_DATASETS_SPLIT_MAP[dataset_name]
+        if self.name_or_path in KNOWN_DATASETS_SPLIT_MAP and not self.split_mapping:
+            self.split_mapping = KNOWN_DATASETS_SPLIT_MAP[self.name_or_path]
         return self
 
 
@@ -92,12 +96,12 @@ class HFDataSource(DataSource):
 
     def load(self, config: HFDataSourceConfig, split: str) -> DatasetType:
         # Support loading local datasets
-        if config.name_or_path.exists():
-            dataset = load_from_disk(config.name_or_path.as_posix(), **config.kwargs)
+        if Path(config.name_or_path).exists():
+            dataset = load_from_disk(config.name_or_path, **config.kwargs)
             if isinstance(dataset, DatasetDict):
                 dataset = dataset[split]
         else:
-            dataset = load_dataset(str(config.name_or_path), split=split, **config.kwargs)
+            dataset = load_dataset(config.name_or_path, split=split, **config.kwargs)
 
         return dataset
 

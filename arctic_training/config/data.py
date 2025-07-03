@@ -142,34 +142,33 @@ class DataConfig(BaseConfig):
         info: ValidationInfo,
     ) -> List[DataSourceConfig]:
         """Convert string and dict input to correct subclass of DataSourceConfig."""
+        default_split = "train" if info.field_name == "sources" else "eval"
+        data_factory_type = info.data.get("type", "")
+        default_data_source_type = get_registered_data_factory(data_factory_type).default_source_cls
+
         data_configs = []
         for config in v:
-            default_split = "train" if info.field_name == "sources" else "eval"
-
-            # Support passing just a dataset name or path
             if isinstance(config, str):
-                dataset_name, split_spec = parse_dataset_string(config)
-                split = split_spec if split_spec else default_split
-
-                # Determine default data source type based on context
-                data_factory_type = info.data.get("type", "") if info.data else ""
-                default_data_source_type = get_default_data_source_for_factory(data_factory_type)
-
                 try:
-                    _ = get_registered_data_source(config)
-                    config = dict(type=config, name_or_path=config)
+                    _ = get_registered_data_source(name=config)
+                    data_source_type = config
                 except RegistryError:
-                    config = dict(type="huggingface", name_or_path=config)
-
-            # Convert passed dictionary to DataSourceConfig subclass
-            if isinstance(config, dict):
+                    if default_data_source_type is not None:
+                        data_source_type = default_data_source_type.name
+                    else:
+                        # Fallback to huggingface as global default
+                        data_source_type = "huggingface"
+                data_source_cls = get_registered_data_source(data_source_type)
+                config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
+                data_configs.append(config_cls(type=data_source_type, name_or_path=config, split=default_split))
+            elif isinstance(config, dict):
                 if "type" not in config:
-                    raise KeyError(
-                        "Unspecified data source type. Please specify the 'type' field"
-                        f" in your datasource config. Error raised for input: {config}."
-                    )
+                    if default_data_source_type is not None:
+                        config["type"] = default_data_source_type.name
+                    else:
+                        config["type"] = "huggingface"
                 if "split" not in config:
-                    config["split"] = split
+                    config["split"] = default_split
                 data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
                 data_configs.append(config_cls(**config))
