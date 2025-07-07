@@ -21,6 +21,7 @@ from typing import List
 from datasets import DatasetDict
 from datasets import load_dataset
 from datasets import load_from_disk
+from pydantic import Field
 from pydantic import model_validator
 from typing_extensions import Self
 
@@ -29,12 +30,13 @@ from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
 
 # Known datasets with split mappings
-KNOWN_DATASETS_SPLIT_MAP: Dict[str, Dict[str, str]] = dict(
-    [
-        ("HuggingFaceH4/ultrachat_200k", dict(train="train_sft", eval="test_sft")),
-        ("HuggingFaceH4/ultrafeedback_binarized", dict(train="train_prefs", eval="test_prefs")),
-    ]
-)
+KNOWN_DATASETS: Dict[str, Dict[str, Dict[str, str]]] = {
+    "HuggingFaceH4/ultrachat_200k": dict(split_mapping=dict(train="train_sft", eval="test_sft")),
+    "HuggingFaceH4/ultrafeedback_binarized": dict(split_mapping=dict(train="train_prefs", eval="test_prefs")),
+    "nvidia/AceMath-Instruct-Training-Data": dict(
+        split_mapping=dict(train="general_sft_stage2"), kwargs=dict(verification_mode="no_checks")
+    ),
+}
 
 
 class HFDataSourceConfig(DataSourceConfig):
@@ -44,10 +46,10 @@ class HFDataSourceConfig(DataSourceConfig):
     after a colon (e.g. "name:split", "name:split[10:20]").
     """
 
-    kwargs: Dict[str, Any] = {}
+    kwargs: Dict[str, Any] = Field(default_factory=dict)
     """ Keyword arguments to pass to the datasets.load_dataset function. """
 
-    split_mapping: Dict[str, str] = {}
+    split_mapping: Dict[str, str] = Field(default_factory=dict)
     """
     Mapping from standard split names to dataset-specific split names.
     E.g., {"train": "train_sft", "eval": "test_sft"} for ultrachat_200k.
@@ -60,10 +62,23 @@ class HFDataSourceConfig(DataSourceConfig):
         return self
 
     @model_validator(mode="after")
-    def populate_split_mapping(self) -> Self:
+    def autofill_known_datasets_split_mapping(self) -> Self:
         """Autofill split mappings for known datasets."""
-        if self.name_or_path in KNOWN_DATASETS_SPLIT_MAP and not self.split_mapping:
-            self.split_mapping = KNOWN_DATASETS_SPLIT_MAP[self.name_or_path]
+        if (
+            self.name_or_path in KNOWN_DATASETS
+            and "split_mapping" in KNOWN_DATASETS[self.name_or_path]
+            and not self.split_mapping
+        ):
+            self.split_mapping = KNOWN_DATASETS[self.name_or_path]["split_mapping"]
+        return self
+
+    @model_validator(mode="after")
+    def autofill_known_datasets_kwargs(self) -> Self:
+        """Autofill kwargs for known datasets."""
+        if self.name_or_path in KNOWN_DATASETS and "kwargs" in KNOWN_DATASETS[self.name_or_path]:
+            for key, value in KNOWN_DATASETS[self.name_or_path]["kwargs"].items():
+                if key not in self.kwargs:
+                    self.kwargs[key] = value
         return self
 
 

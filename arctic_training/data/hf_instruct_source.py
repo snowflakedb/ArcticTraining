@@ -29,64 +29,25 @@ from arctic_training.data.hf_source import HFDataSourceConfig
 from arctic_training.data.utils import DatasetType
 
 # Known datasets with their default role mappings
-KNOWN_DATASETS: Dict[str, Dict[str, Any]] = dict(
-    nvidia_AceMath_Instruct_Training_Data=dict(
-        role_mapping=dict(
-            user="messages.role.user",
-            assistant="answers",
-        ),
+KNOWN_DATASETS: Dict[str, Dict[str, Any]] = {
+    "nvidia/AceMath-Instruct-Training-Data": dict(role_mapping=dict(user="messages.role.user", assistant="answers")),
+    "HuggingFaceH4/ultrachat_200k": dict(
+        role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")
     ),
-    HuggingFaceH4_ultrachat_200k=dict(
+    "Open-Orca/OpenOrca": dict(role_mapping=dict(system="system_prompt", user="question", assistant="response")),
+    "THUDM/LongAlign-10k": dict(role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")),
+    "Yukang/LongAlpaca-12k": dict(role_mapping=dict(user="instruction", assistant="output")),
+    "Open-Orca/SlimOrca": dict(
         role_mapping=dict(
-            user="messages.role.user",
-            assistant="messages.role.assistant",
-        ),
+            system="conversations.from.system", user="conversations.from.human", assistant="conversations.from.gpt"
+        )
     ),
-    Open_Orca_OpenOrca=dict(
-        role_mapping=dict(
-            system="system_prompt",
-            user="question",
-            assistant="response",
-        ),
+    "meta-math/MetaMathQA": dict(role_mapping=dict(user="query", assistant="response")),
+    "ise-uiuc/Magicoder-OSS-Instruct-75K": dict(role_mapping=dict(user="problem", assistant="solution")),
+    "lmsys/lmsys-chat-1m": dict(
+        role_mapping=dict(user="conversation.role.user", assistant="conversation.role.assistant")
     ),
-    THUDM_LongAlign_10k=dict(
-        role_mapping=dict(
-            user="messages.role.user",
-            assistant="messages.role.assistant",
-        ),
-    ),
-    Yukang_LongAlpaca_12k=dict(
-        role_mapping=dict(
-            user="instruction",
-            assistant="output",
-        ),
-    ),
-    Open_Orca_SlimOrca=dict(
-        role_mapping=dict(
-            system="conversations.from.system",
-            user="conversations.from.human",
-            assistant="conversations.from.gpt",
-        ),
-    ),
-    meta_math_MetaMathQA=dict(
-        role_mapping=dict(
-            user="query",
-            assistant="response",
-        ),
-    ),
-    ise_uiuc_Magicoder_OSS_Instruct_75K=dict(
-        role_mapping=dict(
-            user="problem",
-            assistant="solution",
-        ),
-    ),
-    lmsys_lmsys_chat_1m=dict(
-        role_mapping=dict(
-            user="conversation.role.user",
-            assistant="conversation.role.assistant",
-        ),
-    ),
-)
+}
 
 
 class HFDataSourceConfigInstruct(HFDataSourceConfig):
