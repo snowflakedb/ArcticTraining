@@ -21,7 +21,7 @@ from .utils import create_data_factory
 
 
 def test_known_datasets(model_name: str, tmp_path: Path):
-    skip_datasets = ["lmsys/lmsys-chat-1m"]
+    skip_datasets = ["lmsys/lmsys-chat-1m"]  # gated dataset
     data_sources = [f"{dataset}:train[:20]" for dataset in KNOWN_DATASETS if dataset not in skip_datasets]
     sft_data_factory = create_data_factory(
         model_name=model_name, data_config_kwargs=dict(type="sft", sources=data_sources, cache_dir=tmp_path)
