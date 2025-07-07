@@ -29,10 +29,12 @@ from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
 
 # Known datasets with split mappings
-KNOWN_DATASETS_SPLIT_MAP: Dict[str, Dict[str, str]] = {
-    "HuggingFaceH4/ultrachat_200k": {"train": "train_sft", "eval": "test_sft"},
-    "HuggingFaceH4/ultrafeedback_binarized": {"train": "train_prefs", "eval": "test_prefs"},
-}
+KNOWN_DATASETS_SPLIT_MAP: Dict[str, Dict[str, str]] = dict(
+    [
+        ("HuggingFaceH4/ultrachat_200k", dict(train="train_sft", eval="test_sft")),
+        ("HuggingFaceH4/ultrafeedback_binarized", dict(train="train_prefs", eval="test_prefs")),
+    ]
+)
 
 
 class HFDataSourceConfig(DataSourceConfig):
