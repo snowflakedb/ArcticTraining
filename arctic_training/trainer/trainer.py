@@ -400,10 +400,20 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
-                sample_seqlens = [
-                    [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
-                    for idx in range(len(batch["input_ids"]))
-                ]
+                if "input_ids" not in batch:
+                    # batch is a ContrastiveLearningBatch
+                    sample_seqlens = [
+                        [
+                            (len(batch.query_tokens[idx]) + len(batch.document_tokens[idx]))
+                            * self.config.sequence_parallel_size
+                        ]
+                        for idx in range(len(batch.query_tokens))
+                    ]
+                else:
+                    sample_seqlens = [
+                        [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
+                        for idx in range(len(batch["input_ids"]))
+                    ]
             self.metrics.seqlens = sample_seqlens
 
             self.metrics.start_timer("step")
