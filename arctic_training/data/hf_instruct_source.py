@@ -93,7 +93,6 @@ class HFDataSourceConfigInstruct(HFDataSourceConfig):
     Flexible mapping from message roles to data extraction paths. Supports:
     - Simple field: {"user": "question", "assistant": "response"}
     - Conversation filter: {"user": "conversations.role.user", "assistant": "conversations.role.assistant"}
-    - Conversation filter with field: {"user": "conversations.from.human", "assistant": "conversations.from.agent"}
     """
 
     content_key: Optional[str] = Field(default=None)

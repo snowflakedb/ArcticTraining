@@ -150,8 +150,11 @@ class DataConfig(BaseConfig):
         for config in v:
             if isinstance(config, str):
                 try:
-                    _ = get_registered_data_source(name=config)
-                    data_source_type = config
+                    name = config
+                    if ":" in config:
+                        name = config.split(":")[0]
+                    _ = get_registered_data_source(name=name)
+                    data_source_type = name
                 except RegistryError:
                     if default_data_source_type is not None:
                         data_source_type = default_data_source_type.name
