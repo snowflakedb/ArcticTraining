@@ -44,6 +44,7 @@ KNOWN_DATASETS: Dict[str, Dict[str, Any]] = {
     },
     "Open-Orca/OpenOrca": {
         "role_mapping": {
+            "system": "system_prompt",
             "user": "question",
             "assistant": "response",
         },
@@ -62,6 +63,7 @@ KNOWN_DATASETS: Dict[str, Dict[str, Any]] = {
     },
     "Open-Orca/SlimOrca": {
         "role_mapping": {
+            "system": "conversations.from.system",
             "user": "conversations.from.human",
             "assistant": "conversations.from.gpt",
         },
