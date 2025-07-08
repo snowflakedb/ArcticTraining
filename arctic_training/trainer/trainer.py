@@ -417,16 +417,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.metrics.restart_timer("iter")
 
             if (
-                self.gas_boundary
-                and self.config.eval_frequency > 0
-                and self.model.global_steps % self.config.eval_frequency == 0
-            ):
-                self.evaluate()
-                if self.global_rank == 0 and self.wandb_experiment is not None:
-                    metrics = {k: self.metrics.get_value(k) for k in ["loss/eval"]}
-                    self.wandb_experiment.log(metrics, step=self.model.global_steps)
-
-            if (
                 self.config.train_log_iter_interval != 0
                 and self.train_batch_idx % self.config.train_log_iter_interval == 0
             ):
@@ -441,6 +431,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     if self.wandb_experiment is not None and self.train_batch_idx > 1:
                         metrics = {k: v for k, v in metrics.items() if k not in ["iter", "loss/eval"]}
                         self.wandb_experiment.log(metrics, step=self.model.global_steps)
+
+            if (
+                self.gas_boundary
+                and self.config.eval_frequency != 0
+                and self.model.global_steps % self.config.eval_frequency == 0
+            ):
+                self.evaluate()
+                self.metrics.print_summary()
+                if self.global_rank == 0 and self.wandb_experiment is not None:
+                    metrics = {k: self.metrics.get_value(k) for k in ["loss/eval"]}
+                    self.wandb_experiment.log(metrics, step=self.model.global_steps)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
