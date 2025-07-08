@@ -28,6 +28,27 @@ from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
 from arctic_training.data.utils import DatasetType
 
+# Known datasets with their default role mappings
+KNOWN_HF_INSTRUCT_DATASETS: Dict[str, Dict[str, Any]] = {
+    "nvidia/AceMath-Instruct-Training-Data": dict(role_mapping=dict(user="messages.role.user", assistant="answers")),
+    "HuggingFaceH4/ultrachat_200k": dict(
+        role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")
+    ),
+    "Open-Orca/OpenOrca": dict(role_mapping=dict(system="system_prompt", user="question", assistant="response")),
+    "THUDM/LongAlign-10k": dict(role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")),
+    "Yukang/LongAlpaca-12k": dict(role_mapping=dict(user="instruction", assistant="output")),
+    "Open-Orca/SlimOrca": dict(
+        role_mapping=dict(
+            system="conversations.from.system", user="conversations.from.human", assistant="conversations.from.gpt"
+        )
+    ),
+    "meta-math/MetaMathQA": dict(role_mapping=dict(user="query", assistant="response")),
+    "ise-uiuc/Magicoder-OSS-Instruct-75K": dict(role_mapping=dict(user="problem", assistant="solution")),
+    "lmsys/lmsys-chat-1m": dict(
+        role_mapping=dict(user="conversation.role.user", assistant="conversation.role.assistant")
+    ),
+}
+
 
 class HFDataSourceConfigInstruct(HFDataSourceConfig):
     role_mapping: Dict[str, str] = Field(default_factory=lambda: {"user": "user", "assistant": "assistant"})
@@ -35,7 +56,6 @@ class HFDataSourceConfigInstruct(HFDataSourceConfig):
     Flexible mapping from message roles to data extraction paths. Supports:
     - Simple field: {"user": "question", "assistant": "response"}
     - Conversation filter: {"user": "conversations.role.user", "assistant": "conversations.role.assistant"}
-    - Conversation filter with field: {"user": "conversations.from.human", "assistant": "conversations.from.agent"}
     """
 
     content_key: Optional[str] = Field(default=None)
@@ -59,25 +79,9 @@ class HFDataSourceConfigInstruct(HFDataSourceConfig):
     @model_validator(mode="after")
     def autofill_known_datasets_role_mapping(self) -> Self:
         """Autofill known datasets with default role mappings."""
-        known_datasets: Dict[str, Dict[str, Any]] = {
-            "nvidia/AceMath-Instruct-Training-Data": {
-                "role_mapping": {
-                    "user": "messages.role.user",
-                    "assistant": "answers.role.assistant",
-                },
-                "content_key": "content",
-            },
-            "HuggingFaceH4/ultrachat_200k": {
-                "role_mapping": {
-                    "user": "messages.role.user",
-                    "assistant": "messages.role.assistant",
-                },
-                "content_key": "content",
-            },
-        }
         dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
-        if dataset_name in known_datasets:
-            dataset_config = known_datasets[dataset_name]
+        if dataset_name in KNOWN_HF_INSTRUCT_DATASETS:
+            dataset_config = KNOWN_HF_INSTRUCT_DATASETS[dataset_name]
             # Don't override if user provided custom values
             if "role_mapping" not in self.model_fields_set and "role_mapping" in dataset_config:
                 role_mapping = dataset_config["role_mapping"]
