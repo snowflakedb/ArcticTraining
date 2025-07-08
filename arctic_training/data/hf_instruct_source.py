@@ -29,7 +29,7 @@ from arctic_training.data.hf_source import HFDataSourceConfig
 from arctic_training.data.utils import DatasetType
 
 # Known datasets with their default role mappings
-KNOWN_DATASETS: Dict[str, Dict[str, Any]] = {
+KNOWN_HF_INSTRUCT_DATASETS: Dict[str, Dict[str, Any]] = {
     "nvidia/AceMath-Instruct-Training-Data": dict(role_mapping=dict(user="messages.role.user", assistant="answers")),
     "HuggingFaceH4/ultrachat_200k": dict(
         role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")
@@ -80,8 +80,8 @@ class HFDataSourceConfigInstruct(HFDataSourceConfig):
     def autofill_known_datasets_role_mapping(self) -> Self:
         """Autofill known datasets with default role mappings."""
         dataset_name = str(self.name_or_path).split(":")[0]  # Ignore any split specification
-        if dataset_name in KNOWN_DATASETS:
-            dataset_config = KNOWN_DATASETS[dataset_name]
+        if dataset_name in KNOWN_HF_INSTRUCT_DATASETS:
+            dataset_config = KNOWN_HF_INSTRUCT_DATASETS[dataset_name]
             # Don't override if user provided custom values
             if "role_mapping" not in self.model_fields_set and "role_mapping" in dataset_config:
                 role_mapping = dataset_config["role_mapping"]

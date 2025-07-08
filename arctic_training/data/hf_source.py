@@ -30,7 +30,7 @@ from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
 
 # Known datasets with split mappings
-KNOWN_DATASETS: Dict[str, Dict[str, Dict[str, str]]] = {
+KNOWN_HF_DATASETS: Dict[str, Dict[str, Dict[str, str]]] = {
     "HuggingFaceH4/ultrachat_200k": dict(split_mapping=dict(train="train_sft", eval="test_sft")),
     "HuggingFaceH4/ultrafeedback_binarized": dict(split_mapping=dict(train="train_prefs", eval="test_prefs")),
     "nvidia/AceMath-Instruct-Training-Data": dict(
@@ -65,18 +65,18 @@ class HFDataSourceConfig(DataSourceConfig):
     def autofill_known_datasets_split_mapping(self) -> Self:
         """Autofill split mappings for known datasets."""
         if (
-            self.name_or_path in KNOWN_DATASETS
-            and "split_mapping" in KNOWN_DATASETS[self.name_or_path]
+            self.name_or_path in KNOWN_HF_DATASETS
+            and "split_mapping" in KNOWN_HF_DATASETS[self.name_or_path]
             and not self.split_mapping
         ):
-            self.split_mapping = KNOWN_DATASETS[self.name_or_path]["split_mapping"]
+            self.split_mapping = KNOWN_HF_DATASETS[self.name_or_path]["split_mapping"]
         return self
 
     @model_validator(mode="after")
     def autofill_known_datasets_kwargs(self) -> Self:
         """Autofill kwargs for known datasets."""
-        if self.name_or_path in KNOWN_DATASETS and "kwargs" in KNOWN_DATASETS[self.name_or_path]:
-            for key, value in KNOWN_DATASETS[self.name_or_path]["kwargs"].items():
+        if self.name_or_path in KNOWN_HF_DATASETS and "kwargs" in KNOWN_HF_DATASETS[self.name_or_path]:
+            for key, value in KNOWN_HF_DATASETS[self.name_or_path]["kwargs"].items():
                 if key not in self.kwargs:
                     self.kwargs[key] = value
         return self
