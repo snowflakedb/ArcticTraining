@@ -12,6 +12,7 @@ license-files = [
 [tool.hatch.build]
 include = [
   "arctic_training_cli.py",
+  "arctic_training",
 ]
 
 [project.urls]
@@ -64,7 +65,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.51.3", # attention api + qwen
+    "transformers>=4.53.0", # update_causal_mask
     "wandb",
     "yq",
 ]
@@ -88,6 +89,7 @@ dev = [
 testing = [
     "pytest",
     "pytest-instafail",
+    "parameterized",
 ]
 
 formatting = [

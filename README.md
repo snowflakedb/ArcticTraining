@@ -27,10 +27,14 @@ The projects folder contains various special projects we have released that buil
 * [SwiftKV](projects/swiftkv)
 * [Speculative Decoding](projects/mlp_speculator)
 * [Arctic-Embed](projects/arctic_embed)
+* [Arctic Long Sequence Training (ALST)](projects/sequence-parallelism)
 
 # Papers
 
 * [Arctic Long Sequence Training: Scalable And Efficient Training For Multi-Million Token Sequences](https://arxiv.org/abs/2506.13996)
+* [ExCoT: Optimizing Reasoning for Text-to-SQL with Execution Feedback](https://arxiv.org/abs/2503.19988)
+* [Arctic-Text2SQL-R1: Simple Rewards, Strong Reasoning in Text-to-SQL](https://arxiv.org/abs/2505.20315)
+* [SwiftKV: Fast Prefill-Optimized Inference with Knowledge-Preserving Model Transformation](https://arxiv.org/abs/2410.03960)
 
 
 # Quickstart
