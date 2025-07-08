@@ -45,7 +45,7 @@ class HFDataSourceConfigCausal(HFDataSourceConfig):
 
     template: str = "{text}"
     """
-    Template for the content key.
+    Template used to format the columns of each data sample.
     """
 
     @field_validator("column_mapping", mode="before")
