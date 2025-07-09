@@ -135,7 +135,7 @@ if __name__ == "__main__":
         wandb=wconf,
         deepspeed=dsconf,
         loss_log_interval=0,
-        eval_frequency=100,
+        eval_log_iter_interval=100,
         use_in_batch_negatives=False,
         loss_temperature=0.02,
         overfit_first_batch=False,
