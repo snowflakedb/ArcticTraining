@@ -16,7 +16,10 @@
 
 def validate_callback(self):
     if self.model.is_gradient_accumulation_boundary():
-        if self.config.eval_frequency > 0 and (self.model.global_steps + 1) % self.config.eval_frequency == 0:
+        if (
+            self.config.eval_log_iter_interval > 0
+            and (self.model.global_steps + 1) % self.config.eval_log_iter_interval == 0
+        ):
             self.validate()
 
 

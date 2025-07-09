@@ -112,17 +112,17 @@ def log_grad_norm_cb(self: BiencoderTrainer) -> None:
 
 def eval_and_log_cb(self: BiencoderTrainer) -> None:
     """Post-step callback to evaluate and log the model."""
-    if self.config.eval_frequency == 0 or self.global_step % self.config.eval_frequency != 0:
+    if self.config.eval_log_iter_interval == 0 or self.global_step % self.config.eval_log_iter_interval != 0:
         return
-    assert self.eval_dataloader_map is not None, "Missing eval loaders"
-    if len(self.eval_dataloader_map) == 0:
+    assert self.eval_dataloader is not None, "Missing eval loaders"
+    if len(self.eval_dataloader) == 0:
         # Skip eval if we have nothing to eval on.
         return
     metrics = {}
     initial_train_mode = self.model.training
     try:
         self.model.train(mode=False)
-        for eval_name, eval_loader in self.eval_dataloader_map.items():
+        for eval_name, eval_loader in self.eval_dataloader.items():
             em_list = []
             for eval_batch in tqdm(eval_loader, desc=f"eval/{eval_name}", unit="batch"):
                 eval_metrics = self.eval(eval_batch)

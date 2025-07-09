@@ -416,32 +416,33 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if (
-                self.config.train_log_iter_interval != 0
-                and self.train_batch_idx % self.config.train_log_iter_interval == 0
-            ):
+            if self.config.train_log_iter_interval != 0:
                 self.metrics.print_summary()
-                if self.global_rank == 0 and self.gas_boundary:
 
+            if self.gas_boundary:
+                if (
+                    self.global_rank == 0
+                    and self.config.train_log_iter_interval != 0
+                    and self.global_step % self.config.train_log_iter_interval == 0
+                ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
-                    # first iter is a massive outlier for many fields - so skip it in wandb
-                    if self.wandb_experiment is not None and self.train_batch_idx > 1:
-                        metrics = {k: v for k, v in metrics.items() if k not in ["iter", "loss/eval"]}
-                        self.wandb_experiment.log(metrics, step=self.model.global_steps)
+                    if self.wandb_experiment is not None:
+                        metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
+                        self.wandb_experiment.log(metrics, step=self.global_step)
 
-            if (
-                self.gas_boundary
-                and self.config.eval_frequency != 0
-                and self.model.global_steps % self.config.eval_frequency == 0
-            ):
-                self.evaluate()
-                self.metrics.print_summary()
-                if self.global_rank == 0 and self.wandb_experiment is not None:
-                    metrics = {k: self.metrics.get_value(k) for k in ["loss/eval"]}
-                    self.wandb_experiment.log(metrics, step=self.model.global_steps)
+                if (
+                    self.config.eval_log_iter_interval != 0
+                    and self.global_step % self.config.eval_log_iter_interval == 0
+                ):
+                    self.evaluate()
+                    self.metrics.print_summary()
+
+                    if self.wandb_experiment is not None:
+                        metrics = {k: self.metrics.get_value(k) for k in ["loss/eval"]}
+                        self.wandb_experiment.log(metrics, step=self.global_step)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
@@ -478,16 +479,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 self.wandb_experiment.finish()
 
     @callback_wrapper("evaluate")
+    @torch.inference_mode()
     def evaluate(self) -> None:
         """
         Evaluation loop. Measures the model's performance on the evaluation dataset.
         """
-        self.model.eval()
         for eval_batch in self.eval_batches:
-            with torch.no_grad():
-                loss = self.loss(eval_batch)
+            loss = self.loss(eval_batch)
         self.metrics.record("loss/eval", loss.item())
-        self.model.train()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
