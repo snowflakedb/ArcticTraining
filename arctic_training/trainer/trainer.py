@@ -484,9 +484,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Evaluation loop. Measures the model's performance on the evaluation dataset.
         """
         self.model.eval()
-        for eval_batch in self.eval_batches:
-            loss = self.loss(eval_batch)
-        self.metrics.record("loss/eval", loss.item())
+        losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
+        self.metrics.record("loss/eval", losses)  # type: ignore
         self.model.train()
 
     @callback_wrapper("checkpoint")

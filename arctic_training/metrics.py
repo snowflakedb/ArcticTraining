@@ -31,9 +31,11 @@ if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
 
-def gather_object(number: Union[float, int], world_size: int) -> List[Union[float, int]]:
+def gather_object(number: Union[float, int, list], world_size: int) -> List[Union[float, int]]:
     output = [None] * world_size
     torch.distributed.all_gather_object(output, number)
+    if isinstance(output[0], list):
+        output = [item for sublist in output for item in sublist]
     return cast(List[Union[float, int]], output)
 
 
