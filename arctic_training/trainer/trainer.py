@@ -151,7 +151,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
-        self.eval_batch_idx = 0
         self.early_stop = False
         self.world_size = config.world_size
         self.global_rank = config.global_rank
