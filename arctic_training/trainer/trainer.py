@@ -437,7 +437,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     and self.global_step % self.config.eval_log_iter_interval == 0
                 ):
                     self.evaluate()
-                    self.metrics.print_summary()
+                    self.metrics.print_summary(prefix="eval")
 
                     if self.wandb_experiment is not None:
                         metrics = {k: self.metrics.get_value(k) for k in ["loss/eval"]}
