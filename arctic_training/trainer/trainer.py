@@ -314,7 +314,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             desc="Eval Batches",
             unit="batch",
             disable=self.global_rank != 0
-            or (self.global_step // self.config.eval_frequency % self.config.eval_log_iter_interval != 0),
+            or (self.global_step // self.config.eval_interval % self.config.eval_log_iter_interval != 0),
         )
 
     @cached_property
@@ -433,7 +433,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
                         self.wandb_experiment.log(metrics, step=self.global_step)
 
-                if self.config.eval_frequency != 0 and self.global_step % self.config.eval_frequency == 0:
+                if self.config.eval_interval != 0 and self.global_step % self.config.eval_interval == 0:
                     self.evaluate()
 
                     if not self.eval_batches.disable:

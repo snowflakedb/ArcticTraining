@@ -53,7 +53,7 @@ def test_sft_trainer_evaluation(model_name, run_on_cpu):
     trainer = run_dummy_training(
         {
             "type": "sft",
-            "eval_frequency": 1,
+            "eval_interval": 1,
             "model": {
                 "type": "random-weight-hf",
                 "name_or_path": model_name,
@@ -68,7 +68,7 @@ def test_sft_trainer_evaluation(model_name, run_on_cpu):
     )
 
     assert "loss/eval" in trainer.metrics.summary_dict, "loss/eval should be recorded in summary_dict"
-    assert trainer.metrics.summary_dict["loss/eval"] > 0, "Evaluation loss is not greater than 0"
+    assert trainer.metrics.summary_dict["loss/eval"] > 0, "Evaluation should be greater than 0"
     assert "loss/eval" not in trainer.metrics.values, "loss/eval should not be recorded in values as it was logged"
 
 
@@ -84,7 +84,7 @@ def test_sft_trainer_evaluation_log_intervals(model_name, run_on_cpu):
         {
             "type": "sft",
             "exit_iteration": 3,
-            "eval_frequency": 1,
+            "eval_interval": 1,
             "eval_log_iter_interval": 2,
             "model": {
                 "type": "random-weight-hf",
@@ -99,5 +99,7 @@ def test_sft_trainer_evaluation_log_intervals(model_name, run_on_cpu):
         run_on_cpu=run_on_cpu,
     )
 
-    assert "loss/eval" in trainer.metrics.values, "loss/eval should be recorded in values as `eval_frequency` > 0"
-    assert "loss/eval" not in trainer.metrics.summary_dict, "loss/eval should not be recorded in summary_dict"
+    assert "loss/eval" in trainer.metrics.values, "loss/eval should be recorded in values as `eval_interval` > 0"
+    assert (
+        "loss/eval" not in trainer.metrics.summary_dict
+    ), "loss/eval should not be recorded in summary_dict as it should not be logged"

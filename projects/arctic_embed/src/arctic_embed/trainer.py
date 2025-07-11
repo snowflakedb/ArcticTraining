@@ -56,7 +56,7 @@ class BiencoderTrainerConfig(TrainerConfig):
     model: BiencoderModelConfig
     data: ContrastivePretokenizedDataConfig
     mrl_dim: Optional[int] = None
-    eval_interval: Optional[int] = None
+    eval_interval: int = 0
 
 
 class FakeTokenizer:
@@ -112,7 +112,7 @@ def log_grad_norm_cb(self: BiencoderTrainer) -> None:
 
 def eval_and_log_cb(self: BiencoderTrainer) -> None:
     """Post-step callback to evaluate and log the model."""
-    if self.config.eval_frequency == 0 or self.global_step % self.config.eval_frequency != 0:
+    if self.config.eval_interval == 0 or self.global_step % self.config.eval_interval != 0:
         return
     assert self.eval_dataloader is not None, "Missing eval loaders"
     if len(self.eval_dataloader) == 0:
