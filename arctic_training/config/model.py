@@ -88,6 +88,7 @@ class ModelConfig(BaseConfig):
                     f"{value} requires the flash_attn package. Install with"
                     " `pip install flash_attn`. Please refer to documentation at"
                     " https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2."
-                    " For FA3 build from the github source"
+                    " For FA3 build from the github source: git clone https://github.com/Dao-AILab/flash-attention;"
+                    " cd flash-attention/hopper; pip install . --no-build-isolation --no-clean"
                 )
         return value
