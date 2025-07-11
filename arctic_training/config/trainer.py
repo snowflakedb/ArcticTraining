@@ -320,13 +320,13 @@ class TrainerConfig(BaseConfig):
         return cast(TokenizerConfig, subconfig)
 
     @model_validator(mode="after")
-    def validate_eval_log_iter_interval(self) -> Self:
+    def validate_eval_interval(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
-            assert self.eval_interval > 0, "`eval_frequency` must be set if eval dataset is provided."
+            assert self.eval_interval > 0, "`eval_interval` must be set if eval dataset is provided."
         if self.eval_interval > 0:
             assert (
                 self.data.eval_sources or self.data.train_eval_split[1] > 0.0
-            ), "`eval_frequency` must be set only if eval dataset is provided."
+            ), "`eval_interval` must be set only if eval dataset is provided."
         return self
 
     @model_validator(mode="after")
