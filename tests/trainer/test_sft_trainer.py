@@ -15,96 +15,89 @@
 
 import pytest
 
-from arctic_training.config.trainer import get_config
-from arctic_training.registry import get_registered_trainer
+from tests.utils import run_dummy_training
 
 
-@pytest.mark.gpu
-def test_sft_trainer(model_name):
-    config_dict = {
-        "type": "sft",
-        "skip_validation": True,
-        "exit_iteration": 2,
-        "micro_batch_size": 1,
-        "model": {
-            "type": "random-weight-hf",
-            "name_or_path": model_name,
-        },
-        "data": {
-            "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
-        },
-    }
-
-    config = get_config(config_dict)
-    trainer_cls = get_registered_trainer(config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
-    assert trainer.global_step > 0, "Training did not run"
-
-
-def test_sft_trainer_cpu(model_name):
-    config_dict = {
-        "type": "sft",
-        "skip_validation": True,
-        "exit_iteration": 2,
-        "micro_batch_size": 1,
-        "model": {
-            "type": "random-weight-hf",
-            "name_or_path": model_name,
-            "dtype": "float32",
-        },
-        "data": {
-            "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
-        },
-        "deepspeed": {
-            "zero_optimization": {
-                "stage": 0,
+@pytest.mark.parametrize(
+    "run_on_cpu",
+    [
+        True,
+        pytest.param(False, marks=pytest.mark.gpu),
+    ],
+)
+def test_sft_trainer(model_name, run_on_cpu):
+    run_dummy_training(
+        {
+            "type": "sft",
+            "model": {
+                "type": "random-weight-hf",
+                "name_or_path": model_name,
+            },
+            "data": {
+                "max_length": 2048,
+                "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
             },
         },
-        "optimizer": {
-            "type": "cpu-adam",
-        },
-    }
-
-    config = get_config(config_dict)
-    trainer_cls = get_registered_trainer(config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
-    assert trainer.global_step > 0, "Training did not run"
+        run_on_cpu=run_on_cpu,
+    )
 
 
-def test_sft_trainer_evaluation(model_name):
-    config_dict = {
-        "type": "sft",
-        "skip_validation": True,
-        "exit_iteration": 2,
-        "micro_batch_size": 1,
-        "eval_log_iter_interval": 1,
-        "model": {
-            "type": "random-weight-hf",
-            "name_or_path": model_name,
-        },
-        "data": {
-            "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
-            "train_eval_split": [0.8, 0.2],
-        },
-        "deepspeed": {
-            "zero_optimization": {
-                "stage": 0,
+@pytest.mark.parametrize(
+    "run_on_cpu",
+    [
+        True,
+        pytest.param(False, marks=pytest.mark.gpu),
+    ],
+)
+def test_sft_trainer_evaluation(model_name, run_on_cpu):
+    trainer = run_dummy_training(
+        {
+            "type": "sft",
+            "eval_frequency": 1,
+            "model": {
+                "type": "random-weight-hf",
+                "name_or_path": model_name,
+            },
+            "data": {
+                "max_length": 2048,
+                "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
+                "train_eval_split": [0.8, 0.2],
             },
         },
-        "optimizer": {
-            "type": "cpu-adam",
-        },
-    }
+        run_on_cpu=run_on_cpu,
+    )
 
-    config = get_config(config_dict)
-    trainer_cls = get_registered_trainer(config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
-
-    assert "loss/eval" in trainer.metrics.summary_dict, "Evaluation did not run or loss/eval not recorded"
+    assert "loss/eval" in trainer.metrics.summary_dict, "loss/eval should be recorded in summary_dict"
     assert trainer.metrics.summary_dict["loss/eval"] > 0, "Evaluation loss is not greater than 0"
+    assert "loss/eval" not in trainer.metrics.values, "loss/eval should not be recorded in values as it was logged"
+
+
+@pytest.mark.parametrize(
+    "run_on_cpu",
+    [
+        True,
+        pytest.param(False, marks=pytest.mark.gpu),
+    ],
+)
+def test_sft_trainer_evaluation_log_intervals(model_name, run_on_cpu):
+    trainer = run_dummy_training(
+        {
+            "type": "sft",
+            "exit_iteration": 3,
+            "eval_frequency": 1,
+            "eval_log_iter_intervals": 2,
+            "model": {
+                "type": "random-weight-hf",
+                "name_or_path": model_name,
+            },
+            "data": {
+                "max_length": 2048,
+                "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
+                "train_eval_split": [0.8, 0.2],
+            },
+        },
+        run_on_cpu=run_on_cpu,
+    )
+
+    assert "loss/eval" in trainer.metrics.values, "loss/eval should be recorded in values as `eval_frequency` > 0"
+    assert "loss/eval" not in trainer.metrics.summary_dict, "loss/eval should not be recorded in summary_dict"
