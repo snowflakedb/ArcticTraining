@@ -440,7 +440,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     self.metrics.print_summary(prefix="eval")
 
                     if self.wandb_experiment is not None:
-                        metrics = {k: self.metrics.get_value(k) for k in ["loss/eval"]}
+                        metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
                         self.wandb_experiment.log(metrics, step=self.global_step)
 
             if self.config.kill_switch_path.exists():
