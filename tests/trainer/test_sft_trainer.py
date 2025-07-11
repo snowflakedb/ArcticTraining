@@ -73,3 +73,38 @@ def test_sft_trainer_cpu(model_name):
     trainer = trainer_cls(config)
     trainer.train()
     assert trainer.global_step > 0, "Training did not run"
+
+
+def test_sft_trainer_evaluation(model_name):
+    config_dict = {
+        "type": "sft",
+        "skip_validation": True,
+        "exit_iteration": 2,
+        "micro_batch_size": 1,
+        "eval_log_iter_interval": 1,
+        "model": {
+            "type": "random-weight-hf",
+            "name_or_path": model_name,
+        },
+        "data": {
+            "max_length": 2048,
+            "sources": ["HuggingFaceH4/ultrachat_200k:train[:20]"],
+            "train_eval_split": [0.8, 0.2],
+        },
+        "deepspeed": {
+            "zero_optimization": {
+                "stage": 0,
+            },
+        },
+        "optimizer": {
+            "type": "cpu-adam",
+        },
+    }
+
+    config = get_config(config_dict)
+    trainer_cls = get_registered_trainer(config.type)
+    trainer = trainer_cls(config)
+    trainer.train()
+    # Check that evaluation loss was recorded
+    assert "loss/eval" in trainer.metrics.summary_dict, "Evaluation did not run or loss/eval not recorded"
+    assert len(trainer.metrics.summary_dict["loss/eval"]) > 0, "No evaluation losses recorded"
