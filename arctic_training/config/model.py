@@ -80,13 +80,14 @@ class ModelConfig(BaseConfig):
 
     @field_validator("attn_implementation", mode="after")
     def validate_attn_implementation(cls, value: str) -> str:
-        if value == "flash_attention_2":
+        if value in ["flash_attention_2", "flash_attention_3"]:
             try:
                 import flash_attn  # noqa: F401
             except (ImportError, ModuleNotFoundError):
                 raise ValueError(
-                    "flash_attention_2 requires the flash_attn package. Install with"
+                    f"{value} requires the flash_attn package. Install with"
                     " `pip install flash_attn`. Please refer to documentation at"
-                    " https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2"
+                    " https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2."
+                    " For FA3 build from the github source"
                 )
         return value
