@@ -34,8 +34,7 @@ if TYPE_CHECKING:
 def gather_object(number: Union[float, int, list], world_size: int) -> List[Union[float, int]]:
     output = [None] * world_size
     torch.distributed.all_gather_object(output, number)
-    if isinstance(output[0], list):
-        output = [item for sublist in output for item in sublist]
+    output = [v for ll in output for v in (ll if isinstance(ll, list) else [ll])]
     return cast(List[Union[float, int]], output)
 
 
@@ -165,8 +164,8 @@ class Metrics:
                     self.losses = []
 
         if "loss/eval" in self.values:
-            loss = sum(gather_object(self.values["loss/eval"], self.trainer.world_size)) / self.trainer.world_size
-            self.summary_dict["loss/eval"] = loss
+            losses = gather_object(self.values["loss/eval"], self.trainer.world_size)
+            self.summary_dict["loss/eval"] = sum(losses) / len(losses)
 
         if "iter_time" in self.values:
             iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
