@@ -105,6 +105,6 @@ def test_sft_trainer_evaluation(model_name):
     trainer_cls = get_registered_trainer(config.type)
     trainer = trainer_cls(config)
     trainer.train()
-    # Check that evaluation loss was recorded
+
     assert "loss/eval" in trainer.metrics.summary_dict, "Evaluation did not run or loss/eval not recorded"
-    assert len(trainer.metrics.summary_dict["loss/eval"]) > 0, "No evaluation losses recorded"
+    assert trainer.metrics.summary_dict["loss/eval"] > 0, "Evaluation loss is not greater than 0"
