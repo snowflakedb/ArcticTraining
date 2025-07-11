@@ -210,7 +210,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
-        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation != "flash_attention_2":
+        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [
+            "flash_attention_2",
+            "flash_attention_3",
+        ]:
             import transformers.masking_utils
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] = lambda *args, **kwargs: None
