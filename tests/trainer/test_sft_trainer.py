@@ -85,7 +85,7 @@ def test_sft_trainer_evaluation_log_intervals(model_name, run_on_cpu):
             "type": "sft",
             "exit_iteration": 3,
             "eval_frequency": 1,
-            "eval_log_iter_intervals": 2,
+            "eval_log_iter_interval": 2,
             "model": {
                 "type": "random-weight-hf",
                 "name_or_path": model_name,

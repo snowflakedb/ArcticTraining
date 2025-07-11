@@ -141,10 +141,10 @@ class TrainerConfig(BaseConfig):
     train_iters: HumanInt = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
-    eval_frequency: int = Field(default=0, ge=0)
+    eval_frequency: HumanInt = Field(default=0, ge=0)
     """ Number of iterations between evaluations. If 0, no evaluation is performed. """
 
-    eval_log_iter_interval: int = Field(default=1, ge=0)
+    eval_log_iter_interval: HumanInt = Field(default=1, ge=0)
     """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
