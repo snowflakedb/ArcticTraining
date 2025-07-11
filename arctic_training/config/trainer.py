@@ -141,8 +141,11 @@ class TrainerConfig(BaseConfig):
     train_iters: HumanInt = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
-    eval_log_iter_interval: int = Field(default=0, ge=0)
+    eval_frequency: int = Field(default=0, ge=0)
     """ Number of iterations between evaluations. If 0, no evaluation is performed. """
+
+    eval_log_iter_interval: int = Field(default=1, ge=0)
+    """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
@@ -319,11 +322,11 @@ class TrainerConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_eval_log_iter_interval(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
-            assert self.eval_log_iter_interval > 0, "`eval_log_iter_interval` must be set if eval dataset is provided."
-        if self.eval_log_iter_interval > 0:
+            assert self.eval_frequency > 0, "`eval_frequency` must be set if eval dataset is provided."
+        if self.eval_frequency > 0:
             assert (
                 self.data.eval_sources or self.data.train_eval_split[1] > 0.0
-            ), "`eval_log_iter_interval` must be set only if eval dataset is provided."
+            ), "`eval_frequency` must be set only if eval dataset is provided."
         return self
 
     @model_validator(mode="after")

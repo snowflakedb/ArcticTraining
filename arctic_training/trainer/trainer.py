@@ -313,7 +313,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.eval_dataloader,
             desc="Eval Batches",
             unit="batch",
-            disable=self.global_rank != 0 or (self.config.eval_log_iter_interval != 0),
+            disable=self.global_rank != 0
+            or (self.global_step // self.config.eval_frequency % self.config.eval_log_iter_interval != 0),
         )
 
     @cached_property
@@ -432,16 +433,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
                         self.wandb_experiment.log(metrics, step=self.global_step)
 
-                if (
-                    self.config.eval_log_iter_interval != 0
-                    and self.global_step % self.config.eval_log_iter_interval == 0
-                ):
+                if self.config.eval_frequency != 0 and self.global_step % self.config.eval_frequency == 0:
                     self.evaluate()
-                    self.metrics.print_summary(prefix="eval")
 
-                    if self.wandb_experiment is not None:
-                        metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
-                        self.wandb_experiment.log(metrics, step=self.global_step)
+                    if not self.eval_batches.disable:
+                        self.metrics.print_summary(prefix="eval")
+
+                        if self.wandb_experiment is not None:
+                            metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
+                            self.wandb_experiment.log(metrics, step=self.global_step)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
