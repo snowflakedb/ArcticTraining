@@ -313,7 +313,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.eval_dataloader,
             desc="Eval Batches",
             unit="batch",
-            disable=self.global_rank != 0,
+            disable=self.global_rank != 0 or (self.config.eval_log_iter_interval != 0),
         )
 
     @cached_property

@@ -227,4 +227,5 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.dl_num_workers,
             drop_last=True,
+            persistent_workers=True,
         )
