@@ -30,7 +30,7 @@ from arctic_training.data.utils import DatasetType
 
 # Known datasets with their default role mappings
 KNOWN_HF_INSTRUCT_DATASETS: Dict[str, Dict[str, Any]] = {
-    "nvidia/AceMath-Instruct-Training-Data": dict(role_mapping=dict(user="messages.role.user", assistant="answers")),
+    "nvidia/AceMath-Instruct-Training-Data": dict(role_mapping=dict(user="messages.role.user", assistant="answer")),
     "HuggingFaceH4/ultrachat_200k": dict(
         role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")
     ),
