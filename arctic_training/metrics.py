@@ -31,9 +31,10 @@ if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
 
-def gather_object(number: Union[float, int], world_size: int) -> List[Union[float, int]]:
+def gather_object(number: Union[float, int, list], world_size: int) -> List[Union[float, int]]:
     output = [None] * world_size
     torch.distributed.all_gather_object(output, number)
+    output = [v for ll in output for v in (ll if isinstance(ll, list) else [ll])]
     return cast(List[Union[float, int]], output)
 
 
@@ -117,7 +118,7 @@ class Metrics:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
-    def print_summary(self) -> None:
+    def print_summary(self, prefix: str = "train") -> None:
         """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
             return
@@ -162,6 +163,10 @@ class Metrics:
                     self.summary_dict["loss"] = sum(self.losses) / self.trainer.config.gradient_accumulation_steps
                     self.losses = []
 
+        if "loss/eval" in self.values:
+            losses = gather_object(self.values["loss/eval"], self.trainer.world_size)
+            self.summary_dict["loss/eval"] = sum(losses) / len(losses)
+
         if "iter_time" in self.values:
             iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
             self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
@@ -181,12 +186,14 @@ class Metrics:
         self.values.clear()
 
         summary_str = (
-            "iter:"
+            f"{prefix.title():>{len('train')}} iter:"
             f" {self.summary_dict['iter']:>{self.max_iter_pad}}/{self.max_iter}"
             f" {100*self.summary_dict['iter']//self.max_iter:>3}%"
         )
         if "loss" in self.summary_dict:
             summary_str += f" | loss: {self.summary_dict['loss']:.4f}"
+        if "loss/eval" in self.summary_dict:
+            summary_str += f" | loss: {self.summary_dict['loss/eval']:.4f}"
         if "iter_time" in self.summary_dict:
             summary_str += f" | iter time: {human_format_secs(self.summary_dict['iter_time'])}"
         if "iter_tflops" in self.summary_dict:
