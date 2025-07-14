@@ -21,7 +21,6 @@ from typing import Union
 
 import torch
 from torch.utils.data import DataLoader
-from torch.utils.data import DistributedSampler
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
@@ -304,12 +303,6 @@ class DPODataFactory(DataFactory):
         return row
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        return DataLoader(
-            dataset,
-            collate_fn=DataCollatorForPref(tokenizer=self.tokenizer),
-            batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
-            num_workers=self.config.dl_num_workers,
-            drop_last=True,
-            persistent_workers=True,
-        )
+        dataloader = super().create_dataloader(dataset)
+        dataloader.collate_fn = DataCollatorForPref(tokenizer=self.tokenizer)
+        return dataloader
