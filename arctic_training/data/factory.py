@@ -23,6 +23,7 @@ from typing import Tuple
 from typing import Type
 
 import deepspeed.comm as dist
+import torch
 from datasets import concatenate_datasets
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
@@ -123,7 +124,10 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                 dataset.save_to_disk(tmp_cache_path.as_posix())
                 tmp_cache_path.rename(cache_path)
 
-            dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
+            try:
+                dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
+            except (torch.distributed.DistBackendError, KeyboardInterrupt):
+                exit(1)  # Likely rank 0 ran into an error and exited. Exit quietly to avoid polluting output.
 
             # Reset seeds after may be processing data if cache didn't exist - so that main process ends up with the same RNG if the cache was there and if it wasn't, thus ensuring reproducibility.
             self.trainer._set_seeds(self.trainer.config.seed)
@@ -228,4 +232,5 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
             num_workers=self.config.dl_num_workers,
             drop_last=True,
+            persistent_workers=True,
         )
