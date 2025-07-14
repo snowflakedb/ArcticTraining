@@ -233,5 +233,4 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             num_workers=self.config.dl_num_workers,
             persistent_workers=True,
             drop_last=True,
-            persistent_workers=True,
         )
