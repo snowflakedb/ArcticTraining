@@ -151,7 +151,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
-        self.eval_batch_idx = 0
         self.early_stop = False
         self.world_size = config.world_size
         self.global_rank = config.global_rank
@@ -168,7 +167,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.tokenizer = tokenizer_factory()
 
         data_factory = self.config.data.factory(self)
-        self.train_dataloader, self.eval_dataloader_map = data_factory()
+        self.train_dataloader, self.eval_dataloader = data_factory()
         if mode == "process-data":
             return
 
@@ -310,6 +309,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
 
+    @property
+    def eval_batches(self) -> tqdm:
+        """Evaluation data iterator."""
+        return tqdm(
+            self.eval_dataloader,
+            desc="Eval Batches",
+            unit="batch",
+            disable=self.global_rank != 0
+            or (self.global_step // self.config.eval_interval % self.config.eval_log_iter_interval != 0),
+        )
+
     @cached_property
     def device(self) -> torch.device:
         """Current device."""
@@ -391,13 +401,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         for batch in self.train_batches:
             self.train_batch_idx += 1
 
-            if (
-                self.config.gradient_accumulation_steps == 1
-                or self.train_batch_idx % self.config.gradient_accumulation_steps == 0
-            ):
-                self.gas_boundary = True
-            else:
-                self.gas_boundary = False
+            self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0
 
             if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
@@ -415,21 +419,32 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if (
-                self.config.train_log_iter_interval != 0
-                and self.train_batch_idx % self.config.train_log_iter_interval == 0
-            ):
+            if self.config.train_log_iter_interval != 0:
                 self.metrics.print_summary()
-                if self.global_rank == 0 and self.gas_boundary:
 
+            if self.gas_boundary:
+                if (
+                    self.global_rank == 0
+                    and self.config.train_log_iter_interval != 0
+                    and self.global_step % self.config.train_log_iter_interval == 0
+                ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
-                    # first iter is a massive outlier for many fields - so skip it in wandb
-                    if self.wandb_experiment is not None and self.train_batch_idx > 1:
-                        metrics.pop("iter")  # not needed for wandb
-                        self.wandb_experiment.log(metrics, step=self.model.global_steps)
+                    if self.wandb_experiment is not None:
+                        metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
+                        self.wandb_experiment.log(metrics, step=self.global_step)
+
+                if self.config.eval_interval != 0 and self.global_step % self.config.eval_interval == 0:
+                    self.evaluate()
+
+                    if not self.eval_batches.disable:
+                        self.metrics.print_summary(prefix="eval")
+
+                        if self.wandb_experiment is not None:
+                            metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
+                            self.wandb_experiment.log(metrics, step=self.global_step)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
@@ -464,6 +479,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
+
+    @callback_wrapper("evaluate")
+    @torch.inference_mode()
+    def evaluate(self) -> None:
+        """
+        Evaluation loop. Measures the model's performance on the evaluation dataset.
+        """
+        self.model.eval()
+        losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
+        self.metrics.record("loss/eval", losses)  # type: ignore
+        self.model.train()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:

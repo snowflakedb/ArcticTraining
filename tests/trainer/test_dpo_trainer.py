@@ -13,43 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from arctic_training.config.trainer import get_config
-from arctic_training.registry import get_registered_trainer
+import pytest
+
+from tests.utils import run_dummy_training
 
 
-def test_dpo_trainer_cpu(model_name):
-    config_dict = {
-        "type": "dpo",
-        "beta": 0.1,
-        "skip_validation": True,
-        "exit_iteration": 2,
-        "micro_batch_size": 1,
-        "model": {
-            "type": "random-weight-hf",
-            "name_or_path": model_name,
-            "dtype": "float32",
-        },
-        "ref_model": {
-            "type": "random-weight-hf",
-            "name_or_path": model_name,
-            "dtype": "float32",
-        },
-        "data": {
-            "max_length": 2048,
-            "sources": ["HuggingFaceH4/ultrafeedback_binarized:train[:20]"],
-        },
-        "deepspeed": {
-            "zero_optimization": {
-                "stage": 0,
+@pytest.mark.parametrize(
+    "run_on_cpu",
+    [
+        True,
+        pytest.param(False, marks=pytest.mark.gpu),
+    ],
+)
+def test_dpo_trainer_cpu(model_name, run_on_cpu):
+    run_dummy_training(
+        {
+            "type": "dpo",
+            "beta": 0.1,
+            "model": {
+                "type": "random-weight-hf",
+                "name_or_path": model_name,
+                "dtype": "float32",
+            },
+            "ref_model": {
+                "type": "random-weight-hf",
+                "name_or_path": model_name,
+                "dtype": "float32",
+            },
+            "data": {
+                "max_length": 2048,
+                "sources": ["HuggingFaceH4/ultrafeedback_binarized:train[:20]"],
             },
         },
-        "optimizer": {
-            "type": "cpu-adam",
-        },
-    }
-
-    config = get_config(config_dict)
-    trainer_cls = get_registered_trainer(config.type)
-    trainer = trainer_cls(config)
-    trainer.train()
-    assert trainer.global_step > 0, "Training did not run"
+        run_on_cpu=run_on_cpu,
+    )
