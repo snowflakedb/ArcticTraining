@@ -12,6 +12,7 @@ license-files = [
 [tool.hatch.build]
 include = [
   "arctic_training_cli.py",
+  "arctic_training",
 ]
 
 [project.urls]
@@ -20,7 +21,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.5.dev0"
+version = "0.0.6.dev0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -64,7 +65,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.51.3", # attention api + qwen
+    "transformers>=4.53.2", # fa3
     "wandb",
     "yq",
 ]
@@ -88,6 +89,7 @@ dev = [
 testing = [
     "pytest",
     "pytest-instafail",
+    "parameterized",
 ]
 
 formatting = [

@@ -155,3 +155,131 @@ API:
         config = get_config(config_dict)
         trainer = CustomTrainer(config)
         trainer.train()
+
+
+Datasets
+----------
+
+How to use a dataset of your choice. Since there is no standard to how each dataset is defined it's not always easy to write a generic API that will work with any dataset.
+
+SFT Datasets
+============
+
+While one could write a class for any new dataset, we have designed a flexible dataset type that should allow to remap many existing Instruct/SFT datasets to this dataset type:
+
+The ``role_mapping`` dict indicates how to locate the role and content
+within the dataset structure. We accept two types of inputs:
+
+1. ``{role_name} : {column_name}``
+
+2. ``{role_name} : {column_name.filter_field.filter_value}``
+
+Additionally ``content_key`` can be used when a deep structure with
+complex columns is used and the value name needs remapping, see example
+5 below for such a use-case.
+
+Examples:
+
+1. Dataset structure:
+
+.. code:: python
+
+   {"user": "What is the capital of France?", "assistant": "The capital of France is Paris."}
+
+Config:
+
+.. code:: yaml
+
+   data:
+     sources:
+       - type: huggingface_instruct
+         name_or_path:  Josephgflowers/Finance-Instruct-500k
+         split: train
+
+See https://huggingface.co/datasets/Josephgflowers/Finance-Instruct-500k
+
+2. Dataset structure:
+
+.. code:: python
+
+   {"instruction": "What is the capital of France?", "demonstration": "The capital of France is Paris."}
+
+Config:
+
+.. code:: yaml
+
+   data:
+     sources:
+       - type: huggingface_instruct
+         name_or_path: HuggingFaceH4/helpful-instructions
+         split: train
+         sample_count: 1000
+         role_mapping:
+           user: instruction
+           assistant: demonstration
+
+See https://huggingface.co/datasets/HuggingFaceH4/helpful-instructions
+
+3. Dataset structure:
+
+.. code:: python
+
+   {"messages": [{"role": "user", "content": "Hello world"}, {"role": "assistant", "content": "Hi there"}]}
+
+Config:
+
+.. code:: yaml
+
+   data:
+     sources:
+       - type: huggingface_instruct
+         name_or_path: HuggingFaceH4/ultrachat_200k
+         split: train_sft
+         role_mapping:
+           user: messages.role.user
+           assistant: messages.role.assistant
+
+See https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k
+
+4. Dataset structure:
+
+.. code:: python
+
+   {"conversations": [{"role": "human", "content": "Hello world"}, {"role": "agent", "content": "Hi there"}]}
+
+Config:
+
+.. code:: yaml
+
+   data:
+     sources:
+       - type: huggingface_instruct
+         name_or_path: /path/to/data
+         role_mapping:
+           user: conversations.role.human
+           assistant: conversations.role.agent
+
+5. Dataset structure:
+
+.. code:: python
+
+   {"conversations": [{"sender": "system", "message": "Hello world"}, {"sender": "user, "message": "Hi there"}]}
+
+Config:
+
+.. code:: yaml
+
+   data:
+     sources:
+       - type: huggingface_instruct
+         name_or_path: recursal/Europarl-Translation-Instruct
+         split: full
+         sample_count: 1000
+         role_mapping:
+           user: conversations.sender.system
+           assistant: conversations.sender.user
+           content_key: message
+
+https://huggingface.co/datasets/recursal/Europarl-Translation-Instruct
+additionally has the user/assistant roles reversed, so we can easily fix
+it in our remapping.

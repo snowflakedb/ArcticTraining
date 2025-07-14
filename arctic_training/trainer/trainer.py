@@ -209,16 +209,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
-        # XXX: not sure when to enable this temp hack until HF Transformers comes up with a way to
-        # override this properly - apparently there is a plan to do so in the future versions of
-        # transformers.
-        # 1. definitely needed for SP
-        # 2. but it also should benefit a single gpu use case
-        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation != "flash_attention_2":
-            # prevent from causal mask being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
-            model_without_head = self.model_unwrapped.model
-            if hasattr(model_without_head, "_update_causal_mask"):
-                model_without_head._update_causal_mask = lambda *args: None
+        # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
+        # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
+        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [
+            "flash_attention_2",
+            "flash_attention_3",
+        ]:
+            import transformers.masking_utils
+
+            transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] = lambda *args, **kwargs: None
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()

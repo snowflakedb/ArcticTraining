@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+
 import pytest
 
 from arctic_training.config.trainer import get_config
+from arctic_training.config.trainer import load_user_module_from_path
 
 
 def test_duplicate_key_fail(tmp_path):
@@ -30,3 +33,50 @@ def test_duplicate_key_fail(tmp_path):
 
     with pytest.raises(ValueError, match=r"Duplicate .* key found"):
         get_config(config_file)
+
+
+def test_load_user_module_with_relative_imports(tmp_path):
+    """Test that load_user_module_from_path handles scripts with relative imports."""
+    # Create a directory structure with multiple Python files
+    user_code_dir = tmp_path / "user_code"
+    user_code_dir.mkdir()
+
+    # Create a helper module
+    helper_file = user_code_dir / "helper.py"
+    helper_file.write_text(
+        """
+def get_message():
+    return "Hello from helper!"
+
+HELPER_CONSTANT = 42
+"""
+    )
+
+    # Create the main script that imports from helper
+    main_script = user_code_dir / "main.py"
+    main_script.write_text(
+        """
+from helper import get_message, HELPER_CONSTANT
+
+def get_combined_message():
+    return f"{get_message()} Value: {HELPER_CONSTANT}"
+
+# This will be checked by the test
+TEST_VALUE = get_combined_message()
+"""
+    )
+
+    # Load the user module
+    load_user_module_from_path(main_script)
+
+    # Find the loaded module in sys.modules
+    loaded_module = None
+    for module_name, module in sys.modules.items():
+        if "main" in module_name and hasattr(module, "TEST_VALUE"):
+            loaded_module = module
+            break
+
+    # Verify the module was loaded correctly and relative imports worked
+    assert loaded_module is not None, "Module was not loaded"
+    assert hasattr(loaded_module, "TEST_VALUE"), "Module doesn't have expected attribute"
+    assert loaded_module.TEST_VALUE == "Hello from helper! Value: 42", "Relative import failed"

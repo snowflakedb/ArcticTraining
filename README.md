@@ -10,6 +10,7 @@
 
 ## Latest News
 
+* [2025/06] [Arctic Long Sequence Training (ALST): Scalable And Efficient Training For Multi-Million Token Sequences](https://www.snowflake.com/en/engineering-blog/arctic-long-sequence-training-multi-million-token-ai/)
 * [2025/05] [Fastest Speculative Decoding in vLLM with Arctic Inference and Arctic Training](https://www.snowflake.com/en/engineering-blog/fast-speculative-decoding-vllm-arctic/)
 * [2025/03] [Snowflake Arctic Embed Joins ArcticTraining: Simple And Scalable Embedding Model Training](https://www.snowflake.com/en/engineering-blog/arctic-embed-joins-arctictraining/)
 * [2025/01] [ArcticTraining: Simplifying and Accelerating Post-Training for LLMs](https://www.snowflake.com/en/engineering-blog/arctictraining-llm-post-training-framework/)
@@ -26,10 +27,14 @@ The projects folder contains various special projects we have released that buil
 * [SwiftKV](projects/swiftkv)
 * [Speculative Decoding](projects/mlp_speculator)
 * [Arctic-Embed](projects/arctic_embed)
+* [Arctic Long Sequence Training (ALST)](projects/sequence-parallelism)
 
 # Papers
 
 * [Arctic Long Sequence Training: Scalable And Efficient Training For Multi-Million Token Sequences](https://arxiv.org/abs/2506.13996)
+* [ExCoT: Optimizing Reasoning for Text-to-SQL with Execution Feedback](https://arxiv.org/abs/2503.19988)
+* [Arctic-Text2SQL-R1: Simple Rewards, Strong Reasoning in Text-to-SQL](https://arxiv.org/abs/2505.20315)
+* [SwiftKV: Fast Prefill-Optimized Inference with Knowledge-Preserving Model Transformation](https://arxiv.org/abs/2410.03960)
 
 
 # Quickstart
