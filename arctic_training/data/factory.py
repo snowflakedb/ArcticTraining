@@ -202,6 +202,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             dataset = data_source()
             datasets.append(dataset)
         dataset = concatenate_datasets(datasets)
+        dataset = dataset.shuffle(seed=self.config.seed)
         return dataset
 
     @callback_wrapper("process")
