@@ -60,7 +60,7 @@ def get_nvml_mem():
         return 0
 
     if pynvml_handle is None:
-        device_id = get_device_id():
+        device_id = get_device_id()
         pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
         # pynvml.nvmlShutdown()
     memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
