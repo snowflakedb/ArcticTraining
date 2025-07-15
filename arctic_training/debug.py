@@ -40,7 +40,8 @@ pynvml_handle = None
 
 def get_device_id():
     """
-    try to identify the device id running this rank with the help of LOCAL_RANK and CUDA_VISIBLE_DEVICES env vars. The device id is needed for applicaitons like pynvml.
+    Derive the device id running this rank with the help of LOCAL_RANK and CUDA_VISIBLE_DEVICES env vars. The device id is
+    needed for applications like pynvml.
     """
 
     if dist.is_initialized():
