@@ -42,6 +42,8 @@ def get_device_id():
     """
     Derive the device id running this rank with the help of LOCAL_RANK and CUDA_VISIBLE_DEVICES env vars. The device id is
     needed for applications like pynvml.
+
+    returns `None` if CUDA_VISIBLE_DEVICES is set to ""
     """
 
     if dist.is_initialized():
@@ -49,7 +51,11 @@ def get_device_id():
     else:
         local_rank = 0
 
-    visible_device_ids = list(map(int, os.getenv("CUDA_VISIBLE_DEVICES", "0").split(",")))
+    cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "0")
+    if cuda_visible_devices == "":
+        return None
+
+    visible_device_ids = list(map(int, cuda_visible_devices.split(",")))
 
     return visible_device_ids[local_rank]
 
@@ -62,6 +68,8 @@ def get_nvml_mem():
 
     if pynvml_handle is None:
         device_id = get_device_id()
+        if device_id is None:
+            return 0
         pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
         # pynvml.nvmlShutdown()
     memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
