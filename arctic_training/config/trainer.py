@@ -48,6 +48,7 @@ from arctic_training.config.utils import HumanInt
 from arctic_training.config.utils import UniqueKeyLoader
 from arctic_training.config.utils import parse_human_val
 from arctic_training.config.wandb import WandBConfig
+from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
 from arctic_training.registry import get_registered_data_factory
@@ -167,6 +168,19 @@ class TrainerConfig(BaseConfig):
 
     kill_switch_path: Path = Path("/tmp/at_kill_switch")
     """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
+
+    @model_validator(mode="after")
+    def set_max_length(self) -> Self:
+        if "max_length" not in self.data.model_fields_set:
+            from transformers import AutoConfig
+
+            model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+            try:
+                self.data.max_length = model_config.max_position_embeddings
+            except AttributeError:
+                logger.warning(f"Model config for {self.model.name_or_path} does not have max_position_embeddings.")
+                self.data.max_length = 8192
+        return self
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
