@@ -405,7 +405,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0
 
-            if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
+            if "packed_sample_seqlens" in batch and "flash_attention" in self.config.model.attn_implementation:
                 # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
