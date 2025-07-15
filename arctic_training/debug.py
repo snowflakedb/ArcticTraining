@@ -46,16 +46,15 @@ def get_device_id():
     returns `None` if CUDA_VISIBLE_DEVICES is set to ""
     """
 
+    cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "0")
+    if cuda_visible_devices == "":
+        return None
+    visible_device_ids = list(map(int, cuda_visible_devices.split(",")))
+
     if dist.is_initialized():
         local_rank = int(os.getenv("LOCAL_RANK", 0))
     else:
         local_rank = 0
-
-    cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "0")
-    if cuda_visible_devices == "":
-        return None
-
-    visible_device_ids = list(map(int, cuda_visible_devices.split(",")))
 
     return visible_device_ids[local_rank]
 
