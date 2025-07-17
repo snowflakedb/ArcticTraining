@@ -15,6 +15,9 @@ sub-configurations for data, model, etc.
 
 .. autopydantic_model:: arctic_training.config.data.DataConfig
 
+.. note::
+   If ``data.max_length`` is not set in your configuration, it will be automatically set to the value of ``model.config.max_position_embeddings`` (if available) from the HuggingFace model config. If your model config does not have this attribute, you must set ``max_length`` manually to avoid errors with long sequences.
+
 .. autopydantic_model:: arctic_training.config.logger.LoggerConfig
 
 .. autopydantic_model:: arctic_training.config.model.ModelConfig
