@@ -169,6 +169,20 @@ class TrainerConfig(BaseConfig):
     """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
 
     @model_validator(mode="after")
+    def set_max_length(self) -> Self:
+        if "max_length" not in self.data.model_fields_set:
+            from transformers import AutoConfig
+
+            model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+            if not hasattr(model_config, "max_position_embeddings"):
+                raise ValueError(
+                    f"Model config for {self.model.name_or_path} does not have a `max_position_embeddings` settings."
+                    " Set `data.max_length` in your config."
+                )
+            self.data.max_length = model_config.max_position_embeddings
+        return self
+
+    @model_validator(mode="after")
     def init_dist(self) -> Self:
         import deepspeed
         from deepspeed.accelerator import get_accelerator
