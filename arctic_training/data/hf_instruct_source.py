@@ -23,7 +23,6 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 from typing_extensions import Self
-from datasets import Dataset
 
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.hf_source import HFDataSourceConfig
@@ -211,20 +210,3 @@ class HFDataSourceInstruct(HFDataSource):
                 result[full_key] = type(value).__name__
 
         return result
-
-class HFDataSourceInstructRepeat(HFDataSourceInstruct):
-    """Debugging data source that repeats samples until `max_length` is reached."""
-
-    name = "huggingface_instruct_repeat"
-    config: HFDataSourceConfigInstruct
-
-    def __call__(self) -> DatasetType:
-        dataset = super().__call__()
-        if len(dataset) == 1:
-            sample = dataset[0]
-            for key, value in sample.items():
-                if isinstance(value, list):
-                    sample_length = len(value)
-                    sample[key] = value * (1 + (self.data_factory.config.max_length // sample_length))[:self.data_factory.config.max_length]
-            dataset = Dataset.from_dict(sample)
-        return dataset

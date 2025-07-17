@@ -257,6 +257,9 @@ class SFTDataConfig(DataConfig):
     with probability equal to the value of this configuration parameter.
     """
 
+    repeat_to_max_length: bool = False
+    """ Whether to repeat the dataset samples to get closer to `max_length`. """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -315,6 +318,20 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     return dataset
 
 
+def repeat_dataset(self, dataset: DatasetType) -> DatasetType:
+    def _repeat_sample(sample: Dict[str, List[int]]) -> Dict[str, List[int]]:
+        repeated_factor = self.config.max_length // len(sample["input_ids"])
+        for key in sample.keys():
+            sample[key] = (repeated_factor * sample[key])[: self.config.max_length]
+        return sample
+
+    if not self.config.repeat_to_max_length:
+        return dataset
+
+    dataset = dataset.map(_repeat_sample, num_proc=self.config.num_proc, desc="Repeating dataset to max_length")
+    return dataset
+
+
 class SFTDataFactory(DataFactory):
     name = "sft"
     config: SFTDataConfig
@@ -322,6 +339,7 @@ class SFTDataFactory(DataFactory):
     callbacks = [
         ("post-load", filter_dataset_length),
         ("post-load", pack_dataset),
+        ("post-load", repeat_dataset),
     ]
 
     def process(self, dataset: DatasetType) -> DatasetType:
