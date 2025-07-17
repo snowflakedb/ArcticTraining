@@ -48,7 +48,6 @@ from arctic_training.config.utils import HumanInt
 from arctic_training.config.utils import UniqueKeyLoader
 from arctic_training.config.utils import parse_human_val
 from arctic_training.config.wandb import WandBConfig
-from arctic_training.logging import logger
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
 from arctic_training.registry import get_registered_data_factory
@@ -175,11 +174,11 @@ class TrainerConfig(BaseConfig):
             from transformers import AutoConfig
 
             model_config = AutoConfig.from_pretrained(self.model.name_or_path)
-            try:
-                self.data.max_length = model_config.max_position_embeddings
-            except AttributeError:
-                logger.warning(f"Model config for {self.model.name_or_path} does not have max_position_embeddings.")
-                self.data.max_length = 8192
+            assert hasattr(model_config, "max_position_embeddings"), (
+                f"Model config for {self.model.name_or_path} does not have max_position_embeddings. Set max_length in"
+                " your data config."
+            )
+            self.data.max_length = model_config.max_position_embeddings
         return self
 
     @model_validator(mode="after")
