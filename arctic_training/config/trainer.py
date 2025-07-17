@@ -174,9 +174,8 @@ class TrainerConfig(BaseConfig):
             from transformers import AutoConfig
 
             model_config = AutoConfig.from_pretrained(self.model.name_or_path)
-            assert hasattr(model_config, "max_position_embeddings"), (
-                f"Model config for {self.model.name_or_path} does not have max_position_embeddings. Set max_length in"
-                " your data config."
+            if not hasattr(model_config, "max_position_embeddings"), (
+                raise ValueError(f"Model config for {self.model.name_or_path} does not have a `max_position_embeddings` settings. Set `data.max_length` in your config.")
             )
             self.data.max_length = model_config.max_position_embeddings
         return self
