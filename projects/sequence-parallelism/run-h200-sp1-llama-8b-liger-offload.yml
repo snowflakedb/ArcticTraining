@@ -40,11 +40,7 @@ data:
   cache_dir: data-cache
   dl_num_workers: 1
 
-  # max_length: 600_000 # ok 118.06 GB
   max_length: 650_000 # ok 126.81 GB
-  # max_length: 700_000 # flash
-  #max_length: 800_000 # oom
-  # max_length: 900_000 # oom
 
 logger:
   level: WARNING

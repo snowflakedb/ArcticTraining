@@ -38,12 +38,9 @@ data:
   cache_dir: data-cache
   dl_num_workers: 1
 
-  max_length: 8_000 #
-  #max_length: 50_000 # ok NV 124.47 GB
-  #max_length: 55_000 #
-  #max_length: 60_000 # ok 126.79 GB
-  #max_length: 65_000 # ok 137.36 GB
-  #max_length: 70_000 # cache flushes
+
+  max_length: 65_000 # ok 137.36 GB
+
 
 logger:
   level: WARNING
