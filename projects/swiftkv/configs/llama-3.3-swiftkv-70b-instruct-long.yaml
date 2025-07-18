@@ -7,7 +7,7 @@ sequence_parallel_size: 32
 logits_loss_temp: 2.0
 hidden_loss_layer: -2
 model:
-  name_or_path: meta-llama/Llama-3.1-70B-Instruct
+  name_or_path: meta-llama/Llama-3.3-70B-Instruct
   num_key_value_layers: 40
   key_value_group_size: 1
   attn_implementation: flash_attention_2
@@ -82,5 +82,5 @@ optimizer:
 checkpoint:
   - type: huggingface
     save_every_n_epochs: 1
-    output_dir: /checkpoint/llama-3.1-swiftkv-70b-instruct-long
+    output_dir: /checkpoint/llama-3.3-swiftkv-70b-instruct-long
     save_end_of_training: true
