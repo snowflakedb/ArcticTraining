@@ -33,7 +33,7 @@ cd projects/sequence-parallelism
 To launch a 1-GPU job:
 ```
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-arctic_training run-h100-sp1-llama-8b.yml --num_gpus 0
+arctic_training run-h100-sp1-llama-8b.yml --num_gpus 1
 ```
 
 Recipes for 1x H100 GPU:
