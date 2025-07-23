@@ -127,7 +127,9 @@ def eval_and_log_cb(self: BiencoderTrainer) -> None:
             for eval_batch in tqdm(eval_loader, desc=f"eval/{eval_name}", unit="batch"):
                 eval_metrics = self.eval(eval_batch)
                 em_list.append(eval_metrics)
+            print(f"inside eval_and_log_cb, em_list: {em_list}")
             avg_metrics = {f"eval/{eval_name}/{k}": sum(em[k] for em in em_list) / len(em_list) for k in eval_metrics}
+            print(f"inside eval_and_log_cb, avg_metrics: {avg_metrics}")
             metrics.update(avg_metrics)
     finally:
         self.model.train(mode=initial_train_mode)
@@ -208,6 +210,8 @@ class BiencoderTrainer(Trainer):
     @torch.no_grad()
     def eval(self, batch: ContrastiveLearningBatch) -> Dict[str, float]:
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
+        if self.config.use_in_batch_negatives:
+            relations[relations == 0] = -1
         q_emb = F.normalize(query_embeddings, dim=1)
         d_emb = F.normalize(document_embeddings, dim=1)
         scores = torch.matmul(q_emb, d_emb.transpose(0, 1))
