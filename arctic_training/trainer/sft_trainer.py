@@ -18,6 +18,7 @@ from typing import Union
 
 import torch
 import torch.distributed.nn.functional
+from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
 
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
@@ -45,13 +46,44 @@ class SFTTrainer(Trainer):
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
-        if self.config.sequence_parallel_size == 1:
+        if self.config.sequence_parallel_size == 0:
             # if model.type=liger is configured - this will use a much more efficient fused
             # logits+loss liger kernel - using significantly less gpu memory and a bit faster
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
             return loss
+        # else:
+        #     labels = batch.pop("labels")
+        #     labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+        #     batch["shift_labels"] = labels[..., 1:].contiguous()
+        #     shift_labels = batch["shift_labels"]
+
+        #     model_with_head = self.model_unwrapped
+        #     outputs = model_with_head.model(**batch, use_cache=False)
+        #     hidden_states = outputs.last_hidden_state
+        #     num_shards=16
+        #     compute_params = [model_with_head.lm_head.weight]
+        #     output_reduction = "mean"
+        #     def fused_logits_loss_fn_new(
+        #         model_with_head=None, hidden_states=None, shift_labels=None
+        #     ):
+        #         vocab_size = model_with_head.config.vocab_size
+        #         logits = model_with_head.lm_head(hidden_states)
+        #         loss = model_with_head.loss_function(
+        #             logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
+        #         )
+        #         return loss
+
+        #     return TiledFusedLogitsLoss.apply(
+        #         fused_logits_loss_fn_new,
+        #         model_with_head,
+        #         hidden_states,
+        #         shift_labels,
+        #         num_shards,
+        #         compute_params,
+        #         output_reduction,
+        #     )
 
         # Ulysses SP expectations:
         # 1. batch has `labels`` replaced with `shift_labels`` (which are already preshifted in
@@ -59,6 +91,11 @@ class SFTTrainer(Trainer):
         # 2. this rank deals with a seqlen dimension shard so once the loss is calculated it needs
         #    to do a differentiable weighted loss average to get the grads right
 
+        # temp hack - not correct
+        if 1:
+            labels = batch.pop("labels")
+            labels = torch.nn.functional.pad(labels, (0, 1), value=-100)
+            batch["shift_labels"] = labels[..., 1:].contiguous()
         if "labels" in batch:
             raise ValueError(
                 "found labels in batch - they shouldn't be there, instead shift_labels should be there - check"
@@ -69,7 +106,6 @@ class SFTTrainer(Trainer):
                 "shift_labels are missing from the batch - check that UlyssesAttentionHFDataLoaderWrapper has been"
                 " applied to the original DataLoader object"
             )
-
         shift_labels = batch["shift_labels"]
 
         # We have 2 implementation of efficient tiled logits+loss computation.
@@ -117,6 +153,34 @@ class SFTTrainer(Trainer):
             grad_requiring_tensor_key = "hidden_states"
             compute_params = [model_with_head.lm_head.weight]
             seqlen = shift_labels.shape[1]
+            output_reduction = "sum"
+
+            # since -100s shift_labels are ignored we have to perform a weighted average on each
+            # loss slice as each slice may contribute a different number of non- -100 labels
+            def fused_logits_loss_fn_new(model_with_head=None, hidden_states=None, shift_labels=None):
+                vocab_size = model_with_head.config.vocab_size
+                logits = model_with_head.lm_head(hidden_states)
+                if all((shift_labels == -100).squeeze()):
+                    # fake loss calculation, since CE will return nan, but grads will be set
+                    # a normal loss_fn upcasts logits to float so match it
+                    loss_sum = (logits.sum() * 0.0).float()
+                else:
+                    good_items = sum((shift_labels != -100).squeeze())
+                    loss = model_with_head.loss_function(
+                        logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
+                    )
+                    loss_sum = loss * good_items
+                return loss_sum
+
+            total_loss_sum = TiledFusedLogitsLoss.apply(
+                fused_logits_loss_fn_new,
+                model_with_head,
+                hidden_states,
+                shift_labels,
+                num_shards,
+                compute_params,
+                output_reduction,
+            )
 
             # since -100s shift_labels are ignored we have to perform a weighted average on each
             # loss slice as each slice may contribute a different number of non- -100 labels
@@ -136,26 +200,26 @@ class SFTTrainer(Trainer):
                     loss_sum = loss * good_items
                 return loss_sum
 
-            total_loss_sum = sequence_tiled_compute(
-                fused_logits_loss_fn,
-                seqlen,
-                num_shards,
-                kwargs_to_shard,
-                kwargs_to_pass,
-                grad_requiring_tensor_key,
-                compute_params,
-                output_unshard_dimension=0,  # loss is a scalar
-                output_reduction="sum",
-            )
+            # total_loss_sum = sequence_tiled_compute(
+            #     fused_logits_loss_fn,
+            #     seqlen,
+            #     num_shards,
+            #     kwargs_to_shard,
+            #     kwargs_to_pass,
+            #     grad_requiring_tensor_key,
+            #     compute_params,
+            #     output_unshard_dimension=0,  # loss is a scalar
+            #     output_reduction="sum",
+            # )
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
 
         # differentiable weighted per-shard-loss aggregation across ranks
-        losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
-        good_tokens = sum((shift_labels != -100).view(-1))
-        good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
-        total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
-        total_good_tokens = sum(good_tokens_per_rank)
-        loss = total_loss / total_good_tokens
+        # losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
+        # good_tokens = sum((shift_labels != -100).view(-1))
+        # good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
+        # total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
+        # total_good_tokens = sum(good_tokens_per_rank)
+        # loss = total_loss / total_good_tokens
 
         return loss
