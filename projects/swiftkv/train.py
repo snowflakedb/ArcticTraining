@@ -260,17 +260,23 @@ class SwiftKVTrainer(SFTTrainer):
         with torch.no_grad():
             self.model.swiftkv(False)
             self.model.eval()
-            teacher_outputs = self.model(**batch, output_hidden_states=True)
+            # Call the inner model directly to avoid materializing the logits
+            teacher_outputs = self.model.model(**batch, output_hidden_states=True)
 
         self.model.swiftkv(True)
         self.model.train()
-        student_outputs = self.model(**batch, output_hidden_states=True)
+        # Call the inner model directly to avoid materializing the logits
+        student_outputs = self.model.model(**batch, output_hidden_states=True)
 
         return student_outputs, teacher_outputs
 
-    def compute_logits_loss(self, student_logits, teacher_logits, mask):
+    def compute_logits_loss(self, student_hidden, teacher_hidden, mask):
 
-        def _loss_fn(self, student_logits, teacher_logits, mask):
+        def _loss_fn(self, student_hidden, teacher_hidden, mask):
+            # Compute logits from hidden states (only for this shard when tiled)
+            student_logits = self.model.lm_head(student_hidden)
+            teacher_logits = self.model.lm_head(teacher_hidden)
+
             # Soften the student logits by applying softmax first and log() second
             soft_targets = F.softmax(teacher_logits / self.config.logits_loss_temp, dim=-1)
             soft_prob = F.log_softmax(student_logits / self.config.logits_loss_temp, dim=-1)
@@ -285,20 +291,20 @@ class SwiftKVTrainer(SFTTrainer):
 
         if self.config.sequence_parallel_size > 1:
             # Use tiled computation for memory efficiency
-            num_shards = self.get_num_shards(*student_logits.shape[:2])
+            num_shards = self.get_num_shards(*student_hidden.shape[:2])
             return TiledFusedLogitsLoss.apply(
                 _loss_fn,
                 self,
-                student_logits,
-                teacher_logits,
+                student_hidden,
+                teacher_hidden,
                 mask,
                 num_shards,
-                [],
+                self.model.lm_head.parameters(),
                 "mean",
             )
         else:
             # Direct computation for single process
-            return _loss_fn(self, student_logits, teacher_logits, mask)
+            return _loss_fn(self, student_hidden, teacher_hidden, mask)
 
     def compute_hidden_loss(self, student_hidden, teacher_hidden):
 
@@ -329,19 +335,17 @@ class SwiftKVTrainer(SFTTrainer):
 
         student_outputs, teacher_outputs = self.forward(batch)
 
-        student_logits = student_outputs.logits
-        student_hidden = student_outputs.hidden_states[self.config.hidden_loss_layer]
-        teacher_logits = teacher_outputs.logits
-        teacher_hidden = teacher_outputs.hidden_states[self.config.hidden_loss_layer]
-
         use_sequence_parallel = self.config.sequence_parallel_size > 1
 
         # Compute logits loss for assistant turns
         mask = batch["shift_labels" if use_sequence_parallel else "labels"] != -100
-        logits_loss = self.compute_logits_loss(student_logits, teacher_logits, mask)
+        logits_loss = self.compute_logits_loss(student_outputs.hidden_states[-1],
+                                               teacher_outputs.hidden_states[-1], mask)
 
         # Compute hidden loss for all tokens
-        hidden_loss = self.compute_hidden_loss(student_hidden, teacher_hidden)
+        hidden_loss = self.compute_hidden_loss(
+            student_outputs.hidden_states[self.config.hidden_loss_layer],
+            teacher_outputs.hidden_states[self.config.hidden_loss_layer])
 
         # Combine losses
         loss = logits_loss + self.config.hidden_loss_mult * hidden_loss
