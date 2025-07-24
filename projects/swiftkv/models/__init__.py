@@ -25,6 +25,10 @@ from .qwen2 import Qwen2SwiftKVConfig
 from .qwen2 import Qwen2SwiftKVForCausalLM
 from .qwen2 import Qwen2SwiftKVModel
 from .qwen2 import register_qwen2_swiftkv
+from .qwen3 import Qwen3SwiftKVConfig
+from .qwen3 import Qwen3SwiftKVForCausalLM
+from .qwen3 import Qwen3SwiftKVModel
+from .qwen3 import register_qwen3_swiftkv
 
 
 def register_all_swiftkv():
@@ -32,6 +36,7 @@ def register_all_swiftkv():
     register_deepseek_v2_swiftkv()
     register_llama_swiftkv()
     register_qwen2_swiftkv()
+    register_qwen3_swiftkv()
 
 
 __all__ = [
@@ -44,8 +49,12 @@ __all__ = [
     "Qwen2SwiftKVConfig",
     "Qwen2SwiftKVForCausalLM",
     "Qwen2SwiftKVModel",
+    "Qwen3SwiftKVConfig",
+    "Qwen3SwiftKVForCausalLM",
+    "Qwen3SwiftKVModel",
     "register_all_swiftkv",
     "register_deepseek_v2_swiftkv",
     "register_llama_swiftkv",
     "register_qwen2_swiftkv",
+    "register_qwen3_swiftkv",
 ]
