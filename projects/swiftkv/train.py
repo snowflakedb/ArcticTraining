@@ -150,7 +150,6 @@ class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
     config: SwiftKVTrainerConfig
     model_factory: SwiftKVModelFactory
-    checkpoint_engine: Union[HFCheckpointEngine]
 
     def forward(self, batch):
         batch = to_device(batch, self.device)

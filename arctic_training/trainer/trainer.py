@@ -158,6 +158,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.training_finished = False
         self.wandb_experiment: Optional[WandbRun] = None
+        self._resumed_from_checkpoint = False  # Track if we resumed from checkpoint
 
         self._set_seeds(self.config.seed)
 
@@ -254,6 +255,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
                 engine.load(self.model)
+                # Check if we actually loaded a checkpoint by seeing if global_step changed
+                if self.global_step > 0:
+                    self._resumed_from_checkpoint = True
 
         self.metrics = Metrics(self)
 
@@ -320,8 +324,35 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.train_iters:
             return self.config.train_iters
 
-        # XXX: this was incorrect for GAS
-        return self.config.epochs * len(self.train_dataloader)  # // self.config.gradient_accumulation_steps
+        # Calculate horizon based on epochs
+        epoch_based_horizon = self.config.epochs * len(self.train_dataloader)  # // self.config.gradient_accumulation_steps
+        
+        # If exit_iteration is set and larger than epoch-based horizon, use exit_iteration
+        if self.config.exit_iteration > 0 and self.config.exit_iteration > epoch_based_horizon:
+            return self.config.exit_iteration
+            
+        return epoch_based_horizon
+
+    def _get_batches_to_skip_in_current_epoch(self) -> int:
+        """Calculate how many batches to skip in the current epoch when resuming from checkpoint."""
+        # Only skip batches if we've resumed from a checkpoint and are at the start of training for this run
+        if self.global_step == 0:
+            return 0
+            
+        # Find the DeepSpeed checkpoint engine that might have been used for resuming
+        ds_engine = None
+        for engine in self.checkpoint_engines:
+            if hasattr(engine, 'batches_to_skip_in_current_epoch'):
+                ds_engine = engine
+                break
+                
+        if ds_engine is not None:
+            return ds_engine.batches_to_skip_in_current_epoch
+        
+        # Fallback calculation if no DeepSpeed engine found
+        total_batches_processed = self.global_step * self.config.gradient_accumulation_steps
+        batches_per_epoch = len(self.train_dataloader)
+        return total_batches_processed % batches_per_epoch
 
     @callback_wrapper("loss")
     @abstractmethod
@@ -381,11 +412,35 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.metrics.start_timer("iter")
 
+        # Set the epoch for the DistributedSampler if it exists
+        if hasattr(self.train_dataloader.sampler, 'set_epoch'):
+            self.train_dataloader.sampler.set_epoch(self.epoch_idx)
+
         # enable memory allocation history, which will add tracebacks and event history to memory snapshots
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
-        for batch in self.train_batches:
+        # Calculate how many batches to skip when resuming from checkpoint (only on first epoch after resume)
+        batches_to_skip = 0
+        if self._resumed_from_checkpoint:
+            batches_to_skip = self._get_batches_to_skip_in_current_epoch()
+            # Reset the flag so we don't skip batches in subsequent epochs
+            self._resumed_from_checkpoint = False
+        
+        batch_iterator = iter(self.train_batches)
+        
+        # Skip batches if resuming from checkpoint
+        if batches_to_skip > 0:
+            logger.info(f"Resuming from checkpoint: skipping {batches_to_skip} batches in current epoch")
+            for _ in range(batches_to_skip):
+                try:
+                    next(batch_iterator)
+                    self.train_batch_idx += 1
+                except StopIteration:
+                    logger.warning("Ran out of batches while skipping - this may indicate a dataloader size mismatch")
+                    break
+
+        for batch in batch_iterator:
             self.train_batch_idx += 1
 
             if (

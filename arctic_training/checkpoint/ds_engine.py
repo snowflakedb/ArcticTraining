@@ -28,6 +28,17 @@ class DSCheckpointEngine(CheckpointEngine):
     name = "deepspeed"
 
     @property
+    def checkpoint_dir(self) -> Path:
+        """Returns the directory where the checkpoint will be saved.
+        
+        Override the base class implementation to avoid the extra global_step_X 
+        subdirectory since DeepSpeed handles versioning through its own tagging system.
+        """
+        checkpoint_dir = self.config.output_dir
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        return checkpoint_dir
+
+    @property
     def latest_checkpoint(self) -> Path:
         return self.checkpoint_dir / "latest"
 
@@ -60,7 +71,7 @@ class DSCheckpointEngine(CheckpointEngine):
         _, client_states = model.load_checkpoint(self.checkpoint_dir)
 
         self.trainer.global_step = model.global_steps
-        self.trainer.epoch_idx = client_states["end_of_epoch"] + 1
+        self.trainer.epoch_idx = client_states["end_of_epoch"]
         torch.set_rng_state(client_states["torch_random_state"])
         np.random.set_state(client_states["np_random_state"])
         random.setstate(client_states["python_random_state"])
