@@ -18,7 +18,6 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
 from deepspeed.runtime.zero import GatheredParameters
 from torch.distributed import ReduceOp
 
@@ -36,6 +35,109 @@ from projects.swiftkv.models.deepseek_v2 import register_deepseek_v2
 
 register_all_swiftkv()
 register_deepseek_v2()  # Explicitly register because it's not in transformers
+
+
+class TiledFusedLogitsLoss(torch.autograd.Function):
+    """
+
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        fn,
+        self,
+        x,
+        y,
+        mask,
+        shards,
+        compute_params,
+        output_reduction,
+    ) -> torch.Tensor:
+
+        if output_reduction not in ["mean", "sum"]:
+            raise ValueError(f'unknown value {output_reduction}: valid values are: "mean"/"sum"')
+
+        assert x.dim() >= 2, "x must be at least 2D [batch_size, seq_len, ...]"
+        assert y.dim() >= 2, "y must be at least 2D [batch_size, seq_len, ...]"
+        assert x.shape[:2] == y.shape[:2], "x and y batch/seq dims must match"
+        if mask is not None:
+            assert mask.dim() == 2, "mask must be 2D [batch_size, seq_len]"
+            assert mask.shape == x.shape[:2], "mask shape must match x and y batch/seq"
+
+        compute_params = [p for p in compute_params if p.requires_grad]
+
+        x_requires_grad = x.requires_grad
+        x = x.detach().requires_grad_(x_requires_grad)
+
+        bs, seqlen = x.shape[:2]
+
+        # flatten bs+seqlen to avoid having stride issues when narrowing into seqlen w/ bs>1
+        x = x.view(-1, *x.shape[2:])
+        y = y.view(-1, *y.shape[2:])
+        if mask is not None:
+            mask = mask.view(-1)
+        incoming_grad = torch.tensor(1.0, dtype=x.dtype, device=x.device)
+
+        # we are faking the incoming gradient, and since we perform a reduction outside of `autograd.backward` below we need to pre-adjust the incoming gradient. in the case of "sum" the gradient is 1.0, in the case of "mean" it's 1.0/num_elements, which in this case is 1/shards.
+        if output_reduction == "mean":
+            incoming_grad /= shards
+
+        x_grad = torch.zeros_like(x)
+        x_shards = list(torch.chunk(x, chunks=shards, dim=0))
+        y_shards = list(torch.chunk(y, chunks=shards, dim=0))
+        if mask is not None:
+            mask_shards = list(torch.chunk(mask, chunks=shards, dim=0))
+
+        output_shards = []
+        for i, (x_shard, y_shard) in enumerate(zip(x_shards, y_shards)):
+            # Tell deepspeed not to add a new grad to its ipg bucket until the last shard is run
+            # XXX: DDP, FSDP will need something similar to make it work
+            if compute_params is not None:
+                if i + 1 < shards:
+                    for param in compute_params:
+                        param.ds_grad_is_ready = False
+                else:
+                    # last shard, can add the grad
+                    for param in compute_params:
+                        param.ds_grad_is_ready = True
+
+            x_shard.requires_grad_(x_requires_grad)
+
+            # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
+            shard_step = x_shards[i].shape[0]
+            shard_offset = i * x_shards[0].shape[0]
+
+            x_shard.grad = x_grad.narrow(0, shard_offset, shard_step).view_as(x_shard)
+
+            with torch.enable_grad():
+                args = (self, x_shard, y_shard)
+                if mask is not None:
+                    args.append(mask_shards[i])
+                output = fn(*args)
+                output_shards.append(output)
+            torch.autograd.backward(output, incoming_grad)
+
+        output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=0)
+
+        if output_reduction == "mean":
+            output = output_unsharded.mean()
+        elif output_reduction == "sum":
+            output = output_unsharded.sum()
+
+        # unflatten
+        x_grad = x_grad.view(bs, seqlen, *x_grad.shape[1:])
+
+        ctx.save_for_backward(x_grad.detach())
+        return output
+
+    @staticmethod
+    def backward(ctx, *grads) -> torch.Tensor:
+        (x_grad, ) = ctx.saved_tensors
+        # grads[0] should normally be 1.0 as it should be coming from loss.backward()
+        if grads[0] != 1.0:
+            x_grad *= grads[0]
+        return (None, None, x_grad, None, None, None, None, None, None)
 
 
 class SwiftKVModelConfig(ModelConfig):
@@ -166,6 +268,60 @@ class SwiftKVTrainer(SFTTrainer):
 
         return student_outputs, teacher_outputs
 
+    def compute_logits_loss(self, student_logits, teacher_logits, mask):
+
+        def _loss_fn(self, student_logits, teacher_logits, mask):
+            # Soften the student logits by applying softmax first and log() second
+            soft_targets = F.softmax(teacher_logits / self.config.logits_loss_temp, dim=-1)
+            soft_prob = F.log_softmax(student_logits / self.config.logits_loss_temp, dim=-1)
+
+            # Calculate the soft logits loss. Scaled by T**2 as suggested by the
+            # authors of the paper "Distilling the knowledge in a neural network"
+            logits_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob), dim=-1)
+            logits_loss = logits_loss * mask  # Zero out the masked positions
+            logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp**2)
+
+            return logits_loss
+
+        if self.config.sequence_parallel_size > 1:
+            # Use tiled computation for memory efficiency
+            num_shards = self.get_num_shards(*student_logits.shape[:2])
+            return TiledFusedLogitsLoss.apply(
+                _loss_fn,
+                self,
+                student_logits,
+                teacher_logits,
+                mask,
+                num_shards,
+                [],
+                "mean",
+            )
+        else:
+            # Direct computation for single process
+            return _loss_fn(self, student_logits, teacher_logits, mask)
+
+    def compute_hidden_loss(self, student_hidden, teacher_hidden):
+
+        def _loss_fn(self, student_hidden, teacher_hidden):
+            return F.mse_loss(student_hidden, teacher_hidden)
+
+        if self.config.sequence_parallel_size > 1:
+            # Use tiled computation for memory efficiency
+            num_shards = self.get_num_shards(*student_hidden.shape[:2])
+            return TiledFusedLogitsLoss.apply(
+                _loss_fn,
+                self,
+                student_hidden,
+                teacher_hidden,
+                None,
+                num_shards,
+                [],
+                "mean",
+            )
+        else:
+            # Direct computation for single process
+            return _loss_fn(self, student_hidden, teacher_hidden)
+
     def loss(self, batch) -> torch.Tensor:
         import torch
 
@@ -178,63 +334,23 @@ class SwiftKVTrainer(SFTTrainer):
         teacher_logits = teacher_outputs.logits
         teacher_hidden = teacher_outputs.hidden_states[self.config.hidden_loss_layer]
 
-        def loss_fn(student_concat, teacher_logits, teacher_hidden, mask):
-            student_logits, student_hidden = student_concat.split(
-                [teacher_logits.size(-1), teacher_hidden.size(-1)], dim=-1
-            )
+        use_sequence_parallel = self.config.sequence_parallel_size > 1
 
-            # 1. Logits distillation loss for non-masked positions.
-            # Soften the student logits by applying softmax first and log() second
-            soft_targets = F.softmax(teacher_logits / self.config.logits_loss_temp, dim=-1)
-            soft_prob = F.log_softmax(student_logits / self.config.logits_loss_temp, dim=-1)
+        # Compute logits loss for assistant turns
+        mask = batch["shift_labels" if use_sequence_parallel else "labels"] != -100
+        logits_loss = self.compute_logits_loss(student_logits, teacher_logits, mask)
 
-            # Calculate the soft logits loss. Scaled by T**2 as suggested by the
-            # authors of the paper "Distilling the knowledge in a neural network"
-            logits_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob), dim=-1)
-            logits_loss = logits_loss * mask  # Zero out the masked positions
-            logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp**2)
+        # Compute hidden loss for all tokens
+        hidden_loss = self.compute_hidden_loss(student_hidden, teacher_hidden)
 
-            if self.config.hidden_loss_mult > 0:
-                # 2. Hidden states MSE loss for all masked and non-masked positions.
-                hidden_loss = F.mse_loss(student_hidden, teacher_hidden)
-                return logits_loss + self.config.hidden_loss_mult * hidden_loss
-            else:
-                return logits_loss
+        # Combine losses
+        loss = logits_loss + self.config.hidden_loss_mult * hidden_loss
 
-        if self.config.sequence_parallel_size > 1:
-            shift_labels = batch["shift_labels"]
-            batch_size, seqlen = shift_labels.shape
-            num_shards = self.get_num_shards(batch_size, seqlen)
-            kwargs_to_shard = {
-                "student_concat": torch.cat([student_logits, student_hidden], dim=-1),
-                "teacher_logits": teacher_logits,
-                "teacher_hidden": teacher_hidden,
-                "mask": shift_labels != -100,
-            }
-
-            loss = sequence_tiled_compute(
-                loss_fn,
-                seqlen,
-                num_shards,
-                kwargs_to_shard,
-                kwargs_to_pass={},
-                grad_requiring_tensor_key="student_concat",
-                compute_params=[],
-                output_unshard_dimension=0,  # loss is a scalar
-            )
-
-            # Average the loss across all sequence parallel ranks using a differentiable all_reduce.
+        # Apply sequence parallel reduction if needed
+        if use_sequence_parallel:
             loss = torch.distributed.nn.functional.all_reduce(loss, op=ReduceOp.AVG, group=self.sp_group)
 
-            return loss
-        else:
-            student_concat = torch.cat([student_logits, student_hidden], dim=-1)
-            return loss_fn(
-                student_concat=student_concat,
-                teacher_logits=teacher_logits,
-                teacher_hidden=teacher_hidden,
-                mask=(batch["labels"] != -100),
-            )
+        return loss
 
     def get_num_shards(self, batch_size, seqlen):
         slice_size_in_gb = 1  # XXX: make configurable?
