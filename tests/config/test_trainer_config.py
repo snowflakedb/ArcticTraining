@@ -21,6 +21,23 @@ from arctic_training.config.trainer import get_config
 from arctic_training.config.trainer import load_user_module_from_path
 
 
+def test_max_length_auto_setting():
+    base_config = {
+        "model": {"name_or_path": "distilgpt2"},
+        "data": {"sources": ["HuggingFaceH4/ultrachat_200k"]},
+    }
+
+    # 1. When max_length is not provided, it should be set from the model config.
+    config_without_max_length = get_config(base_config)
+    assert config_without_max_length.data.max_length == 1024
+
+    # 2. When max_length is provided, it should keep the provided value.
+    config_with_max_length_dict = base_config.copy()
+    config_with_max_length_dict["data"] = {"sources": ["HuggingFaceH4/ultrachat_200k"], "max_length": 512}
+    config_with_max_length = get_config(config_with_max_length_dict)
+    assert config_with_max_length.data.max_length == 512
+
+
 def test_duplicate_key_fail(tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text(

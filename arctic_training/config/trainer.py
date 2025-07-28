@@ -141,7 +141,11 @@ class TrainerConfig(BaseConfig):
     train_iters: HumanInt = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
-    eval_frequency: int = Field(default=0, ge=0)
+    eval_interval: HumanInt = Field(default=0, ge=0)
+    """ Number of iterations between evaluations. If 0, no evaluation is performed. """
+
+    eval_log_iter_interval: HumanInt = Field(default=1, ge=0)
+    """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
@@ -163,6 +167,20 @@ class TrainerConfig(BaseConfig):
 
     kill_switch_path: Path = Path("/tmp/at_kill_switch")
     """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
+
+    @model_validator(mode="after")
+    def set_max_length(self) -> Self:
+        if "max_length" not in self.data.model_fields_set:
+            from transformers import AutoConfig
+
+            model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+            if not hasattr(model_config, "max_position_embeddings"):
+                raise ValueError(
+                    f"Model config for {self.model.name_or_path} does not have a `max_position_embeddings` settings."
+                    " Set `data.max_length` in your config."
+                )
+            self.data.max_length = model_config.max_position_embeddings
+        return self
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
@@ -316,9 +334,13 @@ class TrainerConfig(BaseConfig):
         return cast(TokenizerConfig, subconfig)
 
     @model_validator(mode="after")
-    def validate_eval_frequency(self) -> Self:
+    def validate_eval_interval(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
-            assert self.eval_frequency > 0, "eval_frequency must be set if eval dataset is provided."
+            assert self.eval_interval > 0, "`eval_interval` must be set if eval dataset is provided."
+        if self.eval_interval > 0:
+            assert (
+                self.data.eval_sources or self.data.train_eval_split[1] > 0.0
+            ), "`eval_interval` must be set only if eval dataset is provided."
         return self
 
     @model_validator(mode="after")
