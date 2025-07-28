@@ -64,7 +64,7 @@ data:
       sample_count: 320
   cache_dir: /data-fast/data-cache
   num_proc: 16
-  max_length: 196608  # 50% longer than 131072
+  max_length: 131072
   always_max_length: true
   mask_inputs: true
   drop_last: true
