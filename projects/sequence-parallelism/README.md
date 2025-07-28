@@ -33,32 +33,44 @@ cd projects/sequence-parallelism
 To launch a 1-GPU job:
 ```
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-arctic_training run-sp1-llama-8b.yml --num_gpus 0
+arctic_training run-h100-sp1-llama-8b.yml --num_gpus 1
 ```
 
-You have 2 examples for 1 gpu:
+Recipes for 1x H100 GPU:
 
-- [run-sp1-llama-8b.yml](run-sp1-llama-8b.yml)
-- [run-sp1-qwen3-32b.yml](run-sp1-qwen3-32b.yml)
+- [run-h100-sp1-llama-8b.yml](run-h100-sp1-llama-8b.yml)
+- [run-h100-sp1-qwen3-32b.yml](run-h100-sp1-qwen3-32b.yml)
+
+Recipes for 1x H200 GPU:
+
+- [run-h200-sp1-llama-8b-baseline.yml](run-h200-sp1-llama-8b-baseline.yml)
+- [run-h200-sp1-llama-8b-liger-offload-tiled-mlp.yml](run-h200-sp1-llama-8b-liger-offload-tiled-mlp.yml)
+- [run-h200-sp1-llama-8b-liger-offload.yml](run-h200-sp1-llama-8b-liger-offload.yml)
+- [run-h200-sp1-llama-8b-liger.yml](run-h200-sp1-llama-8b-liger.yml)
+
+
+note: you can, of course, run H100 recipes on H200 - the H200 are just optimized to use all the H200 HBM memory.
+
+
 
 ### 1 node
 
 To launch an 8-GPU job:
 ```
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-arctic_training run-sp8-llama-8b.yml
+arctic_training run-h100-sp8-llama-8b.yml
 ```
 
 You have multiple examples for 1 node:
 
-- [run-sp8-llama-8b-no-mlp-no-act-offload.yml](run-sp8-llama-8b-no-mlp-no-act-offload.yml)
-- [run-sp8-llama-8b-no-ulysses-no-liger-no-extras.yml](run-sp8-llama-8b-no-ulysses-no-liger-no-extras.yml)
-- [run-sp8-llama-8b-no-ulysses-yes-liger-no-extras.yml](run-sp8-llama-8b-no-ulysses-yes-liger-no-extras.yml)
-- [run-sp8-llama-8b-yes-act-offload.yml](run-sp8-llama-8b-yes-act-offload.yml)
-- [run-sp8-llama-8b-yes-mlp.yml](run-sp8-llama-8b-yes-mlp.yml)
-- [run-sp8-llama-8b.yml](run-sp8-llama-8b.yml)
-- [run-sp8-llama-70b.yml](run-sp8-llama-70b.yml)
-- [run-sp8-qwen3-32b.yml](run-sp8-qwen3-32b.yml)
+- [run-h100-sp8-llama-8b-no-mlp-no-act-offload.yml](run-h100-sp8-llama-8b-no-mlp-no-act-offload.yml)
+- [run-h100-sp8-llama-8b-no-ulysses-no-liger-no-extras.yml](run-h100-sp8-llama-8b-no-ulysses-no-liger-no-extras.yml)
+- [run-h100-sp8-llama-8b-no-ulysses-yes-liger-no-extras.yml](run-h100-sp8-llama-8b-no-ulysses-yes-liger-no-extras.yml)
+- [run-h100-sp8-llama-8b-yes-act-offload.yml](run-h100-sp8-llama-8b-yes-act-offload.yml)
+- [run-h100-sp8-llama-8b-yes-mlp.yml](run-h100-sp8-llama-8b-yes-mlp.yml)
+- [run-h100-sp8-llama-8b.yml](run-h100-sp8-llama-8b.yml)
+- [run-h100-sp8-llama-70b.yml](run-h100-sp8-llama-70b.yml)
+- [run-h100-sp8-qwen3-32b.yml](run-h100-sp8-qwen3-32b.yml)
 
 ### 2+ nodes
 
@@ -92,25 +104,25 @@ This file is also a good place to add any environment variables required by your
 
 To run the 4-node job:
 ```
-arctic_training run-sp32-llama-70b.yml -H /etc/hostfile
+arctic_training run-h100-sp32-llama-70b.yml -H /etc/hostfile
 ```
 after editing the path to the `hostfile` you created or found in step 1.
 
 You have multiple examples for 2+ node jobs:
 
 2 nodes:
-- [run-sp16-llama-8b.yml](run-sp16-llama-8b.yml)
-- [run-sp16-llama-70b.yml](run-sp16-llama-70b.yml)
-- [run-sp16-qwen3-32b.yml](run-sp16-qwen3-32b.yml)
+- [run-h100-sp16-llama-8b.yml](run-h100-sp16-llama-8b.yml)
+- [run-h100-sp16-llama-70b.yml](run-h100-sp16-llama-70b.yml)
+- [run-h100-sp16-qwen3-32b.yml](run-h100-sp16-qwen3-32b.yml)
 
 4 nodes:
-- [run-sp32-llama-8b.yml](run-sp32-llama-8b.yml)
-- [run-sp32-llama-70b.yml](run-sp32-llama-70b.yml)
-- [run-sp32-qwen3-32b.yml](run-sp32-qwen3-32b.yml)
+- [run-h100-sp32-llama-8b.yml](run-h100-sp32-llama-8b.yml)
+- [run-h100-sp32-llama-70b.yml](run-h100-sp32-llama-70b.yml)
+- [run-h100-sp32-qwen3-32b.yml](run-h100-sp32-qwen3-32b.yml)
 
 8 nodes:
-- [run-sp64-llama-70b.yml](run-sp64-llama-70b.yml)
-- [run-sp64-qwen3-32b.yml](run-sp64-qwen3-32b.yml)
+- [run-h100-sp64-llama-70b.yml](run-h100-sp64-llama-70b.yml)
+- [run-h100-sp64-qwen3-32b.yml](run-h100-sp64-qwen3-32b.yml)
 
 ### Modifying the dataset
 

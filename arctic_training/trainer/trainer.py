@@ -216,7 +216,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         ]:
             import transformers.masking_utils
 
-            transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] = lambda *args, **kwargs: None
+            transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -316,9 +316,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.eval_dataloader,
             desc="Eval Batches",
             unit="batch",
-            disable=self.global_rank != 0
-            or (self.global_step // self.config.eval_interval % self.config.eval_log_iter_interval != 0),
+            disable=self.global_rank != 0 or not self.is_eval_log_iter(),
         )
+
+    def is_eval_log_iter(self) -> bool:
+        return self.global_step // self.config.eval_interval % self.config.eval_log_iter_interval == 0
 
     @cached_property
     def device(self) -> torch.device:
@@ -404,7 +406,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0
 
             if "packed_sample_seqlens" in batch and "flash_attention" in self.config.model.attn_implementation:
-                # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
+                # deal correctly with packed samples under FA2/FA3, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
                 sample_seqlens = [
@@ -439,7 +441,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 if self.config.eval_interval != 0 and self.global_step % self.config.eval_interval == 0:
                     self.evaluate()
 
-                    if not self.eval_batches.disable:
+                    if self.is_eval_log_iter():
                         self.metrics.print_summary(prefix="eval")
 
                         if self.wandb_experiment is not None:
