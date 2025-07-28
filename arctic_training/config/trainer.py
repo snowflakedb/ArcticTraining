@@ -141,7 +141,11 @@ class TrainerConfig(BaseConfig):
     train_iters: HumanInt = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
-    eval_frequency: int = Field(default=0, ge=0)
+    eval_interval: HumanInt = Field(default=0, ge=0)
+    """ Number of iterations between evaluations. If 0, no evaluation is performed. """
+
+    eval_log_iter_interval: HumanInt = Field(default=1, ge=0)
+    """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
@@ -163,6 +167,20 @@ class TrainerConfig(BaseConfig):
 
     kill_switch_path: Path = Path("/tmp/at_kill_switch")
     """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
+
+    @model_validator(mode="after")
+    def set_max_length(self) -> Self:
+        if "max_length" not in self.data.model_fields_set:
+            from transformers import AutoConfig
+
+            model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+            if not hasattr(model_config, "max_position_embeddings"):
+                raise ValueError(
+                    f"Model config for {self.model.name_or_path} does not have a `max_position_embeddings` settings."
+                    " Set `data.max_length` in your config."
+                )
+            self.data.max_length = model_config.max_position_embeddings
+        return self
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
@@ -316,9 +334,13 @@ class TrainerConfig(BaseConfig):
         return cast(TokenizerConfig, subconfig)
 
     @model_validator(mode="after")
-    def validate_eval_frequency(self) -> Self:
+    def validate_eval_interval(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
-            assert self.eval_frequency > 0, "eval_frequency must be set if eval dataset is provided."
+            assert self.eval_interval > 0, "`eval_interval` must be set if eval dataset is provided."
+        if self.eval_interval > 0:
+            assert (
+                self.data.eval_sources or self.data.train_eval_split[1] > 0.0
+            ), "`eval_interval` must be set only if eval dataset is provided."
         return self
 
     @model_validator(mode="after")
@@ -406,26 +428,50 @@ class TrainerConfig(BaseConfig):
 
 
 def load_user_module_from_path(script_path: Path) -> None:
-    # Symlink the script to a temporary directory to avoid clashing with other modules
+    # Symlink the entire directory containing the script to avoid issues with relative imports
+    script_dir = script_path.parent
     tmp_root = Path(tempfile.gettempdir())
     shared_tmp_dir = tmp_root / "arctic_training_custom_module_symlinks"
     shared_tmp_dir.mkdir(exist_ok=True)
-    # Generate the same unique name for a given script path across all processes
-    unique_module_name = (
-        f"user_{script_path.stem}_{uuid.uuid5(uuid.NAMESPACE_URL, str(script_path.resolve())).hex[:8]}"
-    )
-    symlink_path = shared_tmp_dir / f"{unique_module_name}.py"
+
+    # Generate the same unique name for a given script directory across all processes
+    unique_dir_name = f"user_dir_{uuid.uuid5(uuid.NAMESPACE_URL, str(script_dir.resolve())).hex[:8]}"
+    symlink_dir_path = shared_tmp_dir / unique_dir_name
+
     try:
-        symlink_path.symlink_to(script_path)
+        symlink_dir_path.symlink_to(script_dir)
     except FileExistsError:
         # Another proc created the symlink first, use that one
         pass
 
-    # Insert into path so child procs can import it
-    sys.path.insert(0, str(shared_tmp_dir))
-    spec = importlib.util.spec_from_file_location(unique_module_name, symlink_path)
+    # Now load the specific script from the symlinked directory
+    script_name = script_path.stem
+    unique_module_name = f"{unique_dir_name}_{script_name}"
+    symlinked_script_path = symlink_dir_path / script_path.name
+
+    # Create a symlink in the shared directory with the unique module name
+    # so that child processes can import it by name
+    unique_module_file = shared_tmp_dir / f"{unique_module_name}.py"
+    try:
+        unique_module_file.symlink_to(symlinked_script_path)
+    except FileExistsError:
+        # Another proc created the symlink first, use that one
+        pass
+
+    # Add both the shared temp dir and the symlinked directory to sys.path
+    # - shared_tmp_dir: so child processes can import the uniquely named module
+    # - symlink_dir_path: so user modules can import from each other
+    shared_path_str = str(shared_tmp_dir)
+    if shared_path_str not in sys.path:
+        sys.path.append(shared_path_str)
+
+    user_path_str = str(symlink_dir_path)
+    if user_path_str not in sys.path:
+        sys.path.append(user_path_str)
+
+    spec = importlib.util.spec_from_file_location(unique_module_name, symlinked_script_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load script from {symlink_path}")
+        raise ImportError(f"Cannot load script from {symlinked_script_path}")
 
     # Load user module
     module = importlib.util.module_from_spec(spec)

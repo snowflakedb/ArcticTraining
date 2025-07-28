@@ -1,6 +1,8 @@
 # Contributing
 ArcticTraining welcomes your contributions!
 
+You may want to start with [First Good Issue label](https://github.com/snowflakedb/ArcticTraining/issues?q=state%3Aopen%20label%3A%22good%20first%20issue%22) issues.
+
 ## Prerequisites
 ArcticTraining uses [pre-commit](https://pre-commit.com/) to ensure that
 formatting is consistent across the library and
