@@ -43,6 +43,8 @@ Recipes for 1x H100 GPU:
 
 Recipes for 1x H200 GPU:
 
+**Important**: You will need to install flash_attention 3
+
 - [run-h200-sp1-llama-8b-baseline.yml](run-h200-sp1-llama-8b-baseline.yml)
 - [run-h200-sp1-llama-8b-liger-offload-tiled-mlp.yml](run-h200-sp1-llama-8b-liger-offload-tiled-mlp.yml)
 - [run-h200-sp1-llama-8b-liger-offload.yml](run-h200-sp1-llama-8b-liger-offload.yml)
