@@ -75,8 +75,9 @@ class CheckpointFunctionWithCPUOffload(torch.autograd.Function):
                     # print(f"{arg.shape=}")
                     ctx.x_device = arg.device
                     ctx.x_requires_grad = arg.requires_grad
-                    # it's quite safe to do an async copy here since we aren't going to use this tensor in a while (other than perhaps in the very last layer?)
-                    t = arg.detach().to("cpu", non_blocking=True)
+                    # it's quite safe to do an async copy here since we aren't going to use this tensor in a while (other than perhaps in the very last layer?) but don't enable yet
+                    # t = arg.detach().to("cpu", non_blocking=True)
+                    t = arg.detach().to("cpu")
                 else:
                     t = arg
                 tensor_inputs.append(t)

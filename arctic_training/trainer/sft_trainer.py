@@ -69,6 +69,7 @@ class SFTTrainer(Trainer):
                 "shift_labels are missing from the batch - check that UlyssesAttentionHFDataLoaderWrapper has been"
                 " applied to the original DataLoader object"
             )
+
         shift_labels = batch["shift_labels"]
 
         # We have 2 implementation of efficient tiled logits+loss computation.
