@@ -54,7 +54,7 @@ requires-python = ">= 3.8"
 dependencies = [
     "datasets",
     "deepspeed>=0.17.3",
-    "deepspeed @ git+https://github.com/deepspeedai/DeepSpeed@master",
+    "deepspeed @ git+https://github.com/deepspeedai/DeepSpeed@master", # want >0.17.3 whichever is next released
     "devtools",
     "jsonlines",
     "loguru",
