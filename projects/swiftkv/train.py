@@ -19,6 +19,7 @@ from typing import Union
 import torch
 import torch.nn.functional as F
 from deepspeed.runtime.zero import GatheredParameters
+from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from torch.distributed import ReduceOp
 
 from arctic_training import HFCheckpointEngine
@@ -35,109 +36,6 @@ from projects.swiftkv.models.deepseek_v2 import register_deepseek_v2
 
 register_all_swiftkv()
 register_deepseek_v2()  # Explicitly register because it's not in transformers
-
-
-class TiledFusedLogitsLoss(torch.autograd.Function):
-    """
-
-    """
-
-    @staticmethod
-    def forward(
-        ctx,
-        fn,
-        self,
-        x,
-        y,
-        mask,
-        shards,
-        compute_params,
-        output_reduction,
-    ) -> torch.Tensor:
-
-        if output_reduction not in ["mean", "sum"]:
-            raise ValueError(f'unknown value {output_reduction}: valid values are: "mean"/"sum"')
-
-        assert x.dim() >= 2, "x must be at least 2D [batch_size, seq_len, ...]"
-        assert y.dim() >= 2, "y must be at least 2D [batch_size, seq_len, ...]"
-        assert x.shape[:2] == y.shape[:2], "x and y batch/seq dims must match"
-        if mask is not None:
-            assert mask.dim() == 2, "mask must be 2D [batch_size, seq_len]"
-            assert mask.shape == x.shape[:2], "mask shape must match x and y batch/seq"
-
-        compute_params = [p for p in compute_params if p.requires_grad]
-
-        x_requires_grad = x.requires_grad
-        x = x.detach().requires_grad_(x_requires_grad)
-
-        bs, seqlen = x.shape[:2]
-
-        # flatten bs+seqlen to avoid having stride issues when narrowing into seqlen w/ bs>1
-        x = x.view(-1, *x.shape[2:])
-        y = y.view(-1, *y.shape[2:])
-        if mask is not None:
-            mask = mask.view(-1)
-        incoming_grad = torch.tensor(1.0, dtype=x.dtype, device=x.device)
-
-        # we are faking the incoming gradient, and since we perform a reduction outside of `autograd.backward` below we need to pre-adjust the incoming gradient. in the case of "sum" the gradient is 1.0, in the case of "mean" it's 1.0/num_elements, which in this case is 1/shards.
-        if output_reduction == "mean":
-            incoming_grad /= shards
-
-        x_grad = torch.zeros_like(x)
-        x_shards = list(torch.chunk(x, chunks=shards, dim=0))
-        y_shards = list(torch.chunk(y, chunks=shards, dim=0))
-        if mask is not None:
-            mask_shards = list(torch.chunk(mask, chunks=shards, dim=0))
-
-        output_shards = []
-        for i, (x_shard, y_shard) in enumerate(zip(x_shards, y_shards)):
-            # Tell deepspeed not to add a new grad to its ipg bucket until the last shard is run
-            # XXX: DDP, FSDP will need something similar to make it work
-            if compute_params is not None:
-                if i + 1 < shards:
-                    for param in compute_params:
-                        param.ds_grad_is_ready = False
-                else:
-                    # last shard, can add the grad
-                    for param in compute_params:
-                        param.ds_grad_is_ready = True
-
-            x_shard.requires_grad_(x_requires_grad)
-
-            # if seqlen is not exactly divisible by shards the last step will be shorter than shard_step
-            shard_step = x_shards[i].shape[0]
-            shard_offset = i * x_shards[0].shape[0]
-
-            x_shard.grad = x_grad.narrow(0, shard_offset, shard_step).view_as(x_shard)
-
-            with torch.enable_grad():
-                args = (self, x_shard, y_shard)
-                if mask is not None:
-                    args = args + (mask_shards[i],)
-                output = fn(*args)
-                output_shards.append(output)
-            torch.autograd.backward(output, incoming_grad)
-
-        output_unsharded = torch.cat([l.unsqueeze(0) for l in output_shards], dim=0)
-
-        if output_reduction == "mean":
-            output = output_unsharded.mean()
-        elif output_reduction == "sum":
-            output = output_unsharded.sum()
-
-        # unflatten
-        x_grad = x_grad.view(bs, seqlen, *x_grad.shape[1:])
-
-        ctx.save_for_backward(x_grad.detach())
-        return output
-
-    @staticmethod
-    def backward(ctx, *grads) -> torch.Tensor:
-        (x_grad, ) = ctx.saved_tensors
-        # grads[0] should normally be 1.0 as it should be coming from loss.backward()
-        if grads[0] != 1.0:
-            x_grad *= grads[0]
-        return (None, None, x_grad, None, None, None, None, None, None)
 
 
 class SwiftKVModelConfig(ModelConfig):
