@@ -187,44 +187,36 @@ class SwiftKVTrainer(SFTTrainer):
 
             return logits_loss
 
-        if self.config.sequence_parallel_size > 1:
-            # Use tiled computation for memory efficiency
-            num_shards = self.get_num_shards(*student_hidden.shape[:2])
-            return TiledFusedLogitsLoss.apply(
-                _loss_fn,
-                self,
-                student_hidden,
-                teacher_hidden,
-                mask,
-                num_shards,
-                self.model.lm_head.parameters(),
-                "mean",
-            )
-        else:
-            # Direct computation for single process
-            return _loss_fn(self, student_hidden, teacher_hidden, mask)
+        # Use tiled computation for memory efficiency
+        num_shards = self.get_num_shards(*student_hidden.shape[:2])
+        return TiledFusedLogitsLoss.apply(
+            _loss_fn,
+            self,
+            student_hidden,
+            teacher_hidden,
+            mask,
+            num_shards,
+            self.model.lm_head.parameters(),
+            "mean",
+        )
 
     def compute_hidden_loss(self, student_hidden, teacher_hidden):
 
         def _loss_fn(self, student_hidden, teacher_hidden):
             return F.mse_loss(student_hidden, teacher_hidden)
 
-        if self.config.sequence_parallel_size > 1:
-            # Use tiled computation for memory efficiency
-            num_shards = self.get_num_shards(*student_hidden.shape[:2])
-            return TiledFusedLogitsLoss.apply(
-                _loss_fn,
-                self,
-                student_hidden,
-                teacher_hidden,
-                None,
-                num_shards,
-                [],
-                "mean",
-            )
-        else:
-            # Direct computation for single process
-            return _loss_fn(self, student_hidden, teacher_hidden)
+        # Use tiled computation for memory efficiency
+        num_shards = self.get_num_shards(*student_hidden.shape[:2])
+        return TiledFusedLogitsLoss.apply(
+            _loss_fn,
+            self,
+            student_hidden,
+            teacher_hidden,
+            None,
+            num_shards,
+            [],
+            "mean",
+        )
 
     def loss(self, batch) -> torch.Tensor:
         import torch
