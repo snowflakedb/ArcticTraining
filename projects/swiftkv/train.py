@@ -14,10 +14,13 @@
 # limitations under the License.
 
 import math
+import transformers
 from typing import Union
+from packaging import version
 
 import torch
 import torch.nn.functional as F
+
 from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from deepspeed.runtime.zero import GatheredParameters
 from torch.distributed import ReduceOp
@@ -35,8 +38,9 @@ from projects.swiftkv.models import register_all_swiftkv
 from projects.swiftkv.models.deepseek_v2 import register_deepseek_v2
 
 register_all_swiftkv()
-register_deepseek_v2()  # Explicitly register because it's not in transformers
 
+if version.parse(transformers.__version__) < version.parse("4.54.0"):
+    register_deepseek_v2()  # Explicitly register because it's not in transformers
 
 class SwiftKVModelConfig(ModelConfig):
     num_key_value_layers: int
