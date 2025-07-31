@@ -59,7 +59,7 @@ class BiencoderModelFactory(ModelFactory):
             self.config.name_or_path,
             config=model_config,
             attn_implementation=self.config.attn_implementation,
-            torch_dtype=self.config.dtype,
+            torch_dtype=self.config.dtype.value,
             trust_remote_code=trust_remote_code,
         )
         return Biencoder(encoder, pooling=arctic_training_model_config.pooling)
