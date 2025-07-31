@@ -18,8 +18,8 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from deepspeed.runtime.zero import GatheredParameters
 from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
+from deepspeed.runtime.zero import GatheredParameters
 from torch.distributed import ReduceOp
 
 from arctic_training import HFCheckpointEngine
@@ -237,13 +237,15 @@ class SwiftKVTrainer(SFTTrainer):
 
         # Compute logits loss for assistant turns
         mask = batch["shift_labels" if use_sequence_parallel else "labels"] != -100
-        logits_loss = self.compute_logits_loss(student_outputs.hidden_states[-1],
-                                               teacher_outputs.hidden_states[-1], mask)
+        logits_loss = self.compute_logits_loss(
+            student_outputs.hidden_states[-1], teacher_outputs.hidden_states[-1], mask
+        )
 
         # Compute hidden loss for all tokens
         hidden_loss = self.compute_hidden_loss(
             student_outputs.hidden_states[self.config.hidden_loss_layer],
-            teacher_outputs.hidden_states[self.config.hidden_loss_layer])
+            teacher_outputs.hidden_states[self.config.hidden_loss_layer],
+        )
 
         # Combine losses
         loss = logits_loss + self.config.hidden_loss_mult * hidden_loss
