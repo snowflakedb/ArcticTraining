@@ -14,15 +14,14 @@
 # limitations under the License.
 
 import math
-import transformers
 from typing import Union
-from packaging import version
 
 import torch
 import torch.nn.functional as F
-
+import transformers
 from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from deepspeed.runtime.zero import GatheredParameters
+from packaging import version
 from torch.distributed import ReduceOp
 
 from arctic_training import HFCheckpointEngine
@@ -41,6 +40,7 @@ register_all_swiftkv()
 
 if version.parse(transformers.__version__) < version.parse("4.54.0"):
     register_deepseek_v2()  # Explicitly register because it's not in transformers
+
 
 class SwiftKVModelConfig(ModelConfig):
     num_key_value_layers: int
