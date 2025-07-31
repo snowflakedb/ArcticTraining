@@ -15,16 +15,16 @@ deepspeed:
     stage: 3
 data:
   sources:
-    - type: Open-Orca/OpenOrca
+    - type: huggingface_instruct
       name_or_path: Open-Orca/OpenOrca
       sample_count: 500000
-    - type: nvidia/AceMath-Instruct-Training-Data
+    - type: huggingface_instruct
       name_or_path: nvidia/AceMath-Instruct-Training-Data
       split: general_sft_stage2
       sample_count: 500000
       kwargs:
         verification_mode: no_checks
-    - type: lmsys/lmsys-chat-1m
+    - type: huggingface_instruct
       name_or_path: lmsys/lmsys-chat-1m
       sample_count: 500000
   cache_dir: /data-fast/data-cache

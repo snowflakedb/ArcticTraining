@@ -18,7 +18,7 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
+from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from deepspeed.runtime.zero import GatheredParameters
 from torch.distributed import ReduceOp
 
@@ -158,32 +158,23 @@ class SwiftKVTrainer(SFTTrainer):
         with torch.no_grad():
             self.model.swiftkv(False)
             self.model.eval()
-            teacher_outputs = self.model(**batch, output_hidden_states=True)
+            # Call the inner model directly to avoid materializing the logits
+            teacher_outputs = self.model.model(**batch, output_hidden_states=True)
 
         self.model.swiftkv(True)
         self.model.train()
-        student_outputs = self.model(**batch, output_hidden_states=True)
+        # Call the inner model directly to avoid materializing the logits
+        student_outputs = self.model.model(**batch, output_hidden_states=True)
 
         return student_outputs, teacher_outputs
 
-    def loss(self, batch) -> torch.Tensor:
-        import torch
+    def compute_logits_loss(self, student_hidden, teacher_hidden, mask):
 
-        batch = to_device(batch, self.device)
+        def _loss_fn(self, student_hidden, teacher_hidden, mask):
+            # Compute logits from hidden states (only for this shard when tiled)
+            student_logits = self.model.lm_head(student_hidden)
+            teacher_logits = self.model.lm_head(teacher_hidden)
 
-        student_outputs, teacher_outputs = self.forward(batch)
-
-        student_logits = student_outputs.logits
-        student_hidden = student_outputs.hidden_states[self.config.hidden_loss_layer]
-        teacher_logits = teacher_outputs.logits
-        teacher_hidden = teacher_outputs.hidden_states[self.config.hidden_loss_layer]
-
-        def loss_fn(student_concat, teacher_logits, teacher_hidden, mask):
-            student_logits, student_hidden = student_concat.split(
-                [teacher_logits.size(-1), teacher_hidden.size(-1)], dim=-1
-            )
-
-            # 1. Logits distillation loss for non-masked positions.
             # Soften the student logits by applying softmax first and log() second
             soft_targets = F.softmax(teacher_logits / self.config.logits_loss_temp, dim=-1)
             soft_prob = F.log_softmax(student_logits / self.config.logits_loss_temp, dim=-1)
@@ -194,47 +185,68 @@ class SwiftKVTrainer(SFTTrainer):
             logits_loss = logits_loss * mask  # Zero out the masked positions
             logits_loss = torch.mean(logits_loss * self.config.logits_loss_temp**2)
 
-            if self.config.hidden_loss_mult > 0:
-                # 2. Hidden states MSE loss for all masked and non-masked positions.
-                hidden_loss = F.mse_loss(student_hidden, teacher_hidden)
-                return logits_loss + self.config.hidden_loss_mult * hidden_loss
-            else:
-                return logits_loss
+            return logits_loss
 
-        if self.config.sequence_parallel_size > 1:
-            shift_labels = batch["shift_labels"]
-            batch_size, seqlen = shift_labels.shape
-            num_shards = self.get_num_shards(batch_size, seqlen)
-            kwargs_to_shard = {
-                "student_concat": torch.cat([student_logits, student_hidden], dim=-1),
-                "teacher_logits": teacher_logits,
-                "teacher_hidden": teacher_hidden,
-                "mask": shift_labels != -100,
-            }
+        # Use tiled computation for memory efficiency
+        num_shards = self.get_num_shards(*student_hidden.shape[:2])
+        return TiledFusedLogitsLoss.apply(
+            _loss_fn,
+            self,
+            student_hidden,
+            teacher_hidden,
+            mask,
+            num_shards,
+            self.model.lm_head.parameters(),
+            "mean",
+        )
 
-            loss = sequence_tiled_compute(
-                loss_fn,
-                seqlen,
-                num_shards,
-                kwargs_to_shard,
-                kwargs_to_pass={},
-                grad_requiring_tensor_key="student_concat",
-                compute_params=[],
-                output_unshard_dimension=0,  # loss is a scalar
-            )
+    def compute_hidden_loss(self, student_hidden, teacher_hidden):
 
-            # Average the loss across all sequence parallel ranks using a differentiable all_reduce.
+        def _loss_fn(self, student_hidden, teacher_hidden):
+            return F.mse_loss(student_hidden, teacher_hidden)
+
+        # Use tiled computation for memory efficiency
+        num_shards = self.get_num_shards(*student_hidden.shape[:2])
+        return TiledFusedLogitsLoss.apply(
+            _loss_fn,
+            self,
+            student_hidden,
+            teacher_hidden,
+            None,
+            num_shards,
+            [],
+            "mean",
+        )
+
+    def loss(self, batch) -> torch.Tensor:
+        import torch
+
+        batch = to_device(batch, self.device)
+
+        student_outputs, teacher_outputs = self.forward(batch)
+
+        use_sequence_parallel = self.config.sequence_parallel_size > 1
+
+        # Compute logits loss for assistant turns
+        mask = batch["shift_labels" if use_sequence_parallel else "labels"] != -100
+        logits_loss = self.compute_logits_loss(
+            student_outputs.hidden_states[-1], teacher_outputs.hidden_states[-1], mask
+        )
+
+        # Compute hidden loss for all tokens
+        hidden_loss = self.compute_hidden_loss(
+            student_outputs.hidden_states[self.config.hidden_loss_layer],
+            teacher_outputs.hidden_states[self.config.hidden_loss_layer],
+        )
+
+        # Combine losses
+        loss = logits_loss + self.config.hidden_loss_mult * hidden_loss
+
+        # Apply sequence parallel reduction if needed
+        if use_sequence_parallel:
             loss = torch.distributed.nn.functional.all_reduce(loss, op=ReduceOp.AVG, group=self.sp_group)
 
-            return loss
-        else:
-            student_concat = torch.cat([student_logits, student_hidden], dim=-1)
-            return loss_fn(
-                student_concat=student_concat,
-                teacher_logits=teacher_logits,
-                teacher_hidden=teacher_hidden,
-                mask=(batch["labels"] != -100),
-            )
+        return loss
 
     def get_num_shards(self, batch_size, seqlen):
         slice_size_in_gb = 1  # XXX: make configurable?
