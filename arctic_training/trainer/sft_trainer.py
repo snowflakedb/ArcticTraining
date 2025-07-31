@@ -18,7 +18,7 @@ from typing import Union
 
 import torch
 import torch.distributed.nn.functional
-from deepspeed.runtime.sequence_parallel.ulysses_sp import sequence_tiled_compute
+from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
@@ -108,21 +108,15 @@ class SFTTrainer(Trainer):
             model_with_head = self.model_unwrapped
             outputs = model_with_head.model(**batch, use_cache=False)
             hidden_states = outputs.last_hidden_state
-
-            kwargs_to_shard = dict(
-                hidden_states=hidden_states,
-                shift_labels=shift_labels,
-            )
-            kwargs_to_pass = dict(model_with_head=model_with_head, vocab_size=self.model_unwrapped.config.vocab_size)
-            grad_requiring_tensor_key = "hidden_states"
             compute_params = [model_with_head.lm_head.weight]
             seqlen = shift_labels.shape[1]
+            mask = None
+            output_reduction = "sum"
 
             # since -100s shift_labels are ignored we have to perform a weighted average on each
             # loss slice as each slice may contribute a different number of non- -100 labels
-            def fused_logits_loss_fn(
-                model_with_head=None, hidden_states=None, labels=None, shift_labels=None, vocab_size=0
-            ):
+            def fused_logits_loss_fn(model_with_head=None, hidden_states=None, shift_labels=None):
+                vocab_size = model_with_head.config.vocab_size
                 logits = model_with_head.lm_head(hidden_states)
                 if all((shift_labels == -100).squeeze()):
                     # fake loss calculation, since CE will return nan, but grads will be set
@@ -131,21 +125,20 @@ class SFTTrainer(Trainer):
                 else:
                     good_items = sum((shift_labels != -100).squeeze())
                     loss = model_with_head.loss_function(
-                        logits=logits, labels=labels, vocab_size=vocab_size, shift_labels=shift_labels
+                        logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
                     )
                     loss_sum = loss * good_items
                 return loss_sum
 
-            total_loss_sum = sequence_tiled_compute(
+            total_loss_sum = TiledFusedLogitsLoss.apply(
                 fused_logits_loss_fn,
-                seqlen,
+                model_with_head,
+                hidden_states,
+                shift_labels,
+                mask,
                 num_shards,
-                kwargs_to_shard,
-                kwargs_to_pass,
-                grad_requiring_tensor_key,
                 compute_params,
-                output_unshard_dimension=0,  # loss is a scalar
-                output_reduction="sum",
+                output_reduction,
             )
             total_good_items = sum((shift_labels != -100).squeeze())
             loss = total_loss_sum / total_good_items
