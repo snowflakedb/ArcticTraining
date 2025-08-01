@@ -411,7 +411,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             logger.info(f"Advancing {batches_to_skip} batches.")
             for _ in range(batches_to_skip):
                 next(batch_iterator)
-                self.train_batch_idx += 1
+            self.train_batch_idx += batches_to_skip
             self._resumed_from_checkpoint = False
 
         for batch in batch_iterator:
