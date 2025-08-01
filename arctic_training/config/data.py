@@ -50,7 +50,7 @@ class DataSourceConfig(BaseConfig):
 
     split: str = ""
     """
-    Which split the data source is used for. This will be automatically set to either "train" or "eval" if no value is passed.
+    Which split to load for a given data source. This will be automatically set to either "train" or "eval" if no value is passed.
 
     For HFDataSource, this can be any value supported by Dataset slice splits:
     https://huggingface.co/docs/datasets/en/loading#slice-splits.
@@ -141,32 +141,37 @@ class DataConfig(BaseConfig):
         v: List[Union[str, Dict, DataSourceConfig]],
         info: ValidationInfo,
     ) -> List[DataSourceConfig]:
-        """Convert string and dict input to correct subclass of DataSourceConfig. If a string is passed, "huggingface" is used as the DataSource type."""
+        """Convert string and dict input to correct subclass of DataSourceConfig."""
+        default_split = "train" if info.field_name == "sources" else "eval"
+        data_factory_type = info.data.get("type", "")
+        default_data_source_type = get_registered_data_factory(data_factory_type).default_source_cls
+
         data_configs = []
         for config in v:
-            split = "train" if info.field_name == "sources" else "eval"
-
-            # Support passing just a dataset name or path
             if isinstance(config, str):
-                # User has passed split suffix as part of the name
-                if ":" in config:
-                    config, split = config.split(":", 1)
-
                 try:
-                    _ = get_registered_data_source(config)
-                    config = dict(type=config, name_or_path=config)
+                    name = config
+                    if ":" in config:
+                        name = config.split(":")[0]
+                    _ = get_registered_data_source(name=name)
+                    data_source_type = name
                 except RegistryError:
-                    config = dict(type="huggingface", name_or_path=config)
-
-            # Convert passed dictionary to DataSourceConfig subclass
-            if isinstance(config, dict):
+                    if default_data_source_type is not None:
+                        data_source_type = default_data_source_type.name
+                    else:
+                        # Fallback to huggingface as global default
+                        data_source_type = "huggingface"
+                data_source_cls = get_registered_data_source(data_source_type)
+                config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
+                data_configs.append(config_cls(type=data_source_type, name_or_path=config, split=default_split))
+            elif isinstance(config, dict):
                 if "type" not in config:
-                    raise KeyError(
-                        "Unspecified data source type. Please specify the 'type' field"
-                        f" in your datasource config. Error raised for input: {config}."
-                    )
+                    if default_data_source_type is not None:
+                        config["type"] = default_data_source_type.name
+                    else:
+                        config["type"] = "huggingface"
                 if "split" not in config:
-                    config["split"] = split
+                    config["split"] = default_split
                 data_source_cls = get_registered_data_source(config["type"])
                 config_cls = _get_class_attr_type_hints(data_source_cls, "config")[0]
                 data_configs.append(config_cls(**config))

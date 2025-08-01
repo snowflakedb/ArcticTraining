@@ -53,7 +53,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>=0.17.0",
+    "deepspeed @ git+https://github.com/deepspeedai/DeepSpeed@c4b1a8c ", # want >0.17.3 whichever is next released
     "devtools",
     "jsonlines",
     "loguru",
@@ -65,7 +65,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.53.0", # update_causal_mask
+    "transformers>=4.53.2", # fa3
     "wandb",
     "yq",
 ]

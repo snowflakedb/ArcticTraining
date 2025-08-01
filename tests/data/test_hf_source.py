@@ -34,7 +34,16 @@ def test_huggingface_local_data_source(model_name: str, tmp_path: Path):
         model_name=model_name,
         data_config_kwargs=dict(
             type="sft",
-            sources=[dataset_path.as_posix()],
+            sources=[
+                dict(
+                    type="huggingface_instruct",
+                    name_or_path=dataset_path.as_posix(),
+                    role_mapping={
+                        "user": "messages.role.user",
+                        "assistant": "messages.role.assistant",
+                    },
+                )
+            ],
             cache_dir=tmp_path,
         ),
     )
@@ -55,7 +64,16 @@ def test_huggingface_local_data_source_no_split(model_name: str, tmp_path: Path)
         model_name=model_name,
         data_config_kwargs=dict(
             type="sft",
-            sources=[dataset_path.as_posix()],
+            sources=[
+                dict(
+                    type="huggingface_instruct",
+                    name_or_path=dataset_path.as_posix(),
+                    role_mapping={
+                        "user": "messages.role.user",
+                        "assistant": "messages.role.assistant",
+                    },
+                )
+            ],
             cache_dir=tmp_path,
         ),
     )

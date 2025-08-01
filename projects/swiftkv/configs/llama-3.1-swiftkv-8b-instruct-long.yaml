@@ -16,16 +16,16 @@ deepspeed:
     stage: 2
 data:
   sources:
-    - type: Open-Orca/OpenOrca
+    - type: huggingface_instruct
       name_or_path: Open-Orca/OpenOrca
       sample_count: 1000000
-    - type: nvidia/AceMath-Instruct-Training-Data
+    - type: huggingface_instruct
       name_or_path: nvidia/AceMath-Instruct-Training-Data
       split: general_sft_stage2
       sample_count: 1000000
       kwargs:
         verification_mode: no_checks
-    - type: lmsys/lmsys-chat-1m
+    - type: huggingface_instruct
       name_or_path: lmsys/lmsys-chat-1m
       sample_count: 1000000
     - THUDM/LongAlign-10k

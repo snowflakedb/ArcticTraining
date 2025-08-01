@@ -11,6 +11,7 @@ This repository provides a complete demo setup for evaluating **Arctic-Text2SQL-
 🚀 Try our released models on Hugging Face:
 - [🤗 Arctic-SQL-R1-7B](https://huggingface.co/Snowflake/Arctic-Text2SQL-R1-7B)
 
+⚠️ Note: We currently only support evaluation. The training code and data generation pipeline are not released at this time.
 
 
 ### What's Inside
@@ -63,7 +64,7 @@ Here is an example, you should replace with your path
     -d DB_PATH          path to the directory of databases \
     -t TABLES_JSON      path to tables definition JSON \
     -s SOURCE           data source name (e.g. "bird") \
-    -m MODE             dataset mode (e.g. "dev", "train") \
+    -m MODE             dataset mode (e.g. "dev") \
     -v VALUE_LIMIT_NUM  integer limit for values \
     -c DB_INDEX_PATH    path to db_content_index
    ```
