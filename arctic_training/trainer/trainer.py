@@ -157,7 +157,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.training_finished = False
         self.wandb_experiment: Optional[WandbRun] = None
-        self._resumed_from_checkpoint = False  # Track if we resumed from ckpt
+        self.is_resume = False  # Track if we resumed from ckpt
 
         self._set_seeds(self.config.seed)
 
@@ -259,7 +259,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 engine.load(self.model)
                 # Check if we actually loaded a checkpoint by seeing if global_step changed
                 if self.global_step > 0:
-                    self._resumed_from_checkpoint = True
+                    self.is_resume = True
 
         self.metrics = Metrics(self)
 
@@ -405,21 +405,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
         batch_iterator = iter(self.train_batches)
-        if self._resumed_from_checkpoint:
+        if self.is_resume:
             logger.info(f"Resumed from checkpoint at global step: {self.global_step}.")
             batches_to_skip = self.global_step % len(self.train_dataloader)
             logger.info(f"Advancing {batches_to_skip} batches.")
             for _ in range(batches_to_skip):
                 next(batch_iterator)
             self.train_batch_idx += batches_to_skip
-            self._resumed_from_checkpoint = False
+            self.is_resume = False
 
         for batch in batch_iterator:
-            if self._resumed_from_checkpoint:
-                batches_to_skip -= 1
-                if batches_to_skip <= 0:
-                    self._resumed_from_checkpoint = False
-                    logger.info("Resumed from checkpoint complete.")
             self.train_batch_idx += 1
 
             self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0

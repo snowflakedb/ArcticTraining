@@ -25,12 +25,14 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 
 
 def model_norm(model: torch.nn.Module) -> float:
+    # Caution: might cause OOM if using with large models, ideally only used in debugging small models
     with torch.no_grad():
         all_params = torch.cat([p.view(-1) for p in model.parameters()])
         return torch.norm(all_params, p=2).item()
 
 
 def optim_state_norm(optimizer: torch.optim.Optimizer) -> float:
+    # Caution: might cause OOM if using with large models, ideally only used in debugging small models
     with torch.no_grad():
         all_state_tensors = []
         for state in optimizer.state.values():
