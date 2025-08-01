@@ -379,7 +379,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.step()
 
-        # DeepSpeed incremented its global step after the step() call, so we use it as the golden truth
+        # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
         if self.global_step >= self.training_horizon:
             self.early_stop = True
