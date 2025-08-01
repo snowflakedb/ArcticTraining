@@ -157,6 +157,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_finished = False
         self.training_finished = False
         self.wandb_experiment: Optional[WandbRun] = None
+        self.is_resume = False  # Track if we resumed from ckpt
 
         self._set_seeds(self.config.seed)
 
@@ -256,6 +257,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
                 engine.load(self.model)
+                # Check if we actually loaded a checkpoint by seeing if global_step changed
+                if self.global_step > 0:
+                    self.is_resume = True
 
         self.metrics = Metrics(self)
 
@@ -375,7 +379,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.step()
 
-        # use deepspeed global step as golden truth
+        # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
         if self.global_step >= self.training_horizon:
             self.early_stop = True
@@ -400,7 +404,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
-        for batch in self.train_batches:
+        batch_iterator = iter(self.train_batches)
+        if self.is_resume:
+            logger.info(f"Resumed from checkpoint at global step: {self.global_step}.")
+            batches_to_skip = self.global_step % len(self.train_dataloader)
+            logger.info(f"Advancing {batches_to_skip} batches.")
+            for _ in range(batches_to_skip):
+                next(batch_iterator)
+            self.train_batch_idx += batches_to_skip
+            self.is_resume = False
+
+        for batch in batch_iterator:
             self.train_batch_idx += 1
 
             self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0

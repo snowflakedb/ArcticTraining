@@ -24,6 +24,7 @@ from deepspeed.runtime.zero import GatheredParameters
 from packaging import version
 from torch.distributed import ReduceOp
 
+from arctic_training import DSCheckpointEngine
 from arctic_training import HFCheckpointEngine
 from arctic_training import HFModelFactory
 from arctic_training import ModelConfig
@@ -154,7 +155,7 @@ class SwiftKVTrainer(SFTTrainer):
     name = "swiftkv"
     config: SwiftKVTrainerConfig
     model_factory: SwiftKVModelFactory
-    checkpoint_engine: Union[HFCheckpointEngine]
+    checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
 
     def forward(self, batch):
         batch = to_device(batch, self.device)
