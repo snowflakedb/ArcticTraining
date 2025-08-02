@@ -53,7 +53,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>0.17.4",
+    "deepspeed>=0.17.4",
     "devtools",
     "jsonlines",
     "loguru",
