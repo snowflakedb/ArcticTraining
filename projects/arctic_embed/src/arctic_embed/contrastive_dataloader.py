@@ -39,6 +39,8 @@ class ContrastivePretokenizedDataConfig(DataConfig):
     filesystem: FilesystemOption
     root_directory: str
     split_factor: int = 1
+    pad_value: int = 0
+    left_pad: bool = False
     sources: List[DataSourceConfig] = []
     max_seq_length_query: Optional[int] = None
     max_seq_length_doc: Optional[int] = None
@@ -62,6 +64,8 @@ class ContrastivePretokenizedDataFactory(DataFactory):
             split_factor=self.config.split_factor,
             shard_id=self.global_rank,
             world_size=self.world_size,
+            pad_value=self.config.pad_value,
+            left_pad=self.config.left_pad,
             max_seq_len_query=self.config.max_seq_length_query,
             max_seq_len_doc=self.config.max_seq_length_doc,
             device=self.trainer.device,
@@ -79,6 +83,8 @@ class ContrastivePretokenizedDataFactory(DataFactory):
                     split_factor=self.config.eval_split_factor,
                     shard_id=self.global_rank,
                     world_size=self.world_size,
+                    pad_value=self.config.pad_value,
+                    left_pad=self.config.left_pad,
                     max_seq_len_query=self.config.eval_max_seq_length_query,
                     max_seq_len_doc=self.config.eval_max_seq_length_doc,
                     device=self.trainer.device,

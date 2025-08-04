@@ -45,7 +45,9 @@ from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
 LEARNING_RATE = 3e-5
 GRADIENT_CLIPPING = 10.0
 # DATA_PATH = str(Path(__file__).parent / "data" / "pretrain_amazonqa" / "batched_16384")
-DATA_PATH = "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/combined_all_16384"
+DATA_PATH = (
+    "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/combined_all_16384"
+)
 # EVAL_DATA_PATHS = [str(path) for path in (Path(__file__).parent / "data" / "eval").iterdir() if path.is_dir()]  # fix this
 datasets = [
     "amazon_qa",
@@ -82,7 +84,15 @@ datasets = [
     "trivia_qa",
     "wikipedia",
 ]
-EVAL_DATA_PATHS = [f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/combined_all_16384_eval/{dataset}" for dataset in datasets]
+EVAL_DATA_PATHS = [
+    f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/combined_all_16384_eval/{dataset}"
+    for dataset in datasets
+]
+# from transformers import AutoTokenizer
+# tok = AutoTokenizer.from_pretrained("BAAI/bge-m3-retromae")
+# tok.pad_token_id  --> 1
+PAD_VALUE = 1
+LEFT_PAD = False
 
 
 def now_timestamp_str() -> str:
@@ -92,7 +102,9 @@ def now_timestamp_str() -> str:
 
 ts = now_timestamp_str()
 checkpoint_dir = Path(__file__).parent / "checkpoints" / "pretrain_bge_retromae" / ts
-mconf = BiencoderModelConfig(name_or_path="BAAI/bge-m3-retromae", pooling="first_token", kwargs={"trust_remote_code": True})
+mconf = BiencoderModelConfig(
+    name_or_path="BAAI/bge-m3-retromae", pooling="first_token", kwargs={"trust_remote_code": True}
+)
 dconf = ContrastivePretokenizedDataConfig(
     filesystem="s3",
     root_directory=DATA_PATH,
@@ -175,7 +187,7 @@ if __name__ == "__main__":
         use_in_batch_negatives=True,
         loss_temperature=0.02,
         overfit_first_batch=False,
-        mrl_dim=256
+        mrl_dim=256,
     )
     trainer = BiencoderTrainer(config=tconf)
     trainer.train()

@@ -403,11 +403,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 if "input_ids" not in batch:
                     # batch is a ContrastiveLearningBatch
                     sample_seqlens = [
-                        [
-                            (len(batch.query_tokens[idx]) + len(batch.document_tokens[idx]))
-                            * self.config.sequence_parallel_size
-                        ]
-                        for idx in range(len(batch.query_tokens))
+                        [len(batch.query_tokens[idx]) * self.config.sequence_parallel_size]
+                        for idx in range(batch.query_tokens.shape[0])
                     ]
                 else:
                     sample_seqlens = [
