@@ -119,6 +119,8 @@ dconf = ContrastivePretokenizedDataConfig(
     eval_root_directories=EVAL_DATA_PATHS,
     eval_max_seq_length_doc=32,
     eval_max_seq_length_query=256,
+    pad_value=PAD_VALUE,
+    left_pad=LEFT_PAD,
 )
 sconf = WSDSchedulerConfig(num_warmup_steps=2000, num_decay_steps=2000)
 oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
