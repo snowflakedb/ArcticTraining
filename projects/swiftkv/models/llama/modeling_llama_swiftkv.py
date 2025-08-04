@@ -262,6 +262,13 @@ class LlamaSwiftKVModel(LlamaModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
+
+        from arctic_training.logging import logger
+        import transformers
+        logger.info(transformers.__version__)
+        print(transformers.__version__)
+
+
         causal_mask = create_causal_mask(
             config=self.config,
             input_embeds=inputs_embeds,

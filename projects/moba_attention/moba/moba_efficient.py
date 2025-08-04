@@ -286,7 +286,6 @@ def moba_attn_varlen(
     Returns:
         attn_output (torch.Tensor): [seqlen, head, head_dim]
     """
-
     kv = torch.stack((k, v), dim=1)
 
     """ some basic variables """

@@ -65,7 +65,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.53.2", # fa3
+    "transformers==4.53.0", # update_causal_mask
     "wandb",
     "yq",
 ]
