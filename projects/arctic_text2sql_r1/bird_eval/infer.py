@@ -125,14 +125,19 @@ if __name__ == "__main__":
 
     print("stop_token_ids:", stop_token_ids)
 
-    max_model_len = 16384  # used to allocate KV cache memory in advance
-    max_input_len = 8192
-    max_output_len = 8192  # (max_input_len + max_output_len) must <= max_model_len
+    max_model_len = 8192  # used to allocate KV cache memory in advance
+    max_input_len = 4096
+    max_output_len = 4096  # (max_input_len + max_output_len) must <= max_model_len
 
     print("max_model_len:", max_model_len)
     print("temperature:", opt.temperature)
     sampling_params = SamplingParams(
-        temperature=opt.temperature, max_tokens=max_output_len, n=opt.n, stop_token_ids=stop_token_ids
+        temperature=opt.temperature,
+        max_tokens=max_output_len,
+        n=opt.n,
+        stop_token_ids=stop_token_ids,
+        top_p = 0.95,
+        top_k = -1,
     )
 
     if opt.parallel_generation:
