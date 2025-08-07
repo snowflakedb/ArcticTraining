@@ -141,7 +141,12 @@ class SFTTrainer(Trainer):
                 output_reduction,
             )
             total_good_items = sum((shift_labels != -100).squeeze())
-            loss = total_loss_sum / total_good_items
+            
+            # Avoid division by zero when there are no valid labels in the current chunk/shard.
+            # In such cases, total_loss_sum is also zero, so the loss correctly becomes 0.
+            # The result remains a valid tensor connected to the computation graph, 
+            # preventing `backward()` from failing.
+            loss = total_loss_sum / max(total_good_items, 1)
 
         # differentiable weighted per-shard-loss aggregation across ranks
         losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
