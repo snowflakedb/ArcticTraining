@@ -89,7 +89,7 @@ You can easily reproduce our evaluation results as follows:
    ```sh
    conda create -n arctic_eval python=3.9.5
    conda activate arctic_eval
-   pip3 install vllm func_timeout tqdm matplotlib nltk==3.8.1 sqlparse pandas
+   pip3 install vllm==0.8.5.post1 func_timeout tqdm matplotlib nltk==3.8.1 sqlparse pandas
    ```
 
 2. **Run Evaluation:**
