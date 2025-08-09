@@ -62,11 +62,11 @@ class SFTTrainer(Trainer):
         if "labels" in batch:
             raise ValueError(
                 "found labels in batch - they shouldn't be there, instead shift_labels should be there - check"
-                " that UlyssesAttentionHFDataLoaderWrapper has been applied to the original DataLoader object"
+                " that UlyssesSPDataLoaderAdapter has been applied to the original DataLoader object"
             )
         if "shift_labels" not in batch:
             raise ValueError(
-                "shift_labels are missing from the batch - check that UlyssesAttentionHFDataLoaderWrapper has been"
+                "shift_labels are missing from the batch - check that UlyssesSPDataLoaderAdapter has been"
                 " applied to the original DataLoader object"
             )
 
@@ -123,7 +123,7 @@ class SFTTrainer(Trainer):
                     # a normal loss_fn upcasts logits to float so match it
                     loss_sum = (logits.sum() * 0.0).float()
                 else:
-                    good_items = sum((shift_labels != -100).squeeze())
+                    good_items = ((shift_labels != -100).squeeze()).sum()
                     loss = model_with_head.loss_function(
                         logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
                     )
@@ -140,12 +140,12 @@ class SFTTrainer(Trainer):
                 compute_params,
                 output_reduction,
             )
-            total_good_items = sum((shift_labels != -100).squeeze())
-            loss = total_loss_sum / total_good_items
+            total_good_items = (shift_labels != -100).squeeze().sum()
+            loss = total_loss_sum / max(total_good_items, 1)
 
         # differentiable weighted per-shard-loss aggregation across ranks
         losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
-        good_tokens = sum((shift_labels != -100).view(-1))
+        good_tokens = ((shift_labels != -100).view(-1)).sum()
         good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
         total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
         total_good_tokens = sum(good_tokens_per_rank)
