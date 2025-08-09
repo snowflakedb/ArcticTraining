@@ -252,6 +252,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 device=self.device,
             )
 
+            if self.eval_dataloader is not None:
+                self.eval_dataloader = UlyssesSPDataLoaderAdapter(
+                    self.eval_dataloader,
+                    sp_rank=self.sp_rank,
+                    sp_group=self.sp_group,
+                    sp_world_size=self.sp_world_size,
+                    device=self.device,
+                )
+
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
         for engine in self.checkpoint_engines:
