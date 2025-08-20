@@ -82,9 +82,17 @@ class SFTTrainer(Trainer):
         #    total memory usage is very similar, but cuda cache flushes earlier if pushing close to
         #    OOM than liger.
         if self.config.model.type == "liger":
+
             # letting liger do fused logits+loss calculation
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
+
+            if loss is None:
+                # XXX: not sure why this happens with SP>1 and eval-enabled, I checked shift_labels contain valid non -100 tokens - disabling fused_linear_cross_entropy=False in AutoLigerKernelForCausalLM.from_pretrained doesn't help. all works when eval is off.
+                raise ValueError(
+                    "Liger-Kernel failed to compute loss (returned None) - it's known to fail with eval enabled along"
+                    " train steps when SP>1."
+                )
 
         else:
             # Currently relying on an automatic num_shards derivation based on the goal that it'll
