@@ -252,6 +252,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 device=self.device,
             )
 
+            if self.eval_dataloader is not None:
+                self.eval_dataloader = UlyssesSPDataLoaderAdapter(
+                    self.eval_dataloader,
+                    sp_rank=self.sp_rank,
+                    sp_group=self.sp_group,
+                    sp_world_size=self.sp_world_size,
+                    device=self.device,
+                )
+
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
         for engine in self.checkpoint_engines:
@@ -497,15 +506,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 self.wandb_experiment.finish()
 
     @callback_wrapper("evaluate")
-    @torch.inference_mode()
     def evaluate(self) -> None:
         """
         Evaluation loop. Measures the model's performance on the evaluation dataset.
         """
         self.model.eval()
-        losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
+        with torch.no_grad():
+            losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
         self.metrics.record("loss/eval", losses)  # type: ignore
-        self.model.train()
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:

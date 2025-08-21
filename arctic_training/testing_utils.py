@@ -1071,12 +1071,16 @@ async def _stream_subprocess(cmd, env=None, stdin=None, timeout=None, quiet=Fals
         if not quiet:
             print(label, line, file=pipe)
 
-    # XXX: the timeout doesn't seem to make any difference here
-    await asyncio.wait(
+    tasks = map(
+        asyncio.create_task,
         [
             _read_stream(p.stdout, lambda line: tee(line, out, sys.stdout, label="stdout:")),
             _read_stream(p.stderr, lambda line: tee(line, err, sys.stderr, label="stderr:")),
         ],
+    )
+    # XXX: the timeout doesn't seem to make any difference here
+    await asyncio.wait(
+        tasks,
         timeout=timeout,
     )
     return _RunOutput(await p.wait(), out, err)
