@@ -21,7 +21,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.0.6.dev0"
+version = "0.6.0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -53,7 +53,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>=0.17.4",
+    "deepspeed>=0.17.5",
     "devtools",
     "jsonlines",
     "loguru",
