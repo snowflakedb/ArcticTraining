@@ -17,7 +17,7 @@ num_speculative_tokens=$(yq .model.n_speculator_heads $train_config_file)
 if [ "$DATA_GEN" -eq "1" ]; then
   pip install vllm
   rm -r $script_save_path ${script_save_path}_tmp
-  python speculator/data_generation/data_gen_script_maker.py --model_name=$model_name \
+  python speculator/data_generation/data_gen_script_maker.py --model_name=$model_name --gen_temp=0 \
     --data_save_folder_name=$data_save_folder_name \
     --vllm_tensor_parallel=$vllm_tensor_parallel \
     --script_save_path=$script_save_path \

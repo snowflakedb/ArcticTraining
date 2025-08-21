@@ -73,6 +73,7 @@ def parse_arguments():
     )
     parser.add_argument("--max_tokens", type=int, default=256, help="Max tokens to generate")
     parser.add_argument("--gen_prompt_length", type=int, default=64, help="Max tokens to generate")
+    parser.add_argument("--gen_temp", type=float, default=1, help="Max tokens to generate")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -198,11 +199,11 @@ def generate(args):
         max_model_len=1024,
         enable_chunked_prefill=True,
         # distributed_executor_backend="ray",
-        gpu_memory_utilization=0.96,
+        gpu_memory_utilization=0.9,
     )
 
     sampling_params = SamplingParams(
-        temperature=1,
+        temperature=args.gen_temp,
         top_k=10,
         max_tokens=args.max_tokens,
         ignore_eos=True,
