@@ -19,9 +19,11 @@ from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument("--model_name", required=True)
 parser.add_argument("--data_save_folder_name", required=True)
+parser.add_argument("--save_prefix", default=None)
 parser.add_argument("--vllm_tensor_parallel", type=int, default=1)
 parser.add_argument("--script_save_path", required=True)
 parser.add_argument("--total_num_of_scripts", type=int, default=8)
+parser.add_argument("--gen_temp", type=float, default=1)
 args = parser.parse_args()
 print(args)
 
@@ -33,13 +35,16 @@ vllm_tensor_parallel = args.vllm_tensor_parallel
 
 ## Ultrachat generation
 total_num_of_scripts = args.total_num_of_scripts
+if args.save_prefix is None:
+    args.save_prefix = data_save_folder_name
 for i in range(total_num_of_scripts):
     output_dir = f"{data_save_folder_name}/ultrachat"
     json_save_path = f"{output_dir}/{i}_{total_num_of_scripts}.jsonl"
     script = f"""
-python speculator/data_generation/vllm_data_generation.py --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
+export VLLM_CACHE_ROOT=./vllm_cache/${{CUDA_VISIBLE_DEVICES}}
+python speculator/data_generation/vllm_data_generation.py --gen_temp={args.gen_temp} --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
     """
-    with open(f"{script_save_path}/{data_save_folder_name}_{i:02}.sh", "w") as f:
+    with open(f"{script_save_path}/{args.save_prefix}_{i:02}.sh", "w") as f:
         f.write(script)
 
 ## Magicoder generation
@@ -47,7 +52,8 @@ for i in range(total_num_of_scripts):
     output_dir = f"{data_save_folder_name}/magicoder"
     json_save_path = f"{output_dir}/{i}_{total_num_of_scripts}.jsonl"
     script = f"""
-python speculator/data_generation/vllm_data_generation.py --hf_dataset magicoder --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
+export VLLM_CACHE_ROOT=./vllm_cache/${{CUDA_VISIBLE_DEVICES}}
+python speculator/data_generation/vllm_data_generation.py --gen_temp={args.gen_temp} --hf_dataset magicoder --model={model_name} --tensor_parallel={vllm_tensor_parallel} --tokenizer={tokenizer_name} --cur_split={i} --output_dataset_path={json_save_path} --total_split={total_num_of_scripts}
     """
-    with open(f"{script_save_path}/{data_save_folder_name}_magic_{i:02}.sh", "w") as f:
+    with open(f"{script_save_path}/{args.save_prefix}_magic_{i:02}.sh", "w") as f:
         f.write(script)
