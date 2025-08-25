@@ -21,6 +21,7 @@ from peft import get_peft_model
 from peft.config import PeftConfig
 from transformers import AutoConfig
 from transformers import AutoModel
+from transformers import AutoModelForMaskedLM
 
 from arctic_training.config.model import ModelConfig
 from arctic_training.model.factory import ModelFactory
@@ -55,13 +56,22 @@ class BiencoderModelFactory(ModelFactory):
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
         trust_remote_code = arctic_training_model_config.kwargs.get("trust_remote_code", None)
-        encoder = AutoModel.from_pretrained(
-            self.config.name_or_path,
-            config=model_config,
-            attn_implementation=self.config.attn_implementation,
-            torch_dtype=self.config.dtype.value,
-            trust_remote_code=trust_remote_code,
-        )
+        if arctic_training_model_config.pooling == "splade":
+            encoder = AutoModelForMaskedLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                torch_dtype=self.config.dtype.value,
+                trust_remote_code=trust_remote_code,
+            )
+        else:
+            encoder = AutoModel.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                torch_dtype=self.config.dtype.value,
+                trust_remote_code=trust_remote_code,
+            )
         return Biencoder(encoder, pooling=arctic_training_model_config.pooling)
 
     def post_create_model_callback(self, model: Biencoder):

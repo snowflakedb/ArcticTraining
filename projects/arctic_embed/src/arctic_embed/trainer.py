@@ -57,6 +57,9 @@ class BiencoderTrainerConfig(TrainerConfig):
     data: ContrastivePretokenizedDataConfig
     mrl_dim: Optional[int] = None
     eval_interval: Optional[int] = None
+    splade_reg_weight: float = 0.0
+    splade_flops_weight: float = 0.0
+    splade_nnz_threshold: float = 1e-3
 
 
 class FakeTokenizer:
@@ -210,11 +213,20 @@ class BiencoderTrainer(Trainer):
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
         if self.config.use_in_batch_negatives:
             relations[relations == 0] = -1
-        q_emb = F.normalize(query_embeddings, dim=1)
-        d_emb = F.normalize(document_embeddings, dim=1)
-        scores = torch.matmul(q_emb, d_emb.transpose(0, 1))
+        if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+            scores = torch.matmul(query_embeddings, document_embeddings.transpose(0, 1))
+        else:
+            q_emb = F.normalize(query_embeddings, dim=1)
+            d_emb = F.normalize(document_embeddings, dim=1)
+            scores = torch.matmul(q_emb, d_emb.transpose(0, 1))
         loss_infonce = info_nce_loss(scores, relations=relations, temperature=self.config.loss_temperature).item()
-        return {"infoNCE": loss_infonce}
+        metrics = {"infoNCE": loss_infonce}
+        if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+            thr = self.config.splade_nnz_threshold
+            avg_terms_q = (query_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
+            avg_terms_d = (document_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
+            metrics.update({"avg_terms_query": avg_terms_q, "avg_terms_doc": avg_terms_d})
+        return metrics
 
     def loss(self, batch: ContrastiveLearningBatch) -> Tensor:
         # Count the number of queries and documents seen in this batch.
@@ -226,16 +238,36 @@ class BiencoderTrainer(Trainer):
         # Forward pass, gathering embeddings so each GPU has the full picture.
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
 
-        # InfoNCE loss with Matryoshka Representation Learning (MRL).
+        # InfoNCE loss (SPLADE uses raw dot product; dense uses MRL path).
         if self.config.use_in_batch_negatives:
             relations[relations == 0] = -1
-        loss, loss_base, loss_truncated = one_size_truncated_mrl_info_nce_loss(
-            query_embeddings=query_embeddings,
-            document_embeddings=document_embeddings,
-            relations=relations,
-            truncated_dimension=self.config.mrl_dim,
-            temperature=self.config.loss_temperature,
-        )
+        if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+            scores = torch.matmul(query_embeddings, document_embeddings.transpose(0, 1))
+            loss = info_nce_loss(scores, relations=relations, temperature=self.config.loss_temperature)
+            loss_base = loss
+            loss_truncated = None
+        else:
+            loss, loss_base, loss_truncated = one_size_truncated_mrl_info_nce_loss(
+                query_embeddings=query_embeddings,
+                document_embeddings=document_embeddings,
+                relations=relations,
+                truncated_dimension=self.config.mrl_dim,
+                temperature=self.config.loss_temperature,
+            )
+
+        # Optional SPLADE-style L1 sparsity regularization on pooled embeddings.
+        if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_reg_weight > 0:
+            reg_q = query_embeddings.abs().sum(dim=1).mean()
+            reg_d = document_embeddings.abs().sum(dim=1).mean()
+            reg = self.config.splade_reg_weight * (reg_q + reg_d)
+            loss = loss + reg
+
+        # Optional SPLADE-style FLOPs regularization (proxy for number of active terms).
+        if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_flops_weight > 0:
+            flops_q = self.model.compute_splade_flops(batch.query_tokens, batch.query_attention_mask)
+            flops_d = self.model.compute_splade_flops(batch.document_tokens, batch.document_attention_mask)
+            flops_reg = self.config.splade_flops_weight * (flops_q + flops_d)
+            loss = loss + flops_reg
 
         # Weights and Biases logging.
         # NOTE: We log more than is feasible to do in a callback, so we do it here
@@ -252,9 +284,22 @@ class BiencoderTrainer(Trainer):
                 "train/batch_size_doc": global_batch_size_doc,
                 "train/loss_no_truncate": loss_base.item(),
             }
+            # SPLADE average active terms per query/doc for this step.
+            if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+                thr = self.config.splade_nnz_threshold
+                metrics["train/avg_terms_query"] = (
+                    (query_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
+                )
+                metrics["train/avg_terms_doc"] = (
+                    (document_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
+                )
             if loss_truncated is not None:
                 truncated_loss_name = f"train/loss_truncate_{self.config.mrl_dim}"
                 metrics[truncated_loss_name] = loss_truncated.item()
+            if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_reg_weight > 0:
+                metrics["train/splade_reg_weight"] = self.config.splade_reg_weight
+            if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_flops_weight > 0:
+                metrics["train/splade_flops_weight"] = self.config.splade_flops_weight
             wandb.log(metrics, step=self.global_step)
 
         return loss

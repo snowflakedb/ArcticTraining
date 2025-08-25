@@ -29,7 +29,7 @@ from torch import Tensor
 from torch import nn
 from transformers import PreTrainedModel
 
-PoolingOption = Literal["first_token", "last_token", "mean"]
+PoolingOption = Literal["first_token", "last_token", "mean", "splade"]
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,17 @@ class Biencoder(nn.Module):
 
     def encode(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        # SPLADE-style sparse pooling branches on logits instead of hidden states.
+        if self.pooling == "splade":
+            if not hasattr(out, "logits"):
+                raise ValueError(
+                    f"Encoder of class {self.encoder.__class__} must output `logits` for SPLADE pooling."
+                )
+            logits = out.logits  # (batch, seq_len, vocab_size)
+            pooled = splade_pool(logits, attention_mask)
+            # NOTE: For SPLADE we avoid L2-normalization to preserve magnitude and sparsity.
+            return pooled.contiguous()
+
         if not hasattr(out, "last_hidden_state"):
             raise ValueError(
                 f"Encoder of class {self.encoder.__class__} is missing the "
@@ -75,6 +86,29 @@ class Biencoder(nn.Module):
         query_vectors = self.encode(query_input_ids, query_attention_mask)
         document_vectors = self.encode(document_input_ids, document_attention_mask)
         return query_vectors, document_vectors
+
+    def compute_splade_flops(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
+        """Compute SPLADE FLOPs proxy regularizer for a batch.
+
+        FLOPs proxy: sum_v log(1 + sum_t ReLU(logits_{t,v})) averaged over batch.
+        """
+        if self.pooling != "splade":
+            raise ValueError("FLOPs regularizer requested but pooling is not 'splade'.")
+        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        if not hasattr(out, "logits"):
+            raise ValueError(
+                f"Encoder of class {self.encoder.__class__} must output `logits` for SPLADE FLOPs computation."
+            )
+        logits = out.logits  # (batch, seq_len, vocab_size)
+        relu_logits = F.relu(logits)
+        if attention_mask.dtype != relu_logits.dtype:
+            attn = attention_mask.to(relu_logits.dtype)
+        else:
+            attn = attention_mask
+        relu_logits = relu_logits * attn[..., None]
+        token_sums = relu_logits.sum(dim=1)  # (batch, vocab_size)
+        flops_per_example = torch.log1p(token_sums).sum(dim=1)  # (batch)
+        return flops_per_example.mean()
 
     def save_pretrained(
         self,
@@ -133,3 +167,24 @@ def last_token_pool(out: Tensor, attention_mask: Tensor) -> Tensor:
     row = torch.arange(batch_size, device=out.device)
     col = attention_mask.sum(dim=1) - 1  # position of the last non-padding token
     return out[row, col, ...]
+
+
+def splade_pool(logits: Tensor, attention_mask: Tensor) -> Tensor:
+    """SPLADE-style sparse pooling over vocabulary logits.
+
+    - Expects `logits` with shape (batch, token, vocab_size)
+    - Applies activation: log(1 + relu(logits))
+    - Aggregates over tokens with masked max
+    """
+    assert logits.ndim == 3
+    assert attention_mask.ndim == 2
+    # Activation as in SPLADE
+    activated = torch.log1p(F.relu(logits))
+    # Mask out padding positions so they do not affect max
+    mask = ~attention_mask[..., None].bool()
+    activated = activated.masked_fill(mask, float("-inf"))
+    # Max over sequence dimension
+    pooled = torch.amax(activated, dim=1)
+    # Replace -inf (for fully-masked sequences) with zeros to avoid nans downstream
+    pooled = torch.where(torch.isinf(pooled), torch.zeros_like(pooled), pooled)
+    return pooled
