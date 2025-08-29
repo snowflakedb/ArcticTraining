@@ -70,3 +70,4 @@ Contents
    optimizer
    scheduler
    synth
+   debug

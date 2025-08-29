@@ -167,7 +167,7 @@ PRINT_FLOCK_FILE = __file__
 #
 # XXX: perhaps add API so that the operator could tweak this global from the main script and not
 # mess with this module and commit wrong things by mistake
-DISABLE_DEBUG = True
+DISABLE_DEBUG = False
 
 
 def printflock(*args, **kwargs):
@@ -231,6 +231,9 @@ def print_rank0(*msg, force=False):
     global_rank = dist.get_rank()
     if global_rank == 0:
         print(f"[{global_rank}]", *msg)
+
+
+pr0 = print_rank0
 
 
 def debug_gathered_tensor(tensor, group, name=None, dim=0):
