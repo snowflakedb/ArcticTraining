@@ -388,6 +388,7 @@ class TrainerConfig(BaseConfig):
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
 
         from transformers import AutoConfig
+
         model_config = AutoConfig.from_pretrained(self.model.name_or_path)
         if hasattr(model_config, "hidden_size"):
             hidden_size = model_config.hidden_size
@@ -396,7 +397,8 @@ class TrainerConfig(BaseConfig):
             hidden_size = max(model_config.hidden_sizes)
         else:
             raise ValueError(
-                f"Can find neither `model_config.hidden_size` nor `model_config.hidden_sizes`, in the {self.model.name_or_path}'s config" 
+                "Can find neither `model_config.hidden_size` nor `model_config.hidden_sizes`, in the "
+                f" {self.model.name_or_path}'s config"
             )
 
         # the following defaults come from the Deepspeed team recommendation
