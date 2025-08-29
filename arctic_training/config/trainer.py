@@ -386,14 +386,30 @@ class TrainerConfig(BaseConfig):
         ds_config["gradient_accumulation_steps"] = self.gradient_accumulation_steps
         ds_config["sequence_parallel_size"] = self.sequence_parallel_size
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
+
+        from transformers import AutoConfig
+
+        model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+        if hasattr(model_config, "hidden_size"):
+            hidden_size = model_config.hidden_size
+        elif hasattr(model_config, "hidden_sizes"):
+            # if there are many hidden sizes pick the largest one
+            hidden_size = max(model_config.hidden_sizes)
+        else:
+            raise ValueError(
+                "Can find neither `model_config.hidden_size` nor `model_config.hidden_sizes`, in the "
+                f" {self.model.name_or_path}'s config"
+            )
+
+        # the following defaults come from the Deepspeed team recommendation
         ds_config["zero_optimization"] = ds_config.get(
             "zero_optimization",
             {
                 "stage": 2,
-                "stage3_param_persistence_threshold": 1e4,
-                "stage3_max_live_parameters": 3e7,
-                "stage3_prefetch_bucket_size": 3e7,
-                "memory_efficient_linear": False,
+                "stage3_param_persistence_threshold": 10 * hidden_size,
+                "stage3_max_live_parameters": 2 * hidden_size * hidden_size,
+                "stage3_prefetch_bucket_size": int(0.9 * hidden_size * hidden_size),
+                "reduce_bucket_size": hidden_size * hidden_size,
             },
         )
         if "bfloat16" not in ds_config:

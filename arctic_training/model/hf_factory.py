@@ -18,6 +18,7 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
+from arctic_training.debug import pr0
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 
@@ -29,6 +30,21 @@ class HFModelFactory(ModelFactory):
         return AutoConfig.from_pretrained(self.config.name_or_path)
 
     def create_model(self, model_config) -> PreTrainedModel:
+
+        # XXX: temp - using a local copy of the HF modeling code
+        config = self.create_config()
+
+        if config.architectures[0] == "Qwen3MoeForCausalLM":
+            pr0("Using custom Qwen3MoeForCausalLM", force=True)
+            from arctic_training.model.qwen3_moe import Qwen3MoeForCausalLM
+
+            return Qwen3MoeForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                torch_dtype=self.config.dtype.value,
+            )
+
         return AutoModelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,
