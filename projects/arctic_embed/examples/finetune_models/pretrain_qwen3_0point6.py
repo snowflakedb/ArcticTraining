@@ -152,30 +152,30 @@ cconf = CheckpointConfig(
 )
 
 
-def configure_non_distributed_distributed_training_if_needed() -> None:
-    """Detect if we need to manually initialize distributed training environment
-    and do so if needed.
+# def configure_non_distributed_distributed_training_if_needed() -> None:
+#     """Detect if we need to manually initialize distributed training environment
+#     and do so if needed.
 
-    NOTE: We have to do this step because Arctic Training doesn't have a default
-    1-GPU launching mode and will instead fall back to trying to auto-discover
-    distributed training configuration (e.g. via MPI).
-    """
-    num_cli_args = len(sys.argv) - 1
-    if num_cli_args == 0:
-        print("***No CLI args detected, configuring for single-GPU training.***")
-        from os import environ
+#     NOTE: We have to do this step because Arctic Training doesn't have a default
+#     1-GPU launching mode and will instead fall back to trying to auto-discover
+#     distributed training configuration (e.g. via MPI).
+#     """
+#     num_cli_args = len(sys.argv) - 1
+#     if num_cli_args == 0:
+#         print("***No CLI args detected, configuring for single-GPU training.***")
+#         from os import environ
 
-        from torch import distributed as dist
+#         from torch import distributed as dist
 
-        environ["MASTER_ADDR"] = "localhost"
-        environ["MASTER_PORT"] = "12335"
-        environ["LOCAL_RANK"] = "0"
-        dist.init_process_group(backend="nccl", world_size=1, rank=0)
+#         environ["MASTER_ADDR"] = "localhost"
+#         environ["MASTER_PORT"] = "12335"
+#         environ["LOCAL_RANK"] = "0"
+#         dist.init_process_group(backend="nccl", world_size=1, rank=0)
 
 
 if __name__ == "__main__":
     CUDA_ALLOCATOR_CONFIG_FOR_DYNAMICALLY_SIZED_DATA.set_env()
-    configure_non_distributed_distributed_training_if_needed()
+    # configure_non_distributed_distributed_training_if_needed()
     tconf = BiencoderTrainerConfig(
         type="biencoder",
         model=mconf,
