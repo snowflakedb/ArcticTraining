@@ -103,6 +103,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         batch_paths = sorted(filesystem.ls(root_directory))
         assert len(batch_paths) > 0, f"No batches subdirectories in {root_directory=}"
         self.batch_paths = batch_paths
+        logger.info(f"[dataset.init] shard_id={self.shard_id} world_size={self.world_size} split_factor={self.split_factor} root={self.root_directory}")
 
     def __len__(self) -> int:
         return len(self.split_factor * self.batch_paths)
@@ -145,6 +146,12 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         # Move only the first split batch to the device, to avoid hogging device memory.
         if self.device is not None:
             split_sharded_batches[0] = split_sharded_batches[0].to_device(self.device, non_blocking=True)
+            b0 = split_sharded_batches[0]
+            logger.info(
+                f"[dataset.batch] dir={batch_directory} "
+                f"q_tokens={b0.query_tokens.size(0)} d_tokens={b0.document_tokens.size(0)} "
+                f"shard_id={self.shard_id}/{self.world_size} split_factor={self.split_factor}"
+            )
         return split_sharded_batches
 
     def __iter__(self) -> Iterator[ContrastiveLearningBatch]:
