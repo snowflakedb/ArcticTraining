@@ -15,6 +15,7 @@
 
 
 import argparse
+import os
 import shutil
 import textwrap
 from pathlib import Path
@@ -54,7 +55,10 @@ def main():
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
-    exe_path = shutil.which("arctic_training_run")
+    runner_name = "arctic_training_run"
+    exe_path = shutil.which(runner_name)
+    if exe_path is None:
+        raise ValueError(f"can't find {runner_name} in paths of env var PATH={os.environ['PATH']}")
 
     ds_runner(
         [
