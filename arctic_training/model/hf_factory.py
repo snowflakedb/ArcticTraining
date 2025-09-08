@@ -44,6 +44,16 @@ class HFModelFactory(ModelFactory):
                 attn_implementation=self.config.attn_implementation,
                 torch_dtype=self.config.dtype.value,
             )
+        elif config.architectures[0] == "GptOssForCausalLM":
+            pr0("Using custom GptOssForCausalLM", force=True)
+            from arctic_training.model.gpt_oss import GptOssForCausalLM
+
+            return GptOssForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                torch_dtype=self.config.dtype.value,
+            )
 
         return AutoModelForCausalLM.from_pretrained(
             self.config.name_or_path,
