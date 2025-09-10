@@ -59,6 +59,8 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
+
+# from arctic_training.trainer.parallel_groups import ParallelGroups
 from arctic_training.utils import append_json_file
 
 

@@ -1,8 +1,26 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from dataclasses import dataclass
+
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributed as dist
 from moe_gem import MoEGEMM
+
 
 @dataclass
 class MoEConfig:
@@ -15,25 +33,27 @@ class MoEConfig:
     normalize_scores: bool
     loss_coeff: float = 0.01
 
+
 class ArcticMoE(nn.Module):
-    """ Mixture of Experts (MoE) layer for inference.
+    """Mixture of Experts (MoE) layer.
     Args:
         config: MoEConfig object
     """
+
     def __init__(self, config: MoEConfig, ep_group=None):
         super(ArcticMoE, self).__init__()
         self._config = config
         self.num_experts = config.num_experts
         self.top_k = config.top_k
         self.model_dim = config.model_dim
-        self.intermediate_dim = config.intermediate_dim  
+        self.intermediate_dim = config.intermediate_dim
         self.input_dtype = config.input_dtype
 
-        if config.activation == 'relu':
+        if config.activation == "relu":
             self._activation = F.relu
-        elif config.activation == 'gelu':
+        elif config.activation == "gelu":
             self._activation = F.gelu
-        elif config.activation == 'silu':
+        elif config.activation == "silu":
             self._activation = F.silu
         elif config.activation is None:
             self._activation = None
@@ -45,19 +65,19 @@ class ArcticMoE(nn.Module):
         self.ep_size = dist.get_world_size(group=self.ep_group)
 
         # Initialize expert weights
-        self.expert_intermediate_weights = nn.Parameter(torch.empty(self.num_experts, self.model_dim, self.intermediate_dim, dtype=self.input_dtype))
-        self.expert_output_weights = nn.Parameter(torch.empty(self.num_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype))
+        self.expert_intermediate_weights = nn.Parameter(
+            torch.empty(self.num_experts, self.model_dim, self.intermediate_dim, dtype=self.input_dtype)
+        )
+        self.expert_output_weights = nn.Parameter(
+            torch.empty(self.num_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
+        )
 
         self.comm_stream = torch.cuda.Stream()
-        self.moegemm1 = MoEGEMM(
-            fp_dtype=deepspeed.inference.v2.inference_utils.DtypeEnum(config.input_dtype), 
-            act_fn=deepspeed.inference.v2.inference_utils.ActivationType.IDENTITY)
-        self.moegemm2 = MoEGEMM(
-            fp_dtype=deepspeed.inference.v2.inference_utils.DtypeEnum(config.input_dtype), 
-            act_fn=deepspeed.inference.v2.inference_utils.ActivationType.IDENTITY)
+        self.moegemm1 = MoEGEMM()
+        self.moegemm2 = MoEGEMM()
 
     def GroupGeMM(self, x):
-        """ Grouped GEMM for MoE experts.
+        """Grouped GEMM for MoE experts.
         Args:
             x: Input tensor of shape [#tokens * topk, model_dim]
         Returns:
@@ -68,24 +88,20 @@ class ArcticMoE(nn.Module):
         intermediate = torch.empty((n_tokens_topk, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
         expert_count_cumsum = self.rcv_expert_counts.cumsum(0)
         self.moegemm1(
-            intermediate,
-            x,
-            self.expert_intermediate_weights,
-            expert_count_cumsum,
-            None) # plceholder for biases
+            intermediate, x, self.expert_intermediate_weights, expert_count_cumsum, None
+        )  # plceholder for biases
         self._activation(intermediate) if self._activation else intermediate
         self.moegemm2(
-            output,
-            intermediate,
-            self.expert_output_weights,
-            expert_count_cumsum,
-            None) # plceholder for biases
+            output, intermediate, self.expert_output_weights, expert_count_cumsum, None
+        )  # plceholder for biases
         return output
 
     def forward(self, hidden_states):
         # Forward pass through the MoE layer
         logits = self._gate_proj(hidden_states)
-        moe_input, expert_counts, rcv_expert_counts scores, mapped_slots, expert_cumsum = self.MoERouter(hidden_states, logits)
+        moe_input, expert_counts, rcv_expert_counts, scores, mapped_slots, expert_cumsum = self.MoERouter(
+            hidden_states, logits
+        )
         moe_input = self.AlltoAllV(moe_input, self.expert_counts, self.rcv_expert_counts)
         moe_output = self.GroupGeMM(moe_input)
         moe_output = self.AlltoAllV(moe_output, self.rcv_expert_counts, self.expert_counts)
@@ -108,13 +124,12 @@ class ArcticMoE(nn.Module):
         input_splits = send_counts.tolist()
         output_splits = rcv_counts.tolist()
         output = torch.empty((sum(output_splits), x.size(1)), dtype=x.dtype, device=x.device)
-        dist.all_to_all_single(output, x, output_split_sizes=output_splits, input_split_sizes=input_splits, group=self.ep_group)
+        dist.all_to_all_single(
+            output, x, output_split_sizes=output_splits, input_split_sizes=input_splits, group=self.ep_group
+        )
         return output
 
-    def MoERouter(
-        self,
-        hidden_states,
-        logits):
+    def MoERouter(self, hidden_states, logits):
         """Mixture of Experts (MoE) router.
         Args:
             hidden_states: [#tokens, hidden_size]
@@ -128,7 +143,7 @@ class ArcticMoE(nn.Module):
         moe_input = hidden_states[mapped_slots]
         expert_cumsum = expert_counts.cumsum(0)
         return moe_input, expert_counts, rcv_counts, scores, mapped_slots, expert_cumsum
-        
+
     def _gate(self, logits):
         logits = logits.view(-1, self.num_experts)
 
@@ -150,7 +165,7 @@ class ArcticMoE(nn.Module):
 
         rcv_count = torch.empty_like(count)
         with torch.cuda.stream(self.comm_stream):
-            dist.all_to_all_single(rcv_count, count, group=mpu.get_expert_parallel_group())
+            dist.all_to_all_single(rcv_count, count, group=self.ep_group)
 
         def _load_balance_grad_hook(grad):
             """
@@ -163,9 +178,13 @@ class ArcticMoE(nn.Module):
               and `num_microbatches` to ensure the invariance of loss magnitude across model settings.
             """
             if self.micro_batch_averaging == "tokenwise_sum_no_rescale":
-                coeff = self._config.loss_coeff / get_num_microbatches()
+                coeff = (
+                    self._config.loss_coeff / 1
+                )  # get_num_microbatches() TODO(Reza): get the actual number of microbatches
             else:
-                coeff = self._config.loss_coeff / T / get_num_microbatches()
+                coeff = (
+                    self._config.loss_coeff / T / 1
+                )  # get_num_microbatches() TODO(Reza): get the actual number of microbatches
             return grad + freq.unsqueeze(0) * coeff / self.ep_size
 
         if probs.requires_grad:
@@ -173,12 +192,14 @@ class ArcticMoE(nn.Module):
         return weight, ind, count, rcv_count
 
     def MoECombine(self, moe_output, mapped_slots):
-        """ MoE gather operation.
+        """MoE gather operation.
         Args:
             moe_output: [#tokens * topk, hidden_size]
         Returns:
             output: [#tokens, hidden_size]
         """
-        output = torch.empty((moe_output.size(0) // self.top_k, self.model_dim), dtype=moe_output.dtype, device=moe_output.device)
-        output.index_add_(0, mapped_slots, moe_output[::self.top_k])
+        output = torch.empty(
+            (moe_output.size(0) // self.top_k, self.model_dim), dtype=moe_output.dtype, device=moe_output.device
+        )
+        output.index_add_(0, mapped_slots, moe_output[:: self.top_k])
         return output
