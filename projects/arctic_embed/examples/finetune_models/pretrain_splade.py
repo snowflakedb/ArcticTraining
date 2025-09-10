@@ -45,55 +45,55 @@ from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
 
 LEARNING_RATE = 1e-4
 GRADIENT_CLIPPING = 10.0
+# TODO: need to find a proper English only model, and tokenizer & batch only English pretraining data
 # DATA_PATH = str(Path(__file__).parent / "data" / "pretrain_amazonqa" / "batched_16384")
-DATA_PATH = (
-    "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/Alibaba_NLP_gte_multilingual_base/combined_all_32768"
-)
-# EVAL_DATA_PATHS = [str(path) for path in (Path(__file__).parent / "data" / "eval").iterdir() if path.is_dir()]  # fix this
-datasets = [
-    "amazon_qa",
-    "ccnews_de_v1",
-    "ccnews_en_v1",
-    "ccnews_es_v1",
-    "ccnews_fr_v1",
-    "ccnews_it_v1",
-    "ccnews_pl_v1",
-    "ccnews_pt_v1",
-    "faq",
-    "mc4_de_v1",
-    "mc4_en_v1",
-    "mc4_es_v1",
-    "mc4_fr_v1",
-    "mc4_it_v1",
-    "mc4_pl_v1",
-    "mc4_pt_v1",
-    "mwiki_de_v1",
-    "mwiki_en_v1",
-    "mwiki_es_v1",
-    "mwiki_fr_v1",
-    "mwiki_it_v1",
-    "mwiki_pl_v1",
-    "mwiki_pt_v1",
-    "paq",
-    "pes2o",
-    "red_pajama",
-    "red_pajamas_1t_stackexchange",
-    "s2orc_title_abstracts",
-    "snippets4",
-    "techrepo",
-    "top_stories",
-    "trivia_qa",
-    "wikipedia",
-]
-EVAL_DATA_PATHS = [
-    f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/Alibaba_NLP_gte_multilingual_base/combined_all_32768_eval/{dataset}"
-    for dataset in datasets
-]
-# from transformers import AutoTokenizer
-# tok = AutoTokenizer.from_pretrained("BAAI/bge-m3-retromae")
-# tok.pad_token_id  --> 1
-PAD_VALUE = 1
-LEFT_PAD = False
+# DATA_PATH = (
+#     "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/Alibaba_NLP_gte_multilingual_base/combined_all_16384"
+# )
+# datasets = [
+#     "amazon_qa",
+#     # "ccnews_de_v1",
+#     "ccnews_en_v1",
+#     # "ccnews_es_v1",
+#     # "ccnews_fr_v1",
+#     # "ccnews_it_v1",
+#     # "ccnews_pl_v1",
+#     # "ccnews_pt_v1",
+#     "faq",
+#     # "mc4_de_v1",
+#     "mc4_en_v1",
+#     # "mc4_es_v1",
+#     # "mc4_fr_v1",
+#     # "mc4_it_v1",
+#     # "mc4_pl_v1",
+#     # "mc4_pt_v1",
+#     # "mwiki_de_v1",
+#     "mwiki_en_v1",
+#     # "mwiki_es_v1",
+#     # "mwiki_fr_v1",
+#     # "mwiki_it_v1",
+#     # "mwiki_pl_v1",
+#     # "mwiki_pt_v1",
+#     "paq",
+#     "pes2o",
+#     "red_pajama",
+#     "red_pajamas_1t_stackexchange",
+#     "s2orc_title_abstracts",
+#     "snippets4",
+#     "techrepo",
+#     "top_stories",
+#     "trivia_qa",
+#     "wikipedia",
+# ]
+# EVAL_DATA_PATHS = [
+#     f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/Alibaba_NLP_gte_multilingual_base/combined_all_16384_eval/{dataset}"
+#     for dataset in datasets
+# ]
+# # from transformers import AutoTokenizer
+# # tok = AutoTokenizer.from_pretrained("BAAI/bge-m3-retromae")
+# # tok.pad_token_id  --> 1
+# PAD_VALUE = 1
+# LEFT_PAD = False
 
 
 def now_timestamp_str() -> str:
@@ -105,7 +105,7 @@ ts = now_timestamp_str()
 checkpoint_dir = Path(__file__).parent / "checkpoints" / "pretrain_mgte" / ts
 mconf = BiencoderModelConfig(
     name_or_path="Alibaba-NLP/gte-multilingual-mlm-base",
-    pooling=os.getenv("BIENCODER_POOLING", "first_token"),
+    pooling="splade",
     kwargs={
         "trust_remote_code": True,
         "unpad_inputs": True,
@@ -120,7 +120,8 @@ dconf = ContrastivePretokenizedDataConfig(
     # Depending on how much GPU memory you have, you may need to split each
     # batch into a number of smaller sub-batches by setting the split_factor.
     # If you do so, you will probably want to decrease the learning rate accordingly.
-    # split_factor=4,
+    split_factor=64,
+    eval_split_factor=64,
     max_seq_length_query=32,
     max_seq_length_doc=256,
     eval_root_directories=EVAL_DATA_PATHS,
@@ -135,7 +136,7 @@ lconf = LoggerConfig(level="INFO")
 wconf = WandBConfig(
     enable=True,
     project="arctic-training-arctic-embed-testbed",
-    name=f"mgte-pretrain-{ts}",
+    name=f"mgte-pretrain-splade-{ts}",
 )
 # Reference: https://www.deepspeed.ai/training/#gradient-clipping
 dsconf = {
@@ -196,10 +197,12 @@ if __name__ == "__main__":
         use_in_batch_negatives=True,
         loss_temperature=0.02,
         overfit_first_batch=False,
-        mrl_dim=256,
+        mrl_dim=None,
         splade_reg_weight=float(os.getenv("SPLADE_REG_WEIGHT", "0.0")),
-        splade_flops_weight=float(os.getenv("SPLADE_FLOPS_WEIGHT", "0.0")),
-        splade_nnz_threshold=float(os.getenv("SPLADE_NNZ_THRESHOLD", "1e-3")),
+        # Per-side SPLADE v2 FLOPs regularizers.
+        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-1")),
+        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-4")),
+        splade_nnz_threshold=float(os.getenv("SPLADE_NNZ_THRESHOLD", "0")),
     )
     trainer = BiencoderTrainer(config=tconf)
     trainer.train()

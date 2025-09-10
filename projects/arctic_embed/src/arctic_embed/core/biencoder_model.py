@@ -42,6 +42,9 @@ class Biencoder(nn.Module):
         self.encoder = encoder
         self.pooling = pooling
         self.config = encoder.config
+        # Caches for SPLADE pooled weights from the most recent forward.
+        self._cached_query_pooled: Optional[Tensor] = None
+        self._cached_document_pooled: Optional[Tensor] = None
 
     def encode(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
@@ -83,32 +86,55 @@ class Biencoder(nn.Module):
         document_input_ids: Tensor,
         document_attention_mask: Tensor,
     ) -> Tuple[Tensor, Tensor]:
-        query_vectors = self.encode(query_input_ids, query_attention_mask)
-        document_vectors = self.encode(document_input_ids, document_attention_mask)
+        # Clear caches from any previous call
+        self._cached_query_pooled = None
+        self._cached_document_pooled = None
+
+        if self.pooling == "splade":
+            # Run encoder to obtain logits for query and cache.
+            q_out = self.encoder(input_ids=query_input_ids, attention_mask=query_attention_mask)
+            if not hasattr(q_out, "logits"):
+                raise ValueError(
+                    f"Encoder of class {self.encoder.__class__} must output `logits` for SPLADE pooling."
+                )
+            self._cached_query_pooled = splade_pool(q_out.logits, query_attention_mask).contiguous()
+            query_vectors = self._cached_query_pooled
+
+            # Run encoder to obtain logits for document and cache.
+            d_out = self.encoder(input_ids=document_input_ids, attention_mask=document_attention_mask)
+            if not hasattr(d_out, "logits"):
+                raise ValueError(
+                    f"Encoder of class {self.encoder.__class__} must output `logits` for SPLADE pooling."
+                )
+            self._cached_document_pooled = splade_pool(d_out.logits, document_attention_mask).contiguous()
+            document_vectors = self._cached_document_pooled
+        else:
+            query_vectors = self.encode(query_input_ids, query_attention_mask)
+            document_vectors = self.encode(document_input_ids, document_attention_mask)
         return query_vectors, document_vectors
 
-    def compute_splade_flops(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
-        """Compute SPLADE FLOPs proxy regularizer for a batch.
+    def compute_splade_flops_doc_cached(self) -> Tensor:
+        """SPLADE v2 FLOPs proxy using cached pooled weights (doc side), Eq. (4).
 
-        FLOPs proxy: sum_v log(1 + sum_t ReLU(logits_{t,v})) averaged over batch.
+        Let w_j(d_i) be the SPLADE weight of term j for sample i (after activation+pooling).
+        With N in-batch samples, Eq. (4): ℓ_FLOPS = Σ_j ( (1/N) Σ_i w_j(d_i) )^2.
         """
         if self.pooling != "splade":
             raise ValueError("FLOPs regularizer requested but pooling is not 'splade'.")
-        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        if not hasattr(out, "logits"):
-            raise ValueError(
-                f"Encoder of class {self.encoder.__class__} must output `logits` for SPLADE FLOPs computation."
-            )
-        logits = out.logits  # (batch, seq_len, vocab_size)
-        relu_logits = F.relu(logits)
-        if attention_mask.dtype != relu_logits.dtype:
-            attn = attention_mask.to(relu_logits.dtype)
-        else:
-            attn = attention_mask
-        relu_logits = relu_logits * attn[..., None]
-        token_sums = relu_logits.sum(dim=1)  # (batch, vocab_size)
-        flops_per_example = torch.log1p(token_sums).sum(dim=1)  # (batch)
-        return flops_per_example.mean()
+        if self._cached_document_pooled is None:
+            raise RuntimeError("Document pooled cache is empty; call forward first.")
+        return _splade_flops_batch_mean_squared(self._cached_document_pooled)
+
+    def compute_splade_flops_query_cached(self) -> Tensor:
+        """SPLADE v2 FLOPs proxy using cached pooled weights (query side), Eq. (4).
+
+        Same formula as doc side; we apply a different scalar weight in the trainer.
+        """
+        if self.pooling != "splade":
+            raise ValueError("FLOPs regularizer requested but pooling is not 'splade'.")
+        if self._cached_query_pooled is None:
+            raise RuntimeError("Query pooled cache is empty; call forward first.")
+        return _splade_flops_batch_mean_squared(self._cached_query_pooled)
 
     def save_pretrained(
         self,
@@ -188,3 +214,13 @@ def splade_pool(logits: Tensor, attention_mask: Tensor) -> Tensor:
     # Replace -inf (for fully-masked sequences) with zeros to avoid nans downstream
     pooled = torch.where(torch.isinf(pooled), torch.zeros_like(pooled), pooled)
     return pooled
+
+def _splade_flops_batch_mean_squared(pooled_weights: Tensor) -> Tensor:
+    """Compute Eq. (4): || (1/N) Σ_i w(d_i) ||_2^2, where w(d_i) are pooled SPLADE weights.
+
+    pooled_weights: (batch, vocab_size)
+    returns: scalar Tensor (batch-mean vector squared L2 norm)
+    """
+    assert pooled_weights.ndim == 2
+    mean_vec = pooled_weights.mean(dim=0)
+    return (mean_vec.pow(2).sum())

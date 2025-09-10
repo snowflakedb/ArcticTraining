@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -57,8 +58,10 @@ class BiencoderTrainerConfig(TrainerConfig):
     data: ContrastivePretokenizedDataConfig
     mrl_dim: Optional[int] = None
     eval_interval: Optional[int] = None
-    splade_reg_weight: float = 0.0
-    splade_flops_weight: float = 0.0
+    # SPLADE regularization (v1 L1 is deprecated; use FLOPs per side instead)
+    splade_reg_weight: float = 0.0  # deprecated; kept for backward-compat log
+    splade_flops_weight_query: float = 0.0
+    splade_flops_weight_doc: float = 0.0
     splade_nnz_threshold: float = 1e-3
 
 
@@ -141,6 +144,25 @@ def eval_and_log_cb(self: BiencoderTrainer) -> None:
     logger.info(f"Global Step: {self.global_step}/{self.training_horizon} Eval: {metrics}")
 
 
+def splade_flops_warmup_cb(self: BiencoderTrainer) -> None:
+    """Pre-step callback to linearly warm up SPLADE FLOPs weights."""
+    if not hasattr(self.config, "_splade_flops_warmup_steps"):
+        # Initialize warmup config on first call
+        self.config._splade_flops_warmup_steps = int(os.environ.get("SPLADE_FLOPS_WARMUP_STEPS", "2000"))
+        self.config._splade_flops_weight_query_target = self.config.splade_flops_weight_query
+        self.config._splade_flops_weight_doc_target = self.config.splade_flops_weight_doc
+    
+    if self.global_step < self.config._splade_flops_warmup_steps:
+        # Linear warmup from 0 to target
+        warmup_factor = self.global_step / self.config._splade_flops_warmup_steps
+        self.config.splade_flops_weight_query = warmup_factor * self.config._splade_flops_weight_query_target
+        self.config.splade_flops_weight_doc = warmup_factor * self.config._splade_flops_weight_doc_target
+    else:
+        # Restore target weights after warmup
+        self.config.splade_flops_weight_query = self.config._splade_flops_weight_query_target
+        self.config.splade_flops_weight_doc = self.config._splade_flops_weight_doc_target
+
+
 class BiencoderTrainer(Trainer):
     name = "biencoder"
     config: BiencoderTrainerConfig
@@ -153,6 +175,7 @@ class BiencoderTrainer(Trainer):
     count_total_queries_seen: int = 0
     count_total_documents_seen: int = 0
     callbacks: List[Tuple[str, Callable]] = [
+        ("pre-step", splade_flops_warmup_cb),
         ("post-backward", rescale_grad_cb),
         ("post-step", log_grad_norm_cb),
         ("post-step", eval_and_log_cb),
@@ -211,9 +234,11 @@ class BiencoderTrainer(Trainer):
     @torch.no_grad()
     def eval(self, batch: ContrastiveLearningBatch) -> Dict[str, float]:
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
+        # Access underlying Biencoder if wrapped by DeepSpeed
+        model_core = getattr(self.model, "module", self.model)
         if self.config.use_in_batch_negatives:
             relations[relations == 0] = -1
-        if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+        if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
             scores = torch.matmul(query_embeddings, document_embeddings.transpose(0, 1))
         else:
             q_emb = F.normalize(query_embeddings, dim=1)
@@ -221,7 +246,7 @@ class BiencoderTrainer(Trainer):
             scores = torch.matmul(q_emb, d_emb.transpose(0, 1))
         loss_infonce = info_nce_loss(scores, relations=relations, temperature=self.config.loss_temperature).item()
         metrics = {"infoNCE": loss_infonce}
-        if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+        if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
             thr = self.config.splade_nnz_threshold
             avg_terms_q = (query_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
             avg_terms_d = (document_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
@@ -239,9 +264,10 @@ class BiencoderTrainer(Trainer):
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
 
         # InfoNCE loss (SPLADE uses raw dot product; dense uses MRL path).
+        model_core = getattr(self.model, "module", self.model)
         if self.config.use_in_batch_negatives:
             relations[relations == 0] = -1
-        if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+        if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
             scores = torch.matmul(query_embeddings, document_embeddings.transpose(0, 1))
             loss = info_nce_loss(scores, relations=relations, temperature=self.config.loss_temperature)
             loss_base = loss
@@ -255,19 +281,27 @@ class BiencoderTrainer(Trainer):
                 temperature=self.config.loss_temperature,
             )
 
-        # Optional SPLADE-style L1 sparsity regularization on pooled embeddings.
-        if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_reg_weight > 0:
+        # Remove L1 regularizer in favor of SPLADE v2 FLOPs regularizers per side.
+        # Keep code path off unless legacy weight is set.
+        if (
+            isinstance(model_core, Biencoder)
+            and model_core.pooling == "splade"
+            and self.config.splade_reg_weight > 0
+        ):
+            # No-op by default; legacy users can still get old behavior if they set this.
             reg_q = query_embeddings.abs().sum(dim=1).mean()
             reg_d = document_embeddings.abs().sum(dim=1).mean()
-            reg = self.config.splade_reg_weight * (reg_q + reg_d)
-            loss = loss + reg
+            loss_reg = self.config.splade_reg_weight * (reg_q + reg_d)
+            loss = loss + loss_reg
 
-        # Optional SPLADE-style FLOPs regularization (proxy for number of active terms).
-        if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_flops_weight > 0:
-            flops_q = self.model.compute_splade_flops(batch.query_tokens, batch.query_attention_mask)
-            flops_d = self.model.compute_splade_flops(batch.document_tokens, batch.document_attention_mask)
-            flops_reg = self.config.splade_flops_weight * (flops_q + flops_d)
-            loss = loss + flops_reg
+        # SPLADE v2 FLOPs regularization with separate query and document terms.
+        if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
+            if self.config.splade_flops_weight_query > 0:
+                flops_q = model_core.compute_splade_flops_query_cached()
+                loss = loss + self.config.splade_flops_weight_query * flops_q
+            if self.config.splade_flops_weight_doc > 0:
+                flops_d = model_core.compute_splade_flops_doc_cached()
+                loss = loss + self.config.splade_flops_weight_doc * flops_d
 
         # Weights and Biases logging.
         # NOTE: We log more than is feasible to do in a callback, so we do it here
@@ -285,7 +319,7 @@ class BiencoderTrainer(Trainer):
                 "train/loss_no_truncate": loss_base.item(),
             }
             # SPLADE average active terms per query/doc for this step.
-            if isinstance(self.model, Biencoder) and self.model.pooling == "splade":
+            if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
                 thr = self.config.splade_nnz_threshold
                 metrics["train/avg_terms_query"] = (
                     (query_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
@@ -296,10 +330,25 @@ class BiencoderTrainer(Trainer):
             if loss_truncated is not None:
                 truncated_loss_name = f"train/loss_truncate_{self.config.mrl_dim}"
                 metrics[truncated_loss_name] = loss_truncated.item()
-            if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_reg_weight > 0:
-                metrics["train/splade_reg_weight"] = self.config.splade_reg_weight
-            if isinstance(self.model, Biencoder) and self.model.pooling == "splade" and self.config.splade_flops_weight > 0:
-                metrics["train/splade_flops_weight"] = self.config.splade_flops_weight
+            if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
+                if self.config.splade_reg_weight > 0:
+                    metrics["train/splade_l1_loss"] = loss_reg.item()
+                    metrics["train/splade_l1_loss_weight"] = self.config.splade_reg_weight
+                else:
+                    metrics["train/splade_l1_loss"] = 0.0
+                    metrics["train/splade_l1_loss_weight"] = 0.0
+                if self.config.splade_flops_weight_query > 0:
+                    metrics["train/splade_query_flops_loss"] = flops_q.item()
+                    metrics["train/splade_query_flops_loss_weight"] = self.config.splade_flops_weight_query
+                else:
+                    metrics["train/splade_query_flops_loss"] = 0.0
+                    metrics["train/splade_query_flops_loss_weight"] = 0.0
+                if self.config.splade_flops_weight_doc > 0:
+                    metrics["train/splade_doc_flops_loss"] = flops_d.item()
+                    metrics["train/splade_doc_flops_loss_weight"] = self.config.splade_flops_weight_doc
+                else:
+                    metrics["train/splade_doc_flops_loss"] = 0.0
+                    metrics["train/splade_doc_flops_loss_weight"] = 0.0
             wandb.log(metrics, step=self.global_step)
 
         return loss
