@@ -65,7 +65,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.53.2", # fa3
+    "transformers>=4.56", # torch_dtype deprecation
     "wandb",
     "yq",
 ]
