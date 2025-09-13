@@ -47,6 +47,7 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
+from arctic_training.debug import pr0
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -58,6 +59,8 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
+
+# from arctic_training.trainer.parallel_groups import ParallelGroups
 from arctic_training.utils import append_json_file
 
 
@@ -233,6 +236,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+
+        # XXX: future MoE support
+        if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
+            for m in self.model_unwrapped.modules():
+                if "SparseMoeBlock" in m.__class__.__name__:
+                    deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
+                    pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
+                    break
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first

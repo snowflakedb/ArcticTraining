@@ -126,6 +126,9 @@ class TrainerConfig(BaseConfig):
     sequence_parallel_size: int = Field(default=1, ge=1)
     """ Sequence Parallelism Degree. Disabled if set to 1 """
 
+    expert_parallel_size: int = Field(default=1, ge=1)
+    """ Expert Parallelism Degree. Disabled if set to 1 """
+
     activation_checkpoint_cpu_offload: bool = False
     """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
 
