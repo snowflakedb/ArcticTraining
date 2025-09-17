@@ -165,7 +165,7 @@ class BiencoderTrainer(Trainer):
         if start_batch_idx > 0:
             logger.info(f"Recreating dataloader to skip {start_batch_idx} batches for resume")
             # Create new data factory with start_batch_idx
-            data_factory = self.data_factory
+            data_factory = self.config.data.factory(self)
             self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)
 
     def pre_train_callback(self) -> None:
