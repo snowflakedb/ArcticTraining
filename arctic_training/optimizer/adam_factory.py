@@ -91,3 +91,29 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
             betas=optimizer_config.betas,
         )
         return optimizer
+
+
+class CPUAdamMoEOptimizerFactory(FusedAdamOptimizerFactory):
+    name = "cpu_adam_moe"
+
+    def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
+        from arctic_training.model.moe.utils import identify_moe_params
+        from arctic_training.model.moe.utils import split_params_into_different_moe_groups_for_optimizer
+
+        # this gets us `param.data_ptr` of MoE parameters, so that later we could separate those into their own optimizer group
+        moe_param_data_ptrs = identify_moe_params(self.model)
+
+        optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
+        # print(f"Orig optim groups: {[group.keys() for group in optimizer_grouped_params]}")
+
+        optimizer_grouped_params = split_params_into_different_moe_groups_for_optimizer(
+            optimizer_grouped_params, moe_param_data_ptrs
+        )
+        print(f"Final optim groups: {[group.keys() for group in optimizer_grouped_params]}")
+
+        optimizer = DeepSpeedCPUAdam(
+            optimizer_grouped_params,
+            lr=optimizer_config.learning_rate,
+            betas=optimizer_config.betas,
+        )
+        return optimizer
