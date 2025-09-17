@@ -151,9 +151,13 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         
         # The model is already a DeepSpeedEngine, use DeepSpeed's checkpoint saving
         # which includes optimizer & scheduler states
+        # Use parent directory to avoid double nesting
+        save_dir = self.checkpoint_dir.parent
+        tag = self.checkpoint_dir.name  # This is "global_step_XXX"
+        
         model.save_checkpoint(
-            self.checkpoint_dir,
-            tag=f"global_step_{self.trainer.global_step}",
+            save_dir,
+            tag=tag,
             client_state={
                 "train_batch_idx": self.trainer.train_batch_idx,
                 "epoch_idx": self.trainer.epoch_idx,
