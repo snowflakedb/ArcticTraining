@@ -10,7 +10,7 @@ from arctic_embed.core.cuda_allocator_config import CUDA_ALLOCATOR_CONFIG_FOR_DY
 from arctic_embed.trainer import BiencoderTrainer
 from arctic_embed.trainer import BiencoderTrainerConfig
 
-from arctic_training.config.checkpoint import CheckpointConfig
+from arctic_embed.biencoder_s3_checkpoint import BiencoderS3CheckpointConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.wandb import WandBConfig
@@ -67,19 +67,20 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         "communication_data_type": cfg.get("COMMUNICATION_DATA_TYPE", "fp32"),
     }
 
-    # Checkpoint dir
-    if "CHECKPOINT_OUTPUT_DIR" in cfg and cfg["CHECKPOINT_OUTPUT_DIR"]:
-        checkpoint_dir = Path(cfg["CHECKPOINT_OUTPUT_DIR"])
-    else:
-        ts = now_timestamp_str()
-        checkpoint_dir = Path(__file__).parent / "checkpoints" / "pretrain" / ts
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    cconf = CheckpointConfig(
-        output_dir=checkpoint_dir,
-        type="biencoder",
+    # S3 Checkpoint configuration (always required)
+    ts = now_timestamp_str()
+    # Local cache directory
+    local_cache_dir = Path("/tmp") / "arctic_embed_checkpoints_cache"
+    local_cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    cconf = BiencoderS3CheckpointConfig(
+        output_dir=local_cache_dir,  # Used as staging directory
+        s3_path=cfg.get("S3_CHECKPOINT_PATH", ""),
+        local_cache_dir=str(local_cache_dir),
+        max_local_checkpoints=cfg.get("MAX_LOCAL_CHECKPOINTS", 3),
         save_every_n_steps=cfg.get("SAVE_STEPS", 300),
         save_end_of_training=cfg.get("SAVE_END_OF_TRAINING", True),
+        auto_resume=cfg.get("AUTO_RESUME", True),
     )
 
     # Trainer config
