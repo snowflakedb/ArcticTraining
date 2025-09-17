@@ -159,6 +159,14 @@ class BiencoderTrainer(Trainer):
     def is_wandb_logger(self) -> bool:
         return self.global_rank == 0 and self.config.wandb.enable
 
+    def _recreate_dataloader_for_resume(self, start_batch_idx: int) -> None:
+        """Recreate dataloader to skip batches when resuming."""
+        if start_batch_idx > 0:
+            logger.info(f"Recreating dataloader to skip {start_batch_idx} batches for resume")
+            # Create new data factory with start_batch_idx
+            data_factory = self.data_factory
+            self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)
+
     def pre_train_callback(self) -> None:
         # Turn on weights and biases on the master worker.
         if self.is_wandb_logger:

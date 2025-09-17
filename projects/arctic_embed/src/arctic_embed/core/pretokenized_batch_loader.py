@@ -86,6 +86,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         max_seq_len_query: Optional[int] = None,
         max_seq_len_doc: Optional[int] = None,
         device: Optional[torch.device] = None,
+        start_batch_idx: int = 0,  # Add support for resuming from specific batch
     ) -> None:
         super().__init__()
         self.filesystem = filesystem
@@ -98,6 +99,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         self.max_seq_len_query = max_seq_len_query
         self.max_seq_len_doc = max_seq_len_doc
         self.device = device
+        self.start_batch_idx = start_batch_idx
 
         # Look up the batch directories.
         batch_paths = sorted(filesystem.ls(root_directory))
@@ -172,6 +174,13 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
             else:
                 tokenization_metadata = "<no tokenization metadata found>"
         logger.info(f"Iterating dataset:  {self.root_directory} | {tokenization_metadata}")
+        
+        # Track the current batch index
+        batch_idx = 0
+        
+        # Log if we're skipping batches
+        if self.start_batch_idx > 0:
+            logger.info(f"Will skip first {self.start_batch_idx} batches to resume from batch {self.start_batch_idx}")
 
         # Initialize iteration over batch paths.
         path_iter = iter(self.batch_paths)
@@ -206,9 +215,18 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
                 for next_ssb in split_sharded_batches[1:]:
                     if self.device is not None:
                         next_ssb = next_ssb.to_device(self.device, non_blocking=True)
-                    yield ssb
+                    
+                    # Skip batches if resuming from a specific index
+                    if batch_idx >= self.start_batch_idx:
+                        yield ssb
+                    batch_idx += 1
+                    
                     ssb = next_ssb
-                yield ssb
+                
+                # Handle the last batch
+                if batch_idx >= self.start_batch_idx:
+                    yield ssb
+                batch_idx += 1
 
                 # Move up to the next future.
                 future = next_future

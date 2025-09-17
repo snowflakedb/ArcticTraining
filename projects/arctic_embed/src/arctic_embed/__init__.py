@@ -12,3 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# Import checkpoint engines to register them
+from . import checkpointing
+from . import biencoder_s3_checkpoint
