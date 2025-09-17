@@ -40,7 +40,8 @@ from arctic_training.trainer.trainer import Trainer
 
 from .biencoder_model_factory import BiencoderModelConfig
 from .biencoder_model_factory import BiencoderModelFactory
-from .checkpointing import BiencoderCheckpointEngine
+# from .checkpointing import BiencoderCheckpointEngine
+from .biencoder_s3_checkpoint import BiencoderS3CheckpointEngine
 from .contrastive_dataloader import ContrastivePretokenizedDataConfig
 from .contrastive_dataloader import ContrastivePretokenizedDataFactory
 from .core.biencoder_model import Biencoder
@@ -143,7 +144,7 @@ class BiencoderTrainer(Trainer):
     config: BiencoderTrainerConfig
     data_factory: ContrastivePretokenizedDataFactory
     model_factory: BiencoderModelFactory
-    checkpoint_engine: BiencoderCheckpointEngine
+    checkpoint_engine: BiencoderS3CheckpointEngine
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: Union[WSDSchedulerFactory, HFSchedulerFactory]
     tokenizer_factory: FakeTokenizerFactory
