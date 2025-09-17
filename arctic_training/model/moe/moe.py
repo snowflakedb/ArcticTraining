@@ -19,7 +19,9 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from moe_gem import MoEGEMM
+
+from arctic_training.model.moe.mo_gemm import group_gemm_fn
+from arctic_training.model.moe.mo_gemm import torch_group_gemm_fn
 
 
 @dataclass
@@ -32,6 +34,7 @@ class MoEConfig:
     activation: str
     normalize_scores: bool
     loss_coeff: float = 0.01
+    use_triton: bool = True
 
 
 class ArcticMoE(nn.Module):
@@ -73,8 +76,7 @@ class ArcticMoE(nn.Module):
         )
 
         self.comm_stream = torch.cuda.Stream()
-        self.moegemm1 = MoEGEMM()
-        self.moegemm2 = MoEGEMM()
+        self.moegemm = group_gemm_fn if config.use_triton else torch_group_gemm_fn
 
     def GroupGeMM(self, x):
         """Grouped GEMM for MoE experts.
@@ -87,13 +89,9 @@ class ArcticMoE(nn.Module):
         output = torch.empty_like(x)
         intermediate = torch.empty((n_tokens_topk, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
         expert_count_cumsum = self.rcv_expert_counts.cumsum(0)
-        self.moegemm1(
-            intermediate, x, self.expert_intermediate_weights, expert_count_cumsum, None
-        )  # plceholder for biases
-        self._activation(intermediate) if self._activation else intermediate
-        self.moegemm2(
-            output, intermediate, self.expert_output_weights, expert_count_cumsum, None
-        )  # plceholder for biases
+        intermediate = self.moegemm(x, self.expert_intermediate_weights, expert_count_cumsum)
+        intermediate = self._activation(intermediate) if self._activation else intermediate
+        output = self.moegemm(intermediate, self.expert_output_weights, expert_count_cumsum)
         return output
 
     def forward(self, hidden_states):
