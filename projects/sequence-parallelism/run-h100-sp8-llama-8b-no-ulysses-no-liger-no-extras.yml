@@ -2,7 +2,7 @@ type: sft
 micro_batch_size: 1
 exit_iteration: 4
 min_iterations: 4
-sequence_parallel_size: 1
+sequence_parallel_size: 8
 
 deepspeed:
   zero_optimization:
