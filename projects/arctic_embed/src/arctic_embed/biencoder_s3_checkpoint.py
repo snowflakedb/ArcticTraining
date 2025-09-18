@@ -151,13 +151,9 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         
         # The model is already a DeepSpeedEngine, use DeepSpeed's checkpoint saving
         # which includes optimizer & scheduler states
-        # Use parent directory to avoid double nesting
-        save_dir = self.checkpoint_dir.parent
-        tag = self.checkpoint_dir.name  # This is "global_step_XXX"
-        
         model.save_checkpoint(
-            save_dir,
-            tag=tag,
+            self.checkpoint_dir,
+            tag="checkpoint",  # Use a fixed tag name
             client_state={
                 "train_batch_idx": self.trainer.train_batch_idx,
                 "epoch_idx": self.trainer.epoch_idx,
@@ -264,9 +260,22 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         
         # All ranks load from the same local checkpoint using DeepSpeed
         # This includes model weights, optimizer state, and scheduler state
+        
+        # Debug: Log the directory structure
+        logger.info(f"Loading checkpoint from directory: {local_checkpoint_dir}")
+        if local_checkpoint_dir.exists():
+            logger.info(f"Directory contents: {list(local_checkpoint_dir.iterdir())}")
+            # Check if there's a subdirectory with the same name (DeepSpeed structure)
+            deepspeed_dir = local_checkpoint_dir / local_checkpoint_dir.name
+            if deepspeed_dir.exists():
+                logger.info(f"DeepSpeed subdirectory found: {deepspeed_dir}")
+                logger.info(f"DeepSpeed dir contents: {list(deepspeed_dir.iterdir())}")
+        
+        # DeepSpeed expects: load_checkpoint(checkpoint_dir, tag)
+        # where the actual files are in checkpoint_dir/tag/
         _, client_states = model.load_checkpoint(
             local_checkpoint_dir,
-            tag=local_checkpoint_dir.name,
+            tag="checkpoint",  # Use the same fixed tag name as in save
         )
         
         # Restore training state from client_states
