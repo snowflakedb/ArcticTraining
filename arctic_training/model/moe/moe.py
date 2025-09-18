@@ -20,8 +20,8 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
-from arctic_training.model.moe.mo_gemm import group_gemm_fn
-from arctic_training.model.moe.mo_gemm import torch_group_gemm_fn
+from arctic_training.model.moe.moe_gemm import group_gemm_fn
+from arctic_training.model.moe.moe_gemm import torch_group_gemm_fn
 
 
 @dataclass
