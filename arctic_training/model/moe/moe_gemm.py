@@ -34,9 +34,9 @@ def num_sms():
     return 148
 
 
-@triton_autotune(  # noqa
+@triton_autotune(
     configs=[
-        triton_config(  # noqa
+        triton_config(
             {
                 "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
@@ -44,7 +44,7 @@ def num_sms():
                 "NUM_SM": 84,
             }
         ),
-        triton_config(  # noqa
+        triton_config(
             {
                 "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
@@ -52,7 +52,7 @@ def num_sms():
                 "NUM_SM": 128,
             }
         ),
-        triton_config(  # noqa
+        triton_config(
             {
                 "BLOCK_SIZE_M": 64,
                 "BLOCK_SIZE_N": 64,
@@ -60,7 +60,7 @@ def num_sms():
                 "NUM_SM": 84,
             }
         ),
-        triton_config(  # noqa
+        triton_config(
             {
                 "BLOCK_SIZE_M": 64,
                 "BLOCK_SIZE_N": 64,
@@ -68,7 +68,7 @@ def num_sms():
                 "NUM_SM": 128,
             }
         ),
-        triton_config(  # noqa
+        triton_config(
             {
                 "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
@@ -76,7 +76,7 @@ def num_sms():
                 "NUM_SM": num_sms(),
             }
         ),
-        triton_config(  # noqa
+        triton_config(
             {
                 "BLOCK_SIZE_M": 64,
                 "BLOCK_SIZE_N": 128,
@@ -87,7 +87,7 @@ def num_sms():
     ],
     key=["group_size"],
 )
-@triton_jit  # noqa
+@triton_jit
 def grouped_matmul_kernel(
     # device tensor of matrices pointers
     a_ptr,
