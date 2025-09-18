@@ -17,10 +17,11 @@
 import torch
 
 import triton
-import triton.autotune
-import triton.Config
-import triton.jit
 import triton.language as tl
+
+triton_autotune = triton.autotune  # type: ignore
+triton_jit = triton.jit  # type: ignore
+triton_config = triton.Config  # type: ignore
 
 
 def is_cuda():
@@ -33,9 +34,9 @@ def num_sms():
     return 148
 
 
-@triton.autotune(
+@triton_autotune(  # noqa
     configs=[
-        triton.Config(
+        triton_config(  # noqa
             {
                 "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
@@ -43,7 +44,7 @@ def num_sms():
                 "NUM_SM": 84,
             }
         ),
-        triton.Config(
+        triton_config(  # noqa
             {
                 "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
@@ -51,7 +52,7 @@ def num_sms():
                 "NUM_SM": 128,
             }
         ),
-        triton.Config(
+        triton_config(  # noqa
             {
                 "BLOCK_SIZE_M": 64,
                 "BLOCK_SIZE_N": 64,
@@ -59,7 +60,7 @@ def num_sms():
                 "NUM_SM": 84,
             }
         ),
-        triton.Config(
+        triton_config(  # noqa
             {
                 "BLOCK_SIZE_M": 64,
                 "BLOCK_SIZE_N": 64,
@@ -67,7 +68,7 @@ def num_sms():
                 "NUM_SM": 128,
             }
         ),
-        triton.Config(
+        triton_config(  # noqa
             {
                 "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
@@ -75,7 +76,7 @@ def num_sms():
                 "NUM_SM": num_sms(),
             }
         ),
-        triton.Config(
+        triton_config(  # noqa
             {
                 "BLOCK_SIZE_M": 64,
                 "BLOCK_SIZE_N": 128,
@@ -86,7 +87,7 @@ def num_sms():
     ],
     key=["group_size"],
 )
-@triton.jit
+@triton_jit  # noqa
 def grouped_matmul_kernel(
     # device tensor of matrices pointers
     a_ptr,
