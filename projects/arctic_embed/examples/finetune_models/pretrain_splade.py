@@ -25,17 +25,18 @@ Original model paper: https://arxiv.org/abs/2212.03533
 Model page: https://huggingface.co/intfloat/e5-base-v2
 Better negative mining paper: https://arxiv.org/abs/2407.15831
 """
+import os
 import sys
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-import os
 
 from arctic_embed.biencoder_model_factory import BiencoderModelConfig
 from arctic_embed.contrastive_dataloader import ContrastivePretokenizedDataConfig
 from arctic_embed.core.cuda_allocator_config import CUDA_ALLOCATOR_CONFIG_FOR_DYNAMICALLY_SIZED_DATA
 from arctic_embed.trainer import BiencoderTrainer
 from arctic_embed.trainer import BiencoderTrainerConfig
+from transformers import AutoTokenizer
 
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.logger import LoggerConfig
@@ -43,57 +44,35 @@ from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.wandb import WandBConfig
 from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
 
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 2e-5
 GRADIENT_CLIPPING = 10.0
 # TODO: need to find a proper English only model, and tokenizer & batch only English pretraining data
-# DATA_PATH = str(Path(__file__).parent / "data" / "pretrain_amazonqa" / "batched_16384")
-# DATA_PATH = (
-#     "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/Alibaba_NLP_gte_multilingual_base/combined_all_16384"
-# )
-# datasets = [
-#     "amazon_qa",
-#     # "ccnews_de_v1",
-#     "ccnews_en_v1",
-#     # "ccnews_es_v1",
-#     # "ccnews_fr_v1",
-#     # "ccnews_it_v1",
-#     # "ccnews_pl_v1",
-#     # "ccnews_pt_v1",
-#     "faq",
-#     # "mc4_de_v1",
-#     "mc4_en_v1",
-#     # "mc4_es_v1",
-#     # "mc4_fr_v1",
-#     # "mc4_it_v1",
-#     # "mc4_pl_v1",
-#     # "mc4_pt_v1",
-#     # "mwiki_de_v1",
-#     "mwiki_en_v1",
-#     # "mwiki_es_v1",
-#     # "mwiki_fr_v1",
-#     # "mwiki_it_v1",
-#     # "mwiki_pl_v1",
-#     # "mwiki_pt_v1",
-#     "paq",
-#     "pes2o",
-#     "red_pajama",
-#     "red_pajamas_1t_stackexchange",
-#     "s2orc_title_abstracts",
-#     "snippets4",
-#     "techrepo",
-#     "top_stories",
-#     "trivia_qa",
-#     "wikipedia",
-# ]
-# EVAL_DATA_PATHS = [
-#     f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/Alibaba_NLP_gte_multilingual_base/combined_all_16384_eval/{dataset}"
-#     for dataset in datasets
-# ]
-# # from transformers import AutoTokenizer
-# # tok = AutoTokenizer.from_pretrained("BAAI/bge-m3-retromae")
-# # tok.pad_token_id  --> 1
-# PAD_VALUE = 1
-# LEFT_PAD = False
+DATA_PATH = "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/answerdotai_ModernBERT_base/combined_all_32768"
+datasets = [
+    "amazon_qa",
+    "ccnews_en_v1",
+    "faq",
+    "mc4_en_v1",
+    "mwiki_en_v1",
+    "paq",
+    "pes2o",
+    "red_pajama",
+    "red_pajamas_1t_stackexchange",
+    "s2orc_title_abstracts",
+    "snippets4",
+    "techrepo",
+    "top_stories",
+    "trivia_qa",
+    "wikipedia",
+]
+EVAL_DATA_PATHS = [
+    f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/answerdotai_ModernBERT_base/combined_all_32768_eval/{dataset}"
+    for dataset in datasets
+]
+
+
+MODEL_NAME = "answerdotai/ModernBERT-base"
+LEFT_PAD = False
 
 
 def now_timestamp_str() -> str:
@@ -104,7 +83,7 @@ def now_timestamp_str() -> str:
 ts = now_timestamp_str()
 checkpoint_dir = Path(__file__).parent / "checkpoints" / "pretrain_mgte" / ts
 mconf = BiencoderModelConfig(
-    name_or_path="Alibaba-NLP/gte-multilingual-mlm-base",
+    name_or_path=MODEL_NAME,
     pooling="splade",
     kwargs={
         "trust_remote_code": True,
@@ -120,14 +99,14 @@ dconf = ContrastivePretokenizedDataConfig(
     # Depending on how much GPU memory you have, you may need to split each
     # batch into a number of smaller sub-batches by setting the split_factor.
     # If you do so, you will probably want to decrease the learning rate accordingly.
-    split_factor=64,
-    eval_split_factor=64,
+    split_factor=16,
+    eval_split_factor=16,
     max_seq_length_query=32,
     max_seq_length_doc=256,
     eval_root_directories=EVAL_DATA_PATHS,
     eval_max_seq_length_doc=32,
     eval_max_seq_length_query=256,
-    pad_value=PAD_VALUE,
+    pad_value=AutoTokenizer.from_pretrained(MODEL_NAME).pad_token_id,
     left_pad=LEFT_PAD,
 )
 sconf = WSDSchedulerConfig(num_warmup_steps=2000, num_decay_steps=2000)
@@ -136,7 +115,7 @@ lconf = LoggerConfig(level="INFO")
 wconf = WandBConfig(
     enable=True,
     project="arctic-training-arctic-embed-testbed",
-    name=f"mgte-pretrain-splade-{ts}",
+    name=f"modernbert-pretrain-splade-{ts}",
 )
 # Reference: https://www.deepspeed.ai/training/#gradient-clipping
 dsconf = {
