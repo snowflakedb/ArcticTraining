@@ -228,6 +228,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
+        # XXX: MoE
+        # if some flag moe?
+        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_deepspeed_moe
+
+        remap_moe_mlp_params_to_deepspeed_moe(self.model)
+
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,

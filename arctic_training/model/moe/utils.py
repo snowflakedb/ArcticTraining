@@ -26,6 +26,55 @@ from typing import cast
 import torch
 from torch import nn
 
+from arctic_training.model.moe.moe import ArcticMoE
+
+
+def remap_moe_mlp_params_to_deepspeed_moe(unwrapped_model):
+
+    def find_mlp_module(module):
+        # print(f"{module=}")
+        for n, module in module.named_children():
+            # print(f"{n=}")
+            if n == "mlp":
+                return module
+            else:
+                mlp_module = find_mlp_module(module)
+                if mlp_module is not None:
+                    return mlp_module
+
+        return None
+
+    mlp = find_mlp_module(unwrapped_model)  # noqa
+
+    # model.layers.0.mlp
+    # model.layers.0.mlp.router
+    # model.layers.0.mlp.experts
+    # model.layers.1.mlp
+    # model.layers.1.mlp.router
+    # model.layers.1.mlp.experts
+
+    config = unwrapped_model.config
+    import copy
+
+    c = copy.copy(config)
+
+    # remap config entries
+    c.num_experts = config.num_local_experts
+    c.model_dim = config.hidden_size
+    c.intermediate_dim = config.intermediate_size
+    c.input_dtype = unwrapped_model.dtype
+    c.activation = config.hidden_act
+
+    # XXX: need a new yaml config?
+    c.use_triton = False
+
+    with torch.device("meta"):
+        moe = ArcticMoE(c)
+
+        print(f"{moe}")
+
+    # now copy over the params from the original model, while freeing their memory usage
+
 
 def identify_moe_params(model):
     # regex = r'deepspeed_moe.experts.deepspeed_experts.*?.weight'
