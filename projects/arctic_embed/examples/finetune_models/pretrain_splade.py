@@ -46,7 +46,6 @@ from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
 
 LEARNING_RATE = 2e-5
 GRADIENT_CLIPPING = 10.0
-# TODO: need to find a proper English only model, and tokenizer & batch only English pretraining data
 DATA_PATH = "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/answerdotai_ModernBERT_base/combined_all_32768"
 datasets = [
     "amazon_qa",
@@ -90,6 +89,8 @@ mconf = BiencoderModelConfig(
         "unpad_inputs": True,
         "use_memory_efficient_attention": True,
     },
+    dtype="fp32",
+    attn_implementation="flash_attention_2",
 )
 dconf = ContrastivePretokenizedDataConfig(
     filesystem="s3",
@@ -109,7 +110,7 @@ dconf = ContrastivePretokenizedDataConfig(
     pad_value=AutoTokenizer.from_pretrained(MODEL_NAME).pad_token_id,
     left_pad=LEFT_PAD,
 )
-sconf = WSDSchedulerConfig(num_warmup_steps=2000, num_decay_steps=2000)
+sconf = WSDSchedulerConfig(num_warmup_steps=5000, num_decay_steps=5000)
 oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
 lconf = LoggerConfig(level="INFO")
 wconf = WandBConfig(
@@ -174,13 +175,13 @@ if __name__ == "__main__":
         loss_log_interval=0,
         eval_frequency=300,
         use_in_batch_negatives=True,
-        loss_temperature=0.02,
+        loss_temperature=0.05,
         overfit_first_batch=False,
         mrl_dim=None,
         splade_reg_weight=float(os.getenv("SPLADE_REG_WEIGHT", "0.0")),
         # Per-side SPLADE v2 FLOPs regularizers.
-        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-1")),
-        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-4")),
+        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-2")),
+        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-5")),
         splade_nnz_threshold=float(os.getenv("SPLADE_NNZ_THRESHOLD", "0")),
     )
     trainer = BiencoderTrainer(config=tconf)

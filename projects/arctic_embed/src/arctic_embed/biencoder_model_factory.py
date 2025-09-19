@@ -57,6 +57,10 @@ class BiencoderModelFactory(ModelFactory):
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
         trust_remote_code = arctic_training_model_config.kwargs.get("trust_remote_code", None)
         if arctic_training_model_config.pooling == "splade":
+            print(f"🤨 model_config: {model_config}")
+            print(f"🤨 self.config.attn_implementation: {self.config.attn_implementation}")
+            print(f"🤨 self.config.dtype.value: {self.config.dtype.value}")
+            print(f"🤨 trust_remote_code: {trust_remote_code}")
             encoder = AutoModelForMaskedLM.from_pretrained(
                 self.config.name_or_path,
                 config=model_config,
