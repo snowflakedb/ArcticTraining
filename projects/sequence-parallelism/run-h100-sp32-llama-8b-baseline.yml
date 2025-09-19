@@ -5,7 +5,7 @@ exit_iteration: 6
 #activation_checkpoint_cpu_offload: true
 #tiled_mlp_compute: true
 
-sequence_parallel_size: 1
+sequence_parallel_size: 32
 
 deepspeed:
   zero_optimization:
