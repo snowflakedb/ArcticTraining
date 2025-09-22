@@ -1,3 +1,18 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import json
 from datetime import datetime
@@ -5,12 +20,12 @@ from datetime import timezone
 from pathlib import Path
 
 from arctic_embed.biencoder_model_factory import BiencoderModelConfig
+from arctic_embed.biencoder_s3_checkpoint import BiencoderS3CheckpointConfig
 from arctic_embed.contrastive_dataloader import ContrastivePretokenizedDataConfig
 from arctic_embed.core.cuda_allocator_config import CUDA_ALLOCATOR_CONFIG_FOR_DYNAMICALLY_SIZED_DATA
 from arctic_embed.trainer import BiencoderTrainer
 from arctic_embed.trainer import BiencoderTrainerConfig
 
-from arctic_embed.biencoder_s3_checkpoint import BiencoderS3CheckpointConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.wandb import WandBConfig
@@ -68,11 +83,10 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
     }
 
     # S3 Checkpoint configuration (always required)
-    ts = now_timestamp_str()
     # Local cache directory
     local_cache_dir = Path("/tmp") / "arctic_embed_checkpoints_cache"
     local_cache_dir.mkdir(parents=True, exist_ok=True)
-    
+
     cconf = BiencoderS3CheckpointConfig(
         output_dir=local_cache_dir,  # Used as staging directory
         s3_path=cfg.get("S3_CHECKPOINT_PATH"),

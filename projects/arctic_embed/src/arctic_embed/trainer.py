@@ -40,6 +40,7 @@ from arctic_training.trainer.trainer import Trainer
 
 from .biencoder_model_factory import BiencoderModelConfig
 from .biencoder_model_factory import BiencoderModelFactory
+
 # from .checkpointing import BiencoderCheckpointEngine
 from .biencoder_s3_checkpoint import BiencoderS3CheckpointEngine
 from .contrastive_dataloader import ContrastivePretokenizedDataConfig
@@ -166,7 +167,7 @@ class BiencoderTrainer(Trainer):
             logger.info(f"Recreating dataloader to skip {start_batch_idx} batches for resume")
             # Create new data factory with start_batch_idx
             data_factory = self.config.data.factory(self)
-            self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)
+            self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)  # type: ignore[call-arg]
 
     def pre_train_callback(self) -> None:
         # Turn on weights and biases on the master worker.

@@ -16,7 +16,8 @@
 import json
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
+from typing import Optional
 
 if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
@@ -42,31 +43,32 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
 
     def __init__(self, trainer: "Trainer", config: BiencoderS3CheckpointConfig) -> None:
         super().__init__(trainer, config)
-        self.s3_client = boto3.client('s3')
-        
+        self.s3_client = boto3.client("s3")
+
         # Parse S3 path
         if not config.s3_path.startswith("s3://"):
             raise ValueError(f"S3 path must start with s3://, got: {config.s3_path}")
-        
+
         path_parts = config.s3_path[5:].split("/", 1)
         self.s3_bucket = path_parts[0]
         self.s3_prefix = path_parts[1] if len(path_parts) > 1 else ""
-        
+
         # Setup local cache directory
         if config.local_cache_dir:
             self.local_cache_dir = Path(config.local_cache_dir)
         else:
             self.local_cache_dir = Path("/tmp") / "arctic_embed_checkpoints_cache"
         self.local_cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"S3 checkpoint engine initialized: bucket={self.s3_bucket}, prefix={self.s3_prefix}, "
-                   f"local_cache={self.local_cache_dir}, max_local_checkpoints={config.max_local_checkpoints}")
+
+        logger.info(
+            f"S3 checkpoint engine initialized: bucket={self.s3_bucket}, prefix={self.s3_prefix}, "
+            f"local_cache={self.local_cache_dir}, max_local_checkpoints={config.max_local_checkpoints}"
+        )
 
     @property
     def biencoder_config_file(self) -> Path:
         return self.checkpoint_dir / "biencoder_config.json"
 
-    
     @property
     def s3_checkpoint_prefix(self) -> str:
         """S3 prefix for current checkpoint"""
@@ -94,30 +96,30 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
     def _list_s3_checkpoints(self) -> list[int]:
         """List all available checkpoints in S3 and return sorted global steps"""
         try:
-            paginator = self.s3_client.get_paginator('list_objects_v2')
+            paginator = self.s3_client.get_paginator("list_objects_v2")
             pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=self.s3_prefix + "/")
-            
+
             global_steps = set()
             for page in pages:
-                if 'Contents' not in page:
+                if "Contents" not in page:
                     continue
-                for obj in page['Contents']:
-                    key = obj['Key']
+                for obj in page["Contents"]:
+                    key = obj["Key"]
                     # Extract global_step from path like prefix/global_step_1000/...
-                    parts = key.split('/')
+                    parts = key.split("/")
                     for part in parts:
-                        if part.startswith('global_step_'):
+                        if part.startswith("global_step_"):
                             try:
-                                step = int(part.split('_')[2])
+                                step = int(part.split("_")[2])
                                 global_steps.add(step)
                             except (IndexError, ValueError):
                                 continue
-            
+
             return sorted(global_steps)
         except Exception as e:
             logger.error(f"Failed to list S3 checkpoints: {e}")
             return []
-    
+
     def _cleanup_local_cache(self) -> None:
         """Remove old checkpoints from local cache to stay within limit"""
         # List all checkpoint directories in cache
@@ -129,10 +131,10 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                     checkpoint_dirs.append((step, item))
                 except (IndexError, ValueError):
                     continue
-        
+
         # Sort by step number (oldest first)
         checkpoint_dirs.sort(key=lambda x: x[0])
-        
+
         # Remove oldest checkpoints if we exceed the limit
         while len(checkpoint_dirs) >= self.config.max_local_checkpoints:
             step, dir_to_remove = checkpoint_dirs.pop(0)
@@ -141,14 +143,14 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
 
     def save(self, model) -> None:
         """Save model checkpoint locally then upload to S3
-        
+
         For multi-node training:
         - All ranks save model weights locally (handled by parent class)
         - Only rank 0 uploads to S3
         """
         # Clean up old local checkpoints before saving new one
         self._cleanup_local_cache()
-        
+
         # The model is already a DeepSpeedEngine, use DeepSpeed's checkpoint saving
         # which includes optimizer & scheduler states
         model.save_checkpoint(
@@ -157,44 +159,44 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             client_state={
                 "train_batch_idx": self.trainer.train_batch_idx,
                 "epoch_idx": self.trainer.epoch_idx,
-            }
+            },
         )
-        
+
         # Only rank 0 saves additional metadata files
         if self.global_rank == 0:
             # Save biencoder configuration
             # Access the underlying Biencoder model from DeepSpeedEngine
-            biencoder_model = model.module if hasattr(model, 'module') else model
+            biencoder_model = model.module if hasattr(model, "module") else model
             biencoder_config = {"pooling": biencoder_model.pooling}
             self.biencoder_config_file.write_text(json.dumps(biencoder_config, indent=2))
-            
+
             # Note: Most state is saved in DeepSpeed checkpoint
             # We only save additional metadata here
-            logger.info(f"DeepSpeed checkpoint saved with optimizer and scheduler states")
-        
+            logger.info("DeepSpeed checkpoint saved with optimizer and scheduler states")
+
         # Synchronize all ranks before uploading
         if self.trainer.world_size > 1:
             torch.distributed.barrier()
-        
+
         # Each rank uploads its own files to S3
         # This is necessary when nodes don't share storage
         for local_file in self.checkpoint_dir.rglob("*"):
             if local_file.is_file():
                 relative_path = local_file.relative_to(self.checkpoint_dir)
                 s3_key = f"{self.s3_checkpoint_prefix}/{relative_path}"
-                
+
                 # Check if this file should be uploaded by this rank
                 # DeepSpeed creates rank-specific files like:
                 # - bf16_zero_pp_rank_X_mp_rank_XX_optim_states.pt
                 # - mp_rank_XX_model_states.pt (for tensor parallel)
                 filename = local_file.name
-                
+
                 # Check if this is a rank-specific file
                 # DeepSpeed uses global rank in filenames:
                 # - bf16_zero_pp_rank_X_mp_rank_XX_optim_states.pt where X is global rank
                 # - mp_rank_XX_model_states.pt (for model parallel)
                 is_rank_specific = False
-                
+
                 # Check various possible patterns
                 patterns = [
                     f"pp_rank_{self.global_rank}_",  # e.g., pp_rank_0_
@@ -204,12 +206,12 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                     f"_rank_{self.global_rank:02d}_",
                     f"_rank_{self.global_rank:03d}_",
                 ]
-                
+
                 for pattern in patterns:
                     if pattern in filename:
                         is_rank_specific = True
                         break
-                
+
                 # Upload if:
                 # 1. It's a rank-specific file for this rank
                 # 2. It's a general file (uploaded by rank 0 only)
@@ -226,23 +228,23 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                     # General files like latest, zero_to_fp32.py, biencoder_config.json
                     logger.info(f"Rank 0 uploading general file: {filename}")
                     self._upload_to_s3(local_file, s3_key)
-        
+
         # Only rank 0 creates and uploads the latest marker and other metadata
         if self.global_rank == 0:
             # Create a latest checkpoint marker
             latest_marker = self.local_cache_dir / "latest"
             latest_marker.write_text(str(self.trainer.global_step))
             self._upload_to_s3(latest_marker, f"{self.s3_prefix}/latest")
-            
+
             logger.info(f"Checkpoint saved to S3 at global_step={self.trainer.global_step}")
-        
+
         # Synchronize all ranks after upload completes
         if self.trainer.world_size > 1:
             torch.distributed.barrier()
 
     def load(self, model) -> None:
         """Load checkpoint from S3 for resuming training
-        
+
         For multi-node training without shared storage:
         - Each node's local_rank=0 downloads from S3
         - Checkpoint path is broadcast within each node
@@ -251,17 +253,18 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         if not self.config.auto_resume:
             logger.info("Auto-resume disabled, skipping checkpoint loading")
             return
-        
+
         local_checkpoint_dir = None
-        local_rank = self.trainer.local_rank
-        
+        local_rank = self.trainer.config.local_rank
+
         # Get node information for multi-node setup
         import socket
+
         hostname = socket.gethostname()
         all_hostnames = [None] * self.trainer.world_size
         torch.distributed.all_gather_object(all_hostnames, hostname)
         node_ranks = [i for i, h in enumerate(all_hostnames) if h == hostname]
-        
+
         # Only local_rank 0 on each node downloads checkpoint
         # This is necessary when nodes don't share storage
         if local_rank == 0:
@@ -272,66 +275,70 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             else:
                 latest_step = global_steps[-1]
                 logger.info(f"Found {len(global_steps)} checkpoints, loading latest: global_step_{latest_step}")
-                
+
                 # Check if checkpoint already exists in local cache
                 local_checkpoint_dir = self.local_cache_dir / f"global_step_{latest_step}"
-                
+
                 if not local_checkpoint_dir.exists():
                     # Download checkpoint files
                     checkpoint_s3_prefix = f"{self.s3_prefix}/global_step_{latest_step}"
                     local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                    
+
                     # Use the node_ranks we already computed
                     logger.info(f"Node {hostname} contains ranks: {node_ranks}")
-                    
+
                     # List and download files for this checkpoint
-                    paginator = self.s3_client.get_paginator('list_objects_v2')
+                    paginator = self.s3_client.get_paginator("list_objects_v2")
                     pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=checkpoint_s3_prefix)
-                    
+
                     for page in pages:
-                        if 'Contents' not in page:
+                        if "Contents" not in page:
                             continue
-                        for obj in page['Contents']:
-                            s3_key = obj['Key']
+                        for obj in page["Contents"]:
+                            s3_key = obj["Key"]
                             # Preserve the full directory structure including subdirectories
-                            if s3_key.startswith(checkpoint_s3_prefix + '/'):
-                                relative_path = s3_key[len(checkpoint_s3_prefix)+1:]  # Remove prefix
+                            if s3_key.startswith(checkpoint_s3_prefix + "/"):
+                                relative_path = s3_key[len(checkpoint_s3_prefix) + 1 :]  # Remove prefix
                                 local_path = local_checkpoint_dir / relative_path
                                 filename = local_path.name
-                                
+
                                 # Determine if this node needs this file
                                 should_download = False
-                                
+
                                 # Check if it's a rank-specific optimizer state file
                                 if "pp_rank_" in filename:
                                     # Extract rank number from filename
                                     for rank in node_ranks:
-                                        if f"pp_rank_{rank}_" in filename or f"pp_rank_{rank:02d}_" in filename or f"pp_rank_{rank:03d}_" in filename:
+                                        if (
+                                            f"pp_rank_{rank}_" in filename
+                                            or f"pp_rank_{rank:02d}_" in filename
+                                            or f"pp_rank_{rank:03d}_" in filename
+                                        ):
                                             should_download = True
                                             break
                                 else:
                                     # Non-rank-specific files (model states, config, etc.) are needed by all nodes
                                     should_download = True
-                                
+
                                 if should_download:
                                     logger.info(f"Downloading {filename} for node {hostname}")
                                     self._download_from_s3(s3_key, local_path)
-                    
+
                     logger.info(f"Downloaded checkpoint to {local_checkpoint_dir}")
                 else:
                     logger.info(f"Using cached checkpoint from {local_checkpoint_dir}")
-        
+
         # Broadcast checkpoint directory path within each node
         if self.trainer.world_size > 1:
             # Create node-local process group for broadcast
             node_group = torch.distributed.new_group(node_ranks)
-            
+
             # Broadcast within the node (from local_rank 0)
             checkpoint_dir_str = str(local_checkpoint_dir) if local_checkpoint_dir else ""
             checkpoint_dir_list = [checkpoint_dir_str] if local_rank == 0 else [""]
             torch.distributed.broadcast_object_list(checkpoint_dir_list, src=node_ranks[0], group=node_group)
             checkpoint_dir_str = checkpoint_dir_list[0]
-            
+
             if checkpoint_dir_str:
                 local_checkpoint_dir = Path(checkpoint_dir_str)
                 # IMPORTANT: All ranks on this node wait for local_rank 0 to finish downloading
@@ -340,10 +347,10 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                 return  # No checkpoint to load
         elif local_checkpoint_dir is None:
             return  # No checkpoint to load
-        
+
         # All ranks load from the same local checkpoint using DeepSpeed
         # This includes model weights, optimizer state, and scheduler state
-        
+
         # Debug: Log the directory structure
         logger.info(f"Loading checkpoint from directory: {local_checkpoint_dir}")
         if local_checkpoint_dir.exists():
@@ -355,37 +362,39 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                 logger.info(f"Checkpoint subdir contents: {list(checkpoint_subdir.iterdir())}")
             else:
                 logger.warning(f"DeepSpeed checkpoint subdirectory not found at {checkpoint_subdir}")
-        
+
         # DeepSpeed expects: load_checkpoint(checkpoint_dir, tag)
         # where the actual files are in checkpoint_dir/tag/
         _, client_states = model.load_checkpoint(
             local_checkpoint_dir,
             tag="checkpoint",  # Use the same fixed tag name as in save
         )
-        
+
         # Restore training state from client_states
         self.trainer.train_batch_idx = client_states.get("train_batch_idx", 0)
         self.trainer.epoch_idx = client_states.get("epoch_idx", 0)
         self.trainer.global_step = model.global_steps  # DeepSpeed tracks this
-        
-        logger.info(f"Loaded DeepSpeed checkpoint from {local_checkpoint_dir}: "
-                   f"global_step={self.trainer.global_step}, "
-                   f"epoch_idx={self.trainer.epoch_idx}, "
-                   f"train_batch_idx={self.trainer.train_batch_idx}")
-        
+
+        logger.info(
+            f"Loaded DeepSpeed checkpoint from {local_checkpoint_dir}: "
+            f"global_step={self.trainer.global_step}, "
+            f"epoch_idx={self.trainer.epoch_idx}, "
+            f"train_batch_idx={self.trainer.train_batch_idx}"
+        )
+
         # Load biencoder config
         biencoder_config_path = local_checkpoint_dir / "biencoder_config.json"
         if biencoder_config_path.exists():
             biencoder_config = json.loads(biencoder_config_path.read_text())
             # Access the underlying Biencoder model from DeepSpeedEngine
-            biencoder_model = model.module if hasattr(model, 'module') else model
+            biencoder_model = model.module if hasattr(model, "module") else model
             biencoder_model.pooling = biencoder_config.get("pooling", biencoder_model.pooling)
-        
+
         # Recreate dataloader to skip batches if needed
         # Only if we're in the same epoch (for your case with 1 epoch)
         if self.trainer.epoch_idx == 0 and self.trainer.train_batch_idx > 0:
             # Call the trainer's method to recreate dataloader
-            if hasattr(self.trainer, '_recreate_dataloader_for_resume'):
+            if hasattr(self.trainer, "_recreate_dataloader_for_resume"):
                 self.trainer._recreate_dataloader_for_resume(self.trainer.train_batch_idx)
-        
-        logger.info(f"Successfully resumed training with scheduler state intact")
+
+        logger.info("Successfully resumed training with scheduler state intact")
