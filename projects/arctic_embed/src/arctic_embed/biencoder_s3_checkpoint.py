@@ -250,8 +250,13 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         - Checkpoint path is broadcast within each node
         - All ranks on a node load from the same local checkpoint
         """
+        logger.info(f"Rank {self.global_rank} entering load method, auto_resume={self.config.auto_resume}")
+
         if not self.config.auto_resume:
-            logger.info("Auto-resume disabled, skipping checkpoint loading")
+            logger.info(f"Rank {self.global_rank}: Auto-resume disabled, skipping checkpoint loading")
+            # Even if auto_resume is disabled, we need to ensure all ranks are synchronized
+            if self.trainer.world_size > 1:
+                torch.distributed.barrier()
             return
 
         # First, only global rank 0 checks if there are any checkpoints
@@ -270,6 +275,9 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
 
         # If no checkpoints, all ranks return
         if not has_checkpoints:
+            # Ensure all ranks are synchronized before returning
+            if self.trainer.world_size > 1:
+                torch.distributed.barrier()
             return
 
         # Now proceed with normal checkpoint loading logic
@@ -373,10 +381,14 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             else:
                 # This should not happen if checkpoint exists
                 logger.error(f"Rank {self.global_rank}: checkpoint directory not received from local_rank 0")
-                return
+                # Don't add barrier here as it could cause deadlock if only some ranks reach this point
+                raise RuntimeError(
+                    f"Rank {self.global_rank}: Failed to receive checkpoint directory from local_rank 0"
+                )
         elif local_checkpoint_dir is None and local_rank == 0:
             # Single GPU case where local_rank 0 didn't find/download checkpoint
             logger.error("Checkpoint directory is None for single GPU training")
+            # In single GPU case, no need for barrier
             return
 
         # All ranks load from the same local checkpoint using DeepSpeed
@@ -399,12 +411,20 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             else:
                 logger.warning(f"DeepSpeed checkpoint subdirectory not found at {checkpoint_subdir}")
 
+        # Synchronize before calling DeepSpeed load_checkpoint
+        # This ensures all ranks have the checkpoint files visible before loading
+        if self.trainer.world_size > 1:
+            logger.info(f"Rank {self.global_rank} synchronizing before DeepSpeed load_checkpoint...")
+            torch.distributed.barrier()
+
         # DeepSpeed expects: load_checkpoint(checkpoint_dir, tag)
         # where the actual files are in checkpoint_dir/tag/
+        logger.info(f"Rank {self.global_rank} calling DeepSpeed load_checkpoint...")
         _, client_states = model.load_checkpoint(
             local_checkpoint_dir,
             tag="checkpoint",  # Use the same fixed tag name as in save
         )
+        logger.info(f"Rank {self.global_rank} completed DeepSpeed load_checkpoint")
 
         # Restore training state from client_states
         self.trainer.train_batch_idx = client_states.get("train_batch_idx", 0)
@@ -434,7 +454,7 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             if hasattr(self.trainer, "_recreate_dataloader_for_resume"):
                 self.trainer._recreate_dataloader_for_resume(self.trainer.train_batch_idx)
 
-        logger.info("Successfully resumed training with scheduler state intact")
+        logger.info(f"Rank {self.global_rank}: Successfully resumed training with scheduler state intact")
 
         # IMPORTANT: Synchronize all ranks after checkpoint loading
         # This ensures all nodes are ready before starting training
