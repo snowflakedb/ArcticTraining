@@ -420,3 +420,10 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                 self.trainer._recreate_dataloader_for_resume(self.trainer.train_batch_idx)
 
         logger.info("Successfully resumed training with scheduler state intact")
+
+        # IMPORTANT: Synchronize all ranks after checkpoint loading
+        # This ensures all nodes are ready before starting training
+        if self.trainer.world_size > 1:
+            logger.info(f"Rank {self.global_rank} waiting for all ranks to complete checkpoint loading...")
+            torch.distributed.barrier()
+            logger.info(f"Rank {self.global_rank} synchronized, ready to start training")

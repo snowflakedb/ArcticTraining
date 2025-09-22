@@ -170,6 +170,13 @@ class BiencoderTrainer(Trainer):
             self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)  # type: ignore[call-arg]
 
     def pre_train_callback(self) -> None:
+        # Synchronize all ranks before starting training
+        # This is especially important when resuming from checkpoint
+        if self.world_size > 1:
+            logger.info(f"Rank {self.global_rank} synchronizing before training starts...")
+            torch.distributed.barrier()
+            logger.info(f"Rank {self.global_rank} synchronized, starting training")
+
         # Turn on weights and biases on the master worker.
         if self.is_wandb_logger:
             import wandb
