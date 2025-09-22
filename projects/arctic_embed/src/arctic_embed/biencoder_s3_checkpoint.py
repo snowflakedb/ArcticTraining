@@ -284,20 +284,20 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         torch.distributed.all_gather_object(all_hostnames, hostname)
         node_ranks = [i for i, h in enumerate(all_hostnames) if h == hostname]
 
+        # Get the latest checkpoint step - broadcast from global rank 0 to all ranks
+        latest_step = 0
+        if self.global_rank == 0:
+            latest_step = global_steps[-1]
+            logger.info(f"Found {len(global_steps)} checkpoints, loading latest: global_step_{latest_step}")
+
+        # Broadcast latest_step to ALL ranks (not just local_rank 0)
+        latest_step_list = [latest_step]
+        torch.distributed.broadcast_object_list(latest_step_list, src=0)
+        latest_step = latest_step_list[0]
+
         # Only local_rank 0 on each node downloads checkpoint
         # This is necessary when nodes don't share storage
         if local_rank == 0:
-            # Get the latest checkpoint step - broadcast from global rank 0 to all local_rank 0s
-            latest_step = 0
-            if self.global_rank == 0:
-                latest_step = global_steps[-1]
-                logger.info(f"Found {len(global_steps)} checkpoints, loading latest: global_step_{latest_step}")
-
-            # Broadcast latest_step to all ranks
-            latest_step_list = [latest_step]
-            torch.distributed.broadcast_object_list(latest_step_list, src=0)
-            latest_step = latest_step_list[0]
-
             # Check if checkpoint already exists in local cache
             local_checkpoint_dir = self.local_cache_dir / f"global_step_{latest_step}"
 
@@ -356,8 +356,13 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             node_group = torch.distributed.new_group(node_ranks)
 
             # Broadcast within the node (from local_rank 0)
-            checkpoint_dir_str = str(local_checkpoint_dir) if local_checkpoint_dir else ""
-            checkpoint_dir_list = [checkpoint_dir_str] if local_rank == 0 else [""]
+            # Initialize checkpoint_dir for non-local_rank-0 processes
+            if local_rank != 0:
+                local_checkpoint_dir = None
+
+            # Local rank 0 has the checkpoint directory, broadcast it to others on the same node
+            checkpoint_dir_str = str(local_checkpoint_dir) if local_checkpoint_dir else None
+            checkpoint_dir_list = [checkpoint_dir_str]
             torch.distributed.broadcast_object_list(checkpoint_dir_list, src=node_ranks[0], group=node_group)
             checkpoint_dir_str = checkpoint_dir_list[0]
 
@@ -366,12 +371,21 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                 # IMPORTANT: All ranks on this node wait for local_rank 0 to finish downloading
                 torch.distributed.barrier(group=node_group)
             else:
-                return  # No checkpoint to load
-        elif local_checkpoint_dir is None:
-            return  # No checkpoint to load
+                # This should not happen if checkpoint exists
+                logger.error(f"Rank {self.global_rank}: checkpoint directory not received from local_rank 0")
+                return
+        elif local_checkpoint_dir is None and local_rank == 0:
+            # Single GPU case where local_rank 0 didn't find/download checkpoint
+            logger.error("Checkpoint directory is None for single GPU training")
+            return
 
         # All ranks load from the same local checkpoint using DeepSpeed
         # This includes model weights, optimizer state, and scheduler state
+
+        # At this point, local_checkpoint_dir should not be None
+        if local_checkpoint_dir is None:
+            logger.error(f"Rank {self.global_rank}: local_checkpoint_dir is None, cannot load checkpoint")
+            raise RuntimeError("Checkpoint directory is None")
 
         # Debug: Log the directory structure
         logger.info(f"Loading checkpoint from directory: {local_checkpoint_dir}")
@@ -405,6 +419,7 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         )
 
         # Load biencoder config
+        # local_checkpoint_dir is guaranteed to be not None here due to the check above
         biencoder_config_path = local_checkpoint_dir / "biencoder_config.json"
         if biencoder_config_path.exists():
             biencoder_config = json.loads(biencoder_config_path.read_text())
