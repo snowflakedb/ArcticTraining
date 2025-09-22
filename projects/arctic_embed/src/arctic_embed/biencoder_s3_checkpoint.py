@@ -176,14 +176,59 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         if self.trainer.world_size > 1:
             torch.distributed.barrier()
         
-        # Only rank 0 uploads to S3
-        if self.global_rank == 0:
-            for local_file in self.checkpoint_dir.rglob("*"):
-                if local_file.is_file():
-                    relative_path = local_file.relative_to(self.checkpoint_dir)
-                    s3_key = f"{self.s3_checkpoint_prefix}/{relative_path}"
+        # Each rank uploads its own files to S3
+        # This is necessary when nodes don't share storage
+        for local_file in self.checkpoint_dir.rglob("*"):
+            if local_file.is_file():
+                relative_path = local_file.relative_to(self.checkpoint_dir)
+                s3_key = f"{self.s3_checkpoint_prefix}/{relative_path}"
+                
+                # Check if this file should be uploaded by this rank
+                # DeepSpeed creates rank-specific files like:
+                # - bf16_zero_pp_rank_X_mp_rank_XX_optim_states.pt
+                # - mp_rank_XX_model_states.pt (for tensor parallel)
+                filename = local_file.name
+                
+                # Check if this is a rank-specific file
+                # DeepSpeed uses global rank in filenames:
+                # - bf16_zero_pp_rank_X_mp_rank_XX_optim_states.pt where X is global rank
+                # - mp_rank_XX_model_states.pt (for model parallel)
+                is_rank_specific = False
+                
+                # Check various possible patterns
+                patterns = [
+                    f"pp_rank_{self.global_rank}_",  # e.g., pp_rank_0_
+                    f"pp_rank_{self.global_rank:02d}_",  # e.g., pp_rank_00_
+                    f"pp_rank_{self.global_rank:03d}_",  # e.g., pp_rank_000_
+                    f"_rank_{self.global_rank}_",  # generic pattern
+                    f"_rank_{self.global_rank:02d}_",
+                    f"_rank_{self.global_rank:03d}_",
+                ]
+                
+                for pattern in patterns:
+                    if pattern in filename:
+                        is_rank_specific = True
+                        break
+                
+                # Upload if:
+                # 1. It's a rank-specific file for this rank
+                # 2. It's a general file (uploaded by rank 0 only)
+                if is_rank_specific:
+                    logger.info(f"Rank {self.global_rank} uploading rank-specific file: {filename}")
                     self._upload_to_s3(local_file, s3_key)
-            
+                elif "mp_rank_" in filename:
+                    # Model parallel files - only rank 0 uploads mp_rank_00_model_states.pt
+                    # In case of model parallelism, each model parallel rank would upload its own
+                    if self.global_rank == 0:
+                        logger.info(f"Rank 0 uploading model states file: {filename}")
+                        self._upload_to_s3(local_file, s3_key)
+                elif self.global_rank == 0:
+                    # General files like latest, zero_to_fp32.py, biencoder_config.json
+                    logger.info(f"Rank 0 uploading general file: {filename}")
+                    self._upload_to_s3(local_file, s3_key)
+        
+        # Only rank 0 creates and uploads the latest marker and other metadata
+        if self.global_rank == 0:
             # Create a latest checkpoint marker
             latest_marker = self.local_cache_dir / "latest"
             latest_marker.write_text(str(self.trainer.global_step))
@@ -198,19 +243,28 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
     def load(self, model) -> None:
         """Load checkpoint from S3 for resuming training
         
-        For multi-node training:
-        - Only rank 0 downloads from S3
-        - Checkpoint path is broadcast to all ranks
-        - All ranks load from the same local checkpoint
+        For multi-node training without shared storage:
+        - Each node's local_rank=0 downloads from S3
+        - Checkpoint path is broadcast within each node
+        - All ranks on a node load from the same local checkpoint
         """
         if not self.config.auto_resume:
             logger.info("Auto-resume disabled, skipping checkpoint loading")
             return
         
         local_checkpoint_dir = None
+        local_rank = self.trainer.local_rank
         
-        # Only rank 0 finds and downloads checkpoint
-        if self.global_rank == 0:
+        # Get node information for multi-node setup
+        import socket
+        hostname = socket.gethostname()
+        all_hostnames = [None] * self.trainer.world_size
+        torch.distributed.all_gather_object(all_hostnames, hostname)
+        node_ranks = [i for i, h in enumerate(all_hostnames) if h == hostname]
+        
+        # Only local_rank 0 on each node downloads checkpoint
+        # This is necessary when nodes don't share storage
+        if local_rank == 0:
             # Find latest checkpoint
             global_steps = self._list_s3_checkpoints()
             if not global_steps:
@@ -227,7 +281,10 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                     checkpoint_s3_prefix = f"{self.s3_prefix}/global_step_{latest_step}"
                     local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
                     
-                    # List and download all files for this checkpoint
+                    # Use the node_ranks we already computed
+                    logger.info(f"Node {hostname} contains ranks: {node_ranks}")
+                    
+                    # List and download files for this checkpoint
                     paginator = self.s3_client.get_paginator('list_objects_v2')
                     pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=checkpoint_s3_prefix)
                     
@@ -240,23 +297,45 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                             if s3_key.startswith(checkpoint_s3_prefix + '/'):
                                 relative_path = s3_key[len(checkpoint_s3_prefix)+1:]  # Remove prefix
                                 local_path = local_checkpoint_dir / relative_path
-                                self._download_from_s3(s3_key, local_path)
+                                filename = local_path.name
+                                
+                                # Determine if this node needs this file
+                                should_download = False
+                                
+                                # Check if it's a rank-specific optimizer state file
+                                if "pp_rank_" in filename:
+                                    # Extract rank number from filename
+                                    for rank in node_ranks:
+                                        if f"pp_rank_{rank}_" in filename or f"pp_rank_{rank:02d}_" in filename or f"pp_rank_{rank:03d}_" in filename:
+                                            should_download = True
+                                            break
+                                else:
+                                    # Non-rank-specific files (model states, config, etc.) are needed by all nodes
+                                    should_download = True
+                                
+                                if should_download:
+                                    logger.info(f"Downloading {filename} for node {hostname}")
+                                    self._download_from_s3(s3_key, local_path)
                     
                     logger.info(f"Downloaded checkpoint to {local_checkpoint_dir}")
                 else:
                     logger.info(f"Using cached checkpoint from {local_checkpoint_dir}")
         
-        # Broadcast checkpoint directory path to all ranks
+        # Broadcast checkpoint directory path within each node
         if self.trainer.world_size > 1:
+            # Create node-local process group for broadcast
+            node_group = torch.distributed.new_group(node_ranks)
+            
+            # Broadcast within the node (from local_rank 0)
             checkpoint_dir_str = str(local_checkpoint_dir) if local_checkpoint_dir else ""
-            checkpoint_dir_list = [checkpoint_dir_str] if self.global_rank == 0 else [""]
-            torch.distributed.broadcast_object_list(checkpoint_dir_list, src=0)
+            checkpoint_dir_list = [checkpoint_dir_str] if local_rank == 0 else [""]
+            torch.distributed.broadcast_object_list(checkpoint_dir_list, src=node_ranks[0], group=node_group)
             checkpoint_dir_str = checkpoint_dir_list[0]
             
             if checkpoint_dir_str:
                 local_checkpoint_dir = Path(checkpoint_dir_str)
-                # IMPORTANT: All ranks must wait for rank 0 to finish downloading
-                torch.distributed.barrier()
+                # IMPORTANT: All ranks on this node wait for local_rank 0 to finish downloading
+                torch.distributed.barrier(group=node_group)
             else:
                 return  # No checkpoint to load
         elif local_checkpoint_dir is None:
