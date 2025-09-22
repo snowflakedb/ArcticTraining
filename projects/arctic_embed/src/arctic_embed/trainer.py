@@ -177,6 +177,13 @@ class BiencoderTrainer(Trainer):
             torch.distributed.barrier()
             logger.info(f"Rank {self.global_rank} synchronized, starting training")
 
+        # Log training configuration for debugging
+        if self.global_rank == 0:
+            logger.info(
+                f"Starting training from batch_idx={self.train_batch_idx}, "
+                f"log_interval={self.config.train_log_iter_interval}"
+            )
+
         # Turn on weights and biases on the master worker.
         if self.is_wandb_logger:
             import wandb

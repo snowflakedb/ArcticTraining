@@ -439,6 +439,17 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             f"train_batch_idx={self.trainer.train_batch_idx}"
         )
 
+        # Debug: Check if metrics will be logged
+        if hasattr(self.trainer, "config") and hasattr(self.trainer.config, "train_log_iter_interval"):
+            log_interval = self.trainer.config.train_log_iter_interval
+            next_log_batch = (
+                ((self.trainer.train_batch_idx // log_interval) + 1) * log_interval if log_interval > 0 else 0
+            )
+            logger.info(
+                f"Metrics logging: interval={log_interval}, current_batch={self.trainer.train_batch_idx}, "
+                f"next_log_batch={next_log_batch}"
+            )
+
         # Load biencoder config
         # local_checkpoint_dir is guaranteed to be not None here due to the check above
         biencoder_config_path = local_checkpoint_dir / "biencoder_config.json"
