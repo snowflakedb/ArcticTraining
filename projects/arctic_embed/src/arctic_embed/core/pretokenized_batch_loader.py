@@ -105,7 +105,10 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         batch_paths = sorted(filesystem.ls(root_directory))
         assert len(batch_paths) > 0, f"No batches subdirectories in {root_directory=}"
         self.batch_paths = batch_paths
-        logger.info(f"[dataset.init] shard_id={self.shard_id} world_size={self.world_size} split_factor={self.split_factor} root={self.root_directory}")
+        logger.info(
+            "[dataset.init]"
+            f" shard_id={self.shard_id} world_size={self.world_size} split_factor={self.split_factor} root={self.root_directory}"
+        )
 
     def __len__(self) -> int:
         return len(self.split_factor * self.batch_paths)
@@ -174,16 +177,33 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
             else:
                 tokenization_metadata = "<no tokenization metadata found>"
         logger.info(f"Iterating dataset:  {self.root_directory} | {tokenization_metadata}")
-        
-        # Track the current batch index
-        batch_idx = 0
-        
-        # Log if we're skipping batches
-        if self.start_batch_idx > 0:
-            logger.info(f"Will skip first {self.start_batch_idx} batches to resume from batch {self.start_batch_idx}")
 
-        # Initialize iteration over batch paths.
-        path_iter = iter(self.batch_paths)
+        # Track the current step index
+        step_idx = 0
+
+        # Calculate which batches to skip based on start_batch_idx (which is actually start_step_idx)
+        batches_to_skip = 0
+        remaining_steps_to_skip = 0
+
+        if self.start_batch_idx > 0:
+            # start_batch_idx is actually the step index we want to start from
+            batches_to_skip = self.start_batch_idx // self.split_factor
+            remaining_steps_to_skip = self.start_batch_idx % self.split_factor
+
+            logger.info(f"Will skip first {self.start_batch_idx} steps to resume from step {self.start_batch_idx}")
+            logger.info(
+                f"Skipping {batches_to_skip} complete batch files (each with {self.split_factor} steps), "
+                f"and {remaining_steps_to_skip} additional steps in the next batch"
+            )
+
+            # Skip the appropriate number of batch paths
+            batch_paths_to_use = self.batch_paths[batches_to_skip:]
+            # Update step counter to reflect skipped steps
+            step_idx = batches_to_skip * self.split_factor
+        else:
+            batch_paths_to_use = self.batch_paths
+
+        path_iter = iter(batch_paths_to_use)
         first_path = next(path_iter, None)
 
         # Edge case: no batches.
@@ -211,22 +231,27 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
                 # Yield the split sharded batches from the last future, pushing
                 # each next sharded split batch to device non-blocking as we go.
                 split_sharded_batches = future.get()
-                ssb = split_sharded_batches[0]
-                for next_ssb in split_sharded_batches[1:]:
-                    if self.device is not None:
-                        next_ssb = next_ssb.to_device(self.device, non_blocking=True)
-                    
-                    # Skip batches if resuming from a specific index
-                    if batch_idx >= self.start_batch_idx:
+
+                # For the first batch after skipping complete batches, we may need to skip some steps
+                if step_idx == batches_to_skip * self.split_factor and remaining_steps_to_skip > 0:
+                    # Skip the remaining steps in the first batch
+                    split_sharded_batches = split_sharded_batches[remaining_steps_to_skip:]
+                    step_idx += remaining_steps_to_skip
+
+                if len(split_sharded_batches) > 0:
+                    ssb = split_sharded_batches[0]
+                    for next_ssb in split_sharded_batches[1:]:
+                        if self.device is not None:
+                            next_ssb = next_ssb.to_device(self.device, non_blocking=True)
+
                         yield ssb
-                    batch_idx += 1
-                    
-                    ssb = next_ssb
-                
-                # Handle the last batch
-                if batch_idx >= self.start_batch_idx:
+                        step_idx += 1
+
+                        ssb = next_ssb
+
+                    # Handle the last batch
                     yield ssb
-                batch_idx += 1
+                    step_idx += 1
 
                 # Move up to the next future.
                 future = next_future
