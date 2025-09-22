@@ -360,28 +360,29 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
 
         # Broadcast checkpoint directory path within each node
         if self.trainer.world_size > 1:
-            # Create node-local process group for broadcast
-            node_group = torch.distributed.new_group(node_ranks)
+            # Instead of creating a new group, use all_gather to share checkpoint paths
+            # Each rank will put its checkpoint dir (or None) in the list
+            checkpoint_paths = [None] * self.trainer.world_size
+            my_checkpoint_str = str(local_checkpoint_dir) if local_checkpoint_dir else None
+            torch.distributed.all_gather_object(checkpoint_paths, my_checkpoint_str)
 
-            # Broadcast within the node (from local_rank 0)
-            # Initialize checkpoint_dir for non-local_rank-0 processes
-            if local_rank != 0:
-                local_checkpoint_dir = None
-
-            # Local rank 0 has the checkpoint directory, broadcast it to others on the same node
-            checkpoint_dir_str = str(local_checkpoint_dir) if local_checkpoint_dir else None
-            checkpoint_dir_list = [checkpoint_dir_str]
-            torch.distributed.broadcast_object_list(checkpoint_dir_list, src=node_ranks[0], group=node_group)
-            checkpoint_dir_str = checkpoint_dir_list[0]
+            # Find the checkpoint path from the same node's local_rank 0
+            # node_ranks contains the global ranks on this node
+            local_rank_0_global_rank = node_ranks[0]  # First rank in node_ranks is local_rank 0
+            checkpoint_dir_str = checkpoint_paths[local_rank_0_global_rank]
 
             if checkpoint_dir_str:
                 local_checkpoint_dir = Path(checkpoint_dir_str)
-                # IMPORTANT: All ranks on this node wait for local_rank 0 to finish downloading
-                torch.distributed.barrier(group=node_group)
+                logger.info(f"Rank {self.global_rank} received checkpoint path: {local_checkpoint_dir}")
+
+                # Synchronize all ranks to ensure local_rank 0 has finished downloading
+                torch.distributed.barrier()
             else:
                 # This should not happen if checkpoint exists
-                logger.error(f"Rank {self.global_rank}: checkpoint directory not received from local_rank 0")
-                # Don't add barrier here as it could cause deadlock if only some ranks reach this point
+                logger.error(
+                    f"Rank {self.global_rank}: checkpoint directory not received from node's local_rank 0 (global rank"
+                    f" {local_rank_0_global_rank})"
+                )
                 raise RuntimeError(
                     f"Rank {self.global_rank}: Failed to receive checkpoint directory from local_rank 0"
                 )
