@@ -254,6 +254,25 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             logger.info("Auto-resume disabled, skipping checkpoint loading")
             return
 
+        # First, only global rank 0 checks if there are any checkpoints
+        global_steps = []
+        if self.global_rank == 0:
+            global_steps = self._list_s3_checkpoints()
+            if not global_steps:
+                logger.info("No checkpoints found in S3, starting from scratch")
+
+        # Broadcast whether checkpoints exist to all ranks
+        has_checkpoints = len(global_steps) > 0 if self.global_rank == 0 else False
+        if self.trainer.world_size > 1:
+            has_checkpoints_list = [has_checkpoints]
+            torch.distributed.broadcast_object_list(has_checkpoints_list, src=0)
+            has_checkpoints = has_checkpoints_list[0]
+
+        # If no checkpoints, all ranks return
+        if not has_checkpoints:
+            return
+
+        # Now proceed with normal checkpoint loading logic
         local_checkpoint_dir = None
         local_rank = self.trainer.config.local_rank
 
@@ -268,65 +287,68 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         # Only local_rank 0 on each node downloads checkpoint
         # This is necessary when nodes don't share storage
         if local_rank == 0:
-            # Find latest checkpoint
-            global_steps = self._list_s3_checkpoints()
-            if not global_steps:
-                logger.info("No checkpoints found in S3, starting from scratch")
-            else:
+            # Get the latest checkpoint step - broadcast from global rank 0 to all local_rank 0s
+            latest_step = 0
+            if self.global_rank == 0:
                 latest_step = global_steps[-1]
                 logger.info(f"Found {len(global_steps)} checkpoints, loading latest: global_step_{latest_step}")
 
-                # Check if checkpoint already exists in local cache
-                local_checkpoint_dir = self.local_cache_dir / f"global_step_{latest_step}"
+            # Broadcast latest_step to all ranks
+            latest_step_list = [latest_step]
+            torch.distributed.broadcast_object_list(latest_step_list, src=0)
+            latest_step = latest_step_list[0]
 
-                if not local_checkpoint_dir.exists():
-                    # Download checkpoint files
-                    checkpoint_s3_prefix = f"{self.s3_prefix}/global_step_{latest_step}"
-                    local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            # Check if checkpoint already exists in local cache
+            local_checkpoint_dir = self.local_cache_dir / f"global_step_{latest_step}"
 
-                    # Use the node_ranks we already computed
-                    logger.info(f"Node {hostname} contains ranks: {node_ranks}")
+            if not local_checkpoint_dir.exists():
+                # Download checkpoint files
+                checkpoint_s3_prefix = f"{self.s3_prefix}/global_step_{latest_step}"
+                local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-                    # List and download files for this checkpoint
-                    paginator = self.s3_client.get_paginator("list_objects_v2")
-                    pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=checkpoint_s3_prefix)
+                # Use the node_ranks we already computed
+                logger.info(f"Node {hostname} contains ranks: {node_ranks}")
 
-                    for page in pages:
-                        if "Contents" not in page:
-                            continue
-                        for obj in page["Contents"]:
-                            s3_key = obj["Key"]
-                            # Preserve the full directory structure including subdirectories
-                            if s3_key.startswith(checkpoint_s3_prefix + "/"):
-                                relative_path = s3_key[len(checkpoint_s3_prefix) + 1 :]  # Remove prefix
-                                local_path = local_checkpoint_dir / relative_path
-                                filename = local_path.name
+                # List and download files for this checkpoint
+                paginator = self.s3_client.get_paginator("list_objects_v2")
+                pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=checkpoint_s3_prefix)
 
-                                # Determine if this node needs this file
-                                should_download = False
+                for page in pages:
+                    if "Contents" not in page:
+                        continue
+                    for obj in page["Contents"]:
+                        s3_key = obj["Key"]
+                        # Preserve the full directory structure including subdirectories
+                        if s3_key.startswith(checkpoint_s3_prefix + "/"):
+                            relative_path = s3_key[len(checkpoint_s3_prefix) + 1 :]  # Remove prefix
+                            local_path = local_checkpoint_dir / relative_path
+                            filename = local_path.name
 
-                                # Check if it's a rank-specific optimizer state file
-                                if "pp_rank_" in filename:
-                                    # Extract rank number from filename
-                                    for rank in node_ranks:
-                                        if (
-                                            f"pp_rank_{rank}_" in filename
-                                            or f"pp_rank_{rank:02d}_" in filename
-                                            or f"pp_rank_{rank:03d}_" in filename
-                                        ):
-                                            should_download = True
-                                            break
-                                else:
-                                    # Non-rank-specific files (model states, config, etc.) are needed by all nodes
-                                    should_download = True
+                            # Determine if this node needs this file
+                            should_download = False
 
-                                if should_download:
-                                    logger.info(f"Downloading {filename} for node {hostname}")
-                                    self._download_from_s3(s3_key, local_path)
+                            # Check if it's a rank-specific optimizer state file
+                            if "pp_rank_" in filename:
+                                # Extract rank number from filename
+                                for rank in node_ranks:
+                                    if (
+                                        f"pp_rank_{rank}_" in filename
+                                        or f"pp_rank_{rank:02d}_" in filename
+                                        or f"pp_rank_{rank:03d}_" in filename
+                                    ):
+                                        should_download = True
+                                        break
+                            else:
+                                # Non-rank-specific files (model states, config, etc.) are needed by all nodes
+                                should_download = True
 
-                    logger.info(f"Downloaded checkpoint to {local_checkpoint_dir}")
-                else:
-                    logger.info(f"Using cached checkpoint from {local_checkpoint_dir}")
+                            if should_download:
+                                logger.info(f"Downloading {filename} for node {hostname}")
+                                self._download_from_s3(s3_key, local_path)
+
+                logger.info(f"Downloaded checkpoint to {local_checkpoint_dir}")
+            else:
+                logger.info(f"Using cached checkpoint from {local_checkpoint_dir}")
 
         # Broadcast checkpoint directory path within each node
         if self.trainer.world_size > 1:
