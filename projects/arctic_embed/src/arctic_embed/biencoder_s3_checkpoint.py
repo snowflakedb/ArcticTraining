@@ -236,9 +236,11 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                             continue
                         for obj in page['Contents']:
                             s3_key = obj['Key']
-                            relative_path = s3_key[len(checkpoint_s3_prefix)+1:]  # Remove prefix
-                            local_path = local_checkpoint_dir / relative_path
-                            self._download_from_s3(s3_key, local_path)
+                            # Preserve the full directory structure including subdirectories
+                            if s3_key.startswith(checkpoint_s3_prefix + '/'):
+                                relative_path = s3_key[len(checkpoint_s3_prefix)+1:]  # Remove prefix
+                                local_path = local_checkpoint_dir / relative_path
+                                self._download_from_s3(s3_key, local_path)
                     
                     logger.info(f"Downloaded checkpoint to {local_checkpoint_dir}")
                 else:
@@ -253,6 +255,8 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             
             if checkpoint_dir_str:
                 local_checkpoint_dir = Path(checkpoint_dir_str)
+                # IMPORTANT: All ranks must wait for rank 0 to finish downloading
+                torch.distributed.barrier()
             else:
                 return  # No checkpoint to load
         elif local_checkpoint_dir is None:
@@ -265,11 +269,13 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         logger.info(f"Loading checkpoint from directory: {local_checkpoint_dir}")
         if local_checkpoint_dir.exists():
             logger.info(f"Directory contents: {list(local_checkpoint_dir.iterdir())}")
-            # Check if there's a subdirectory with the same name (DeepSpeed structure)
-            deepspeed_dir = local_checkpoint_dir / local_checkpoint_dir.name
-            if deepspeed_dir.exists():
-                logger.info(f"DeepSpeed subdirectory found: {deepspeed_dir}")
-                logger.info(f"DeepSpeed dir contents: {list(deepspeed_dir.iterdir())}")
+            # Check for the DeepSpeed checkpoint subdirectory
+            checkpoint_subdir = local_checkpoint_dir / "checkpoint"
+            if checkpoint_subdir.exists():
+                logger.info(f"DeepSpeed checkpoint subdirectory found: {checkpoint_subdir}")
+                logger.info(f"Checkpoint subdir contents: {list(checkpoint_subdir.iterdir())}")
+            else:
+                logger.warning(f"DeepSpeed checkpoint subdirectory not found at {checkpoint_subdir}")
         
         # DeepSpeed expects: load_checkpoint(checkpoint_dir, tag)
         # where the actual files are in checkpoint_dir/tag/
