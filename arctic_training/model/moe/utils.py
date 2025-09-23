@@ -60,6 +60,7 @@ def remap_moe_mlp_params_to_deepspeed_moe(model):
     c.intermediate_dim = config.intermediate_size
     c.input_dtype = model.dtype
     c.activation = config.hidden_act
+    c.top_k = config.num_experts_per_tok
 
     # XXX: need a new yaml config?
     c.use_triton = False
