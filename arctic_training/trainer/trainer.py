@@ -47,7 +47,8 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
-from arctic_training.debug import pr0
+
+# from arctic_training.debug import pr0
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -222,17 +223,22 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
+        # Arctic MoE - has to be called before optimizer is created
+        from arctic_training.model.moe.utils import detect_if_moe_model
+        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_deepspeed_moe
+
+        if self.config.arctic_moe == "auto":
+            use_arctic_moe = detect_if_moe_model(self.model)
+        else:
+            use_arctic_moe = self.config.arctic_moe
+        if use_arctic_moe:
+            remap_moe_mlp_params_to_deepspeed_moe(self.model)
+
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
 
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
-
-        # XXX: MoE
-        # if some flag moe?
-        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_deepspeed_moe
-
-        remap_moe_mlp_params_to_deepspeed_moe(self.model)
 
         self.model, *_ = deepspeed.initialize(
             model=self.model,
@@ -243,13 +249,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             mpu=mpu,
         )
 
-        # XXX: future MoE support
-        if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
-            for m in self.model_unwrapped.modules():
-                if "SparseMoeBlock" in m.__class__.__name__:
-                    deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
-                    pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
-                    break
+        # # XXX: future MoE support
+        # if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
+        #     for m in self.model_unwrapped.modules():
+        #         if "SparseMoeBlock" in m.__class__.__name__:
+        #             deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
+        #             pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
+        #             break
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first

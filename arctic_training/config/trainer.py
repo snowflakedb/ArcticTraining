@@ -129,6 +129,10 @@ class TrainerConfig(BaseConfig):
     expert_parallel_size: int = Field(default=1, ge=1)
     """ Expert Parallelism Degree. Disabled if set to 1 """
 
+    # do we need arctic_moe if expert_parallel_size > 1?
+    arctic_moe: Union[bool, Literal["auto"]] = False
+    """ Whether to enable arctic moe. Values True/False/"auto" - "auto" will try to detect if the model is an MoE model """
+
     activation_checkpoint_cpu_offload: bool = False
     """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
 

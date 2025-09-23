@@ -244,6 +244,39 @@ class Qwen3MoeSparseMoeBlock(nn.Module):
 
         # gating
         self.gate = nn.Linear(config.hidden_size, config.num_experts, bias=False)
+        # expert = Qwen3MoeMLP(config, intermediate_size=config.moe_intermediate_size)
+
+        # from deepspeed.moe.layer import MoE
+
+        # moe_expert_parallel_size = 1
+        # capacity_factor = 1
+        # moe_min_capacity = 1
+        # moe_token_dropping = False
+        # enable_expert_tensor_parallelism = False
+        # self.deepspeedmoe = MoE(
+        #     hidden_size=config.hidden_size,
+        #     expert=expert,
+        #     num_experts=config.num_experts,
+        #     ep_size=moe_expert_parallel_size,
+        #     k=config.num_experts_per_tok,
+        #     use_residual=False,
+        #     capacity_factor=capacity_factor,
+        #     eval_capacity_factor=capacity_factor,
+        #     enable_expert_tensor_parallelism=enable_expert_tensor_parallelism,
+        #     min_capacity=moe_min_capacity,
+        #     drop_tokens=moe_token_dropping,
+        # )
+
+        # for n, param in self.named_parameters():
+        #     print(f"1 {hasattr(param, 'allreduce')} {n}")
+
+        # for expert in self.deepspeedmoe.deepspeed_moe.experts.deepspeed_experts:
+        #     print(f"ds experts")
+        #     # TODO: Create param groups to handle expert + data case (e.g. param.group = moe_group)
+        #     # for param in expert.parameters():
+        #     for n, param in expert.named_parameters():
+        #         print(f"{n} was set? {hasattr(param, 'allreduce')}")
+
         self.experts = nn.ModuleList(
             [Qwen3MoeMLP(config, intermediate_size=config.moe_intermediate_size) for _ in range(self.num_experts)]
         )

@@ -29,58 +29,163 @@ from torch import nn
 from arctic_training.model.moe.moe import ArcticMoE
 
 
-def remap_moe_mlp_params_to_deepspeed_moe(unwrapped_model):
+def detect_if_moe_model(model):
+    return any(k for k in model.config.__dict__.keys() if re.search("experts", k))
 
-    def find_mlp_module(module):
-        # print(f"{module=}")
-        for n, module in module.named_children():
-            # print(f"{n=}")
-            if n == "mlp":
-                return module
-            else:
-                mlp_module = find_mlp_module(module)
-                if mlp_module is not None:
-                    return mlp_module
 
-        return None
+def remap_moe_mlp_params_to_deepspeed_moe(model):
+    """
+    expects an unwrapped model object
+    """
 
-    mlp = find_mlp_module(unwrapped_model)  # noqa
+    device = model.device
 
-    # model.layers.0.mlp
-    # model.layers.0.mlp.router
-    # model.layers.0.mlp.experts
-    # model.layers.1.mlp
-    # model.layers.1.mlp.router
-    # model.layers.1.mlp.experts
-
-    config = unwrapped_model.config
+    config = model.config
     import copy
 
     c = copy.copy(config)
 
     # remap config entries
-    c.num_experts = config.num_local_experts
+    if hasattr(config, "num_local_experts"):  # gpt-oss
+        c.num_experts = config.num_local_experts
+    elif hasattr(config, "num_experts"):  # qwen
+        c.num_experts = config.num_experts
+    else:
+        raise ValueError(
+            "Can't find an entry for number of experts in model's config. The config object has the following keys:"
+            f" {config.__dict__.keys()}"
+        )
+
     c.model_dim = config.hidden_size
     c.intermediate_dim = config.intermediate_size
-    c.input_dtype = unwrapped_model.dtype
+    c.input_dtype = model.dtype
     c.activation = config.hidden_act
 
     # XXX: need a new yaml config?
     c.use_triton = False
 
-    with torch.device("meta"):
-        moe = ArcticMoE(c)
+    for layer_num, layer_module in enumerate(model.model.layers):
+        # some models don't have moe in every layer
+        if not hasattr(layer_module.mlp, "experts"):
+            print(f"{layer_num} is not an MoE layer")
+            continue
 
-        print(f"{moe}")
+        # XXX: is there a point of using meta-device?
+        with torch.device("meta"):
+            arctic_moe = ArcticMoE(c)
+        # move onto cuda
+        arctic_moe.to_empty(device=device)
+
+        # [n for n, _ in arctic_moe.named_parameters()]
+        # ['expert_intermediate_weights', 'expert_output_weights', '_gate_proj.weight']
+        #
+        # [n for n, _ in m.model.layers[0].mlp.experts.named_parameters()]
+        # gpt-oss
+        # ['gate_up_proj', 'gate_up_proj_bias', 'down_proj', 'down_proj_bias']
+        # qwen
+        # XXX
+        orig_experts = layer_module.mlp.experts
+        # qwne is a list
+        experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
+
+        def copy_weights(from_name, to_param):
+            if experts_is_a_list:  # ModuleList models like qwen
+                weight_stacked = torch.stack(
+                    [getattr(orig_experts[i], from_name).weight for i in range(len(orig_experts))]
+                )
+            else:  # gpt-oss-like models with a stack of experts weights
+                weight_stacked = getattr(orig_experts, from_name).weight
+            to_param.copy_(weight_stacked)
+
+        with torch.no_grad():
+            for n, m in orig_experts.named_parameters():
+                if n == "gate_up_proj":  # gpt-oss
+                    gate_up = m
+                    # XXX: this is wrong/incomplete
+                    # gate, up = gate_up[..., ::2], gate_up[..., 1::2]
+                    # arctic_moe._gate_proj.weight.copy_(gate)
+                    # arctic_moe.expert_intermediate_weights.copy_(up)
+
+                    # move for now
+                    arctic_moe.gate_up = gate_up
+                elif n == "gate_proj":
+                    copy_weights("gate_proj", arctic_moe._gate_proj.weight)
+                elif n == "up_proj":
+                    copy_weights("up_proj", arctic_moe.expert_intermediate_weights)
+                elif n == "down_proj":
+                    copy_weights("down_proj", arctic_moe.expert_output_weights)
+
+        # override
+        layer_module.mlp = arctic_moe
+
+        print(f"{layer_module.mlp}")
+
+    print(f"Rewritten model: {model}")
 
     # now copy over the params from the original model, while freeing their memory usage
 
 
-def identify_moe_params(model):
+"""
+from transformers import AutoModelForCausalLM
+model = AutoModelForCausalLM.from_pretrained("tiny-random/gpt-oss-bf16")
+model.model.layers[0].mlp.experts.gate_up_proj.shape
+Out[5]: torch.Size([32, 32, 128])
+
+from arctic_training.model.moe.moe import ArcticMoE
+arctic_moe = ArcticMoE(c)
+arctic_moe._gate_proj.weight.shape
+
+from transformers import AutoModelForCausalLM
+model = AutoModelForCausalLM.from_pretrained("snake7gun/tiny-random-qwen3moe")
+model.model.layers[0].mlp.experts.gate_proj.shape
+Out[5]: torch.Size([32, 32, 128])
+
+
+
+
+
+"""
+
+
+# def find_mlp_module(module):
+#     # print(f"{module=}")
+#     for n, module in module.named_children():
+#         # print(f"{n=}")
+#         if n == "mlp":
+#             return module
+#         else:
+#             mlp_module = find_mlp_module(module)
+#             if mlp_module is not None:
+#                 return mlp_module
+
+#     return None
+
+# mlp = find_mlp_module(model)  # noqa
+
+# model.layers.0.mlp
+# model.layers.0.mlp.router
+# model.layers.0.mlp.experts
+# model.layers.1.mlp
+# model.layers.1.mlp.router
+# model.layers.1.mlp.experts
+
+
+def identify_moe_params(model, expert_parallel_size):
     # regex = r'deepspeed_moe.experts.deepspeed_experts.*?.weight'
-    regex = r"experts"
-    moe_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
-    # print(f"Found {len(moe_param_data_ptrs)} MoE params")
+    # regex = r"experts"
+    # moe_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
+
+    expert_group_name = f"ep_size_{expert_parallel_size}"
+
+    moe_param_data_ptrs = []
+    for n, m in model.named_modules():
+        if isinstance(m, ArcticMoE):
+            moe_param_data_ptrs += [p.data_ptr for n, p in m.named_parameters()]
+            for p in m.parameters():
+                p.group_name = expert_group_name
+
+    print(f"Found {len(moe_param_data_ptrs)} MoE params")
+    # die
     return moe_param_data_ptrs
 
 
