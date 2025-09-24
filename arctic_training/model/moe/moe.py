@@ -100,9 +100,9 @@ class ArcticMoE(nn.Module):
         moe_input, expert_counts, rcv_expert_counts, scores, mapped_slots, expert_cumsum = self.MoERouter(
             hidden_states, logits
         )
-        moe_input = self.AlltoAllV(moe_input, self.expert_counts, self.rcv_expert_counts)
+        moe_input = self.AlltoAllV(moe_input, expert_counts, rcv_expert_counts)
         moe_output = self.GroupGeMM(moe_input)
-        moe_output = self.AlltoAllV(moe_output, self.rcv_expert_counts, self.expert_counts)
+        moe_output = self.AlltoAllV(moe_output, rcv_expert_counts, expert_counts)
         output = self.MoECombine(moe_output)
         return (output, expert_counts, scores, mapped_slots, expert_cumsum)
 
