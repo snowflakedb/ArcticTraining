@@ -43,7 +43,7 @@ class ArcticMoE(nn.Module):
         config: MoEConfig object
     """
 
-    def __init__(self, config: MoEConfig, ep_group=None):
+    def __init__(self, config: MoEConfig, ep_group):
         super(ArcticMoE, self).__init__()
         self._config = config
         self.num_experts = config.num_experts
@@ -65,7 +65,7 @@ class ArcticMoE(nn.Module):
 
         self._gate_proj = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
         self.ep_group = ep_group
-        self.ep_size = 2  # dist.get_world_size(group=self.ep_group)
+        self.ep_size = dist.get_world_size(group=self.ep_group)
 
         # Initialize expert weights
         self.expert_intermediate_weights = nn.Parameter(

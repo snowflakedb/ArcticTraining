@@ -13,8 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2025 Snowflake Inarctic_moe_config.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import re
 from collections import defaultdict
+from copy import deepcopy
 from typing import Any
 from typing import Dict
 from typing import List
@@ -33,37 +49,93 @@ def detect_if_moe_model(model):
     return any(k for k in model.config.__dict__.keys() if re.search("experts", k))
 
 
-def remap_moe_mlp_params_to_deepspeed_moe(model):
+# XXX: this is just a stab - not working yet
+# def remap_arctic_moe_params_to_orig_moe_mlp(model):
+#     """
+#     undoes remap_moe_mlp_params_to_arctic_moe, renaming the arctic_moe unified representation to the original model
+
+#     Args:
+#       - model: expects an unwrapped model object
+#     """
+#     device = model.device
+#     meta_device = torch.device("meta")
+
+#     for layer_num, layer_module in enumerate(model.model.layers):
+#         # some models don't have moe in every layer
+#         if not isinstance(layer_module.mlp, ArcticMoE):
+#             print(f"{layer_num} is not an MoE layer")
+#             continue
+
+#         orig_experts = layer_module.mlp_orig.experts
+#         # qwen is a list
+#         experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
+#         orig_experts.to_empty(device=device)
+
+#         def copy_weights(from_param, to_param_name):
+#             if experts_is_a_list:  # ModuleList models like qwen
+#                 # weights = torch.unbind(from_param)
+#                 for i in range(len(orig_experts)):
+#                     getattr(orig_experts[i], from_name).weight.copy(from_param[i])
+#             else:  # gpt-oss-like models with a stack of experts weights
+#                 getattr(orig_experts, from_name).weight.copy_(from_param)
+
+#         with torch.no_grad():
+#             for n, m in orig_experts.named_parameters():
+#                 if n == "gate_up_proj":  # gpt-oss
+#                     copy_weights(arctic_moe.gate_up.weight, "gate_up_proj")
+#                 elif n == "gate_proj":
+#                     copy_weights(arctic_moe._gate_proj.weight, "gate_proj")
+#                 elif n == "up_proj":
+#                     copy_weights(arctic_moe.expert_intermediate_weights, "up_proj")
+#                 elif n == "down_proj":
+#                     copy_weights(arctic_moe.expert_output_weights, "down_proj")
+
+#         # now can drop arctic_moe
+#         layer_module.mlp.to(meta_device)
+#         layer_module.mlp = layer_module.mlp_orig
+
+
+def remap_moe_mlp_params_to_arctic_moe(model, expert_parallel_group):
     """
-    expects an unwrapped model object
+    remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
+
+    XXX: this will not work with zero.Init since the weights will be already sharded. If we want to add zero.Init support we will need to gather, remap, re-shard.
+
+    Args:
+      - model: expects an unwrapped model object
+      - expert_parallel_group: EP group
     """
 
     device = model.device
+    meta_device = torch.device("meta")
 
     config = model.config
-    import copy
-
-    c = copy.copy(config)
+    arctic_moe_config = deepcopy(config)
 
     # remap config entries
     if hasattr(config, "num_local_experts"):  # gpt-oss
-        c.num_experts = config.num_local_experts
+        arctic_moe_config.num_experts = config.num_local_experts
     elif hasattr(config, "num_experts"):  # qwen
-        c.num_experts = config.num_experts
+        arctic_moe_config.num_experts = config.num_experts
     else:
         raise ValueError(
             "Can't find an entry for number of experts in model's config. The config object has the following keys:"
             f" {config.__dict__.keys()}"
         )
 
-    c.model_dim = config.hidden_size
-    c.intermediate_dim = config.intermediate_size
-    c.input_dtype = model.dtype
-    c.activation = config.hidden_act
-    c.top_k = config.num_experts_per_tok
+    # XXX: may be create a new dict seeded from the orig config which only has what ArcticMoE needs
+    arctic_moe_config.update(
+        dict(
+            model_dim=config.hidden_size,
+            intermediate_dim=config.intermediate_size,
+            input_dtype=model.dtype,
+            activation=config.hidden_act,
+            top_k=config.num_experts_per_tok,
+        )
+    )
 
     # XXX: need a new yaml config?
-    c.use_triton = False
+    arctic_moe_config.use_triton = False
 
     for layer_num, layer_module in enumerate(model.model.layers):
         # some models don't have moe in every layer
@@ -71,9 +143,9 @@ def remap_moe_mlp_params_to_deepspeed_moe(model):
             print(f"{layer_num} is not an MoE layer")
             continue
 
-        # XXX: is there a point of using meta-device?
-        with torch.device("meta"):
-            arctic_moe = ArcticMoE(c)
+        # XXX: is there a point of using meta-device - it won't preallocate structures
+        with meta_device:
+            arctic_moe = ArcticMoE(arctic_moe_config, expert_parallel_group)
         # move onto cuda
         arctic_moe.to_empty(device=device)
 
@@ -86,7 +158,7 @@ def remap_moe_mlp_params_to_deepspeed_moe(model):
         # qwen
         # XXX
         orig_experts = layer_module.mlp.experts
-        # qwne is a list
+        # qwen is a list
         experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
 
         def copy_weights(from_name, to_param):
@@ -116,7 +188,10 @@ def remap_moe_mlp_params_to_deepspeed_moe(model):
                 elif n == "down_proj":
                     copy_weights("down_proj", arctic_moe.expert_output_weights)
 
-        # override
+        # override the original with unified representation
+        # 1. store the original structure for later restoration
+        # layer_module.mlp_orig = layer_module.mlp.to(meta_device)
+        # 2. now hijack it with our structure
         layer_module.mlp = arctic_moe
 
         print(f"{layer_module.mlp}")
@@ -172,7 +247,7 @@ Out[5]: torch.Size([32, 32, 128])
 
 
 def identify_moe_params(model, expert_parallel_size):
-    # regex = r'deepspeed_moe.experts.deepspeed_experts.*?.weight'
+    # regex = r'arctic_moe.experts.deepspeed_experts.*?.weight'
     # regex = r"experts"
     # moe_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
 
