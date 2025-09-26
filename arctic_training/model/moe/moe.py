@@ -67,13 +67,14 @@ class ArcticMoE(nn.Module):
         self._gate_proj = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
         self.ep_group = ep_group
         self.ep_size = dist.get_world_size(group=self.ep_group)
+        num_local_experts = self.num_experts // self.ep_size
 
         # Initialize expert weights
         self.expert_intermediate_weights = nn.Parameter(
-            torch.empty(self.num_experts, self.model_dim, self.intermediate_dim, dtype=self.input_dtype)
+            torch.empty(num_local_experts, self.model_dim, self.intermediate_dim, dtype=self.input_dtype)
         )
         self.expert_output_weights = nn.Parameter(
-            torch.empty(self.num_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
+            torch.empty(num_local_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
         )
 
         self.comm_stream = torch.cuda.Stream()
@@ -89,7 +90,8 @@ class ArcticMoE(nn.Module):
         n_topk_tokens = x.size(0)
         output = torch.empty_like(x)
         intermediate = torch.empty((n_topk_tokens, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
-        expert_count_cumsum = expert_token_rcv_count.cumsum(0)
+        # TODO(Reza): we need to add a transformation kernel that put the local-experts together!
+        expert_count_cumsum = expert_token_rcv_count.view(-1, self.ep_size).sum(-1).cumsum(0)
         intermediate = self.moegemm(x, self.expert_intermediate_weights, expert_count_cumsum)
         intermediate = self._activation(intermediate) if self._activation else intermediate
         output = self.moegemm(intermediate, self.expert_output_weights, expert_count_cumsum)
@@ -103,26 +105,26 @@ class ArcticMoE(nn.Module):
         (moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots) = self.MoERouter(
             hidden_states, logits
         )
-        moe_input = self.AlltoAllV(moe_input, expert_token_rcv_count, expert_token_rcv_count)
+        moe_input = self.AlltoAllV(moe_input, expert_token_count, expert_token_rcv_count)
         moe_output = self.GroupGeMM(moe_input, expert_token_rcv_count)
         moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
         output = self.MoECombine(moe_output, token_mapped_slots)
         output = output.reshape(orig_shape)
         return output
 
-    def AlltoAllV(self, x, token_send_count=None, token_rcv_count=None):
+    def AlltoAllV(self, x, token_snd_count=None, token_rcv_count=None):
         """AlltoAllV operation for distributed MoE.
         Args:
             x: Input tensor
-            token_send_count: Counts of elements to send to each rank
+            token_snd_count: Counts of elements to snd to each rank
             token_rcv_count: Counts of elements to receive from each rank
         Returns:
             Output tensor after AlltoAllV
         """
         torch.cuda.current_stream().wait_stream(self.comm_stream)
-        token_send_count = token_send_count.reshape(self.ep_size, -1).sum(dim=-1)
+        token_snd_count = token_snd_count.reshape(self.ep_size, -1).sum(dim=-1)
         token_rcv_count = token_rcv_count.reshape(self.ep_size, -1).sum(dim=-1)
-        input_splits = token_send_count.tolist()
+        input_splits = token_snd_count.tolist()
         output_splits = token_rcv_count.tolist()
         output = torch.empty((sum(output_splits), x.size(1)), dtype=x.dtype, device=x.device)
         dist.all_to_all_single(
