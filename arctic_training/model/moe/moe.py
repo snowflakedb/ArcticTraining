@@ -32,6 +32,7 @@ class MoEConfig:
     top_k: int
     input_dtype: torch.dtype
     activation: str
+    is_gated: bool
     normalize_scores: bool
     loss_coeff: float = 0.01
     use_triton: bool = True
@@ -65,7 +66,7 @@ class ArcticMoE(nn.Module):
 
         self._gate_proj = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
         self.ep_group = ep_group
-        self.ep_size = 2  # dist.get_world_size(group=self.ep_group)
+        self.ep_size = dist.get_world_size(group=self.ep_group)
 
         # Initialize expert weights
         self.expert_intermediate_weights = nn.Parameter(
@@ -78,7 +79,7 @@ class ArcticMoE(nn.Module):
         self.comm_stream = torch.cuda.Stream()
         self.moegemm = group_gemm_fn if config.use_triton else torch_group_gemm_fn
 
-    def GroupGeMM(self, x):
+    def GroupGeMM(self, x, rcv_expert_counts):
         """Grouped GEMM for MoE experts.
         Args:
             x: Input tensor of shape [#tokens * topk, model_dim]
@@ -88,7 +89,7 @@ class ArcticMoE(nn.Module):
         n_tokens_topk = x.size(0)
         output = torch.empty_like(x)
         intermediate = torch.empty((n_tokens_topk, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
-        expert_count_cumsum = self.rcv_expert_counts.cumsum(0)
+        expert_count_cumsum = rcv_expert_counts.cumsum(0)
         intermediate = self.moegemm(x, self.expert_intermediate_weights, expert_count_cumsum)
         intermediate = self._activation(intermediate) if self._activation else intermediate
         output = self.moegemm(intermediate, self.expert_output_weights, expert_count_cumsum)
@@ -96,15 +97,18 @@ class ArcticMoE(nn.Module):
 
     def forward(self, hidden_states):
         # Forward pass through the MoE layer
+        orig_shape = hidden_states.shape
+        hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
         logits = self._gate_proj(hidden_states)
         moe_input, expert_counts, rcv_expert_counts, scores, mapped_slots, expert_cumsum = self.MoERouter(
             hidden_states, logits
         )
         moe_input = self.AlltoAllV(moe_input, expert_counts, rcv_expert_counts)
-        moe_output = self.GroupGeMM(moe_input)
+        moe_output = self.GroupGeMM(moe_input, rcv_expert_counts)
         moe_output = self.AlltoAllV(moe_output, rcv_expert_counts, expert_counts)
-        output = self.MoECombine(moe_output)
-        return (output, expert_counts, scores, mapped_slots, expert_cumsum)
+        output = self.MoECombine(moe_output, mapped_slots)
+        output = output.reshape(orig_shape)
+        return output  # (output, expert_counts, scores, mapped_slots, expert_cumsum)
 
     def AlltoAllV(self, x, send_counts=None, rcv_counts=None):
         """AlltoAllV operation for distributed MoE.
@@ -117,8 +121,8 @@ class ArcticMoE(nn.Module):
             Output tensor after AlltoAllV
         """
         torch.cuda.current_stream().wait_stream(self.comm_stream)
-        send_counts = send_counts.reshape(-1, self.ep_size).sum(dim=-1)
-        rcv_counts = rcv_counts.reshape(-1, self.ep_size).sum(dim=-1)
+        send_counts = send_counts.reshape(self.ep_size, -1).sum(dim=-1)
+        rcv_counts = rcv_counts.reshape(self.ep_size, -1).sum(dim=-1)
         input_splits = send_counts.tolist()
         output_splits = rcv_counts.tolist()
         output = torch.empty((sum(output_splits), x.size(1)), dtype=x.dtype, device=x.device)
@@ -154,17 +158,21 @@ class ArcticMoE(nn.Module):
 
         T = probs.size(0)
 
-        weight = val[ind]
         mask = F.one_hot(ind, num_classes=self.num_experts).t()  # E x (T * top_k)
+
+        index = torch.cat([torch.where(mask[i])[0] % T for i in range(mask.shape[0])])
+        weight = val[index]
 
         count = mask.sum(dim=-1)  # E
         total = count.sum()
         freq = count / total
 
         rcv_count = torch.empty_like(count)
-        with torch.cuda.stream(self.comm_stream):
-            dist.all_to_all_single(rcv_count, count, group=self.ep_group)
+        rcv_count.copy_(count)
 
+        # with torch.cuda.stream(self.comm_stream):
+        #     dist.all_to_all_single(rcv_count, count, group=self.ep_group)
+        # print(rcv_count, count)
         def _load_balance_grad_hook(grad):
             """
             We don't explicitly collect the LB loss. Instead, we analytically compute the grad of the
@@ -187,7 +195,7 @@ class ArcticMoE(nn.Module):
 
         if probs.requires_grad:
             probs.register_hook(_load_balance_grad_hook)
-        return weight, ind, count, rcv_count
+        return weight, index, count, rcv_count
 
     def MoECombine(self, moe_output, mapped_slots):
         """MoE gather operation.
@@ -199,5 +207,5 @@ class ArcticMoE(nn.Module):
         output = torch.empty(
             (moe_output.size(0) // self.top_k, self.model_dim), dtype=moe_output.dtype, device=moe_output.device
         )
-        output.index_add_(0, mapped_slots, moe_output[:: self.top_k])
+        output.index_add_(0, mapped_slots, moe_output)
         return output
