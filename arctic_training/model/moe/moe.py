@@ -44,7 +44,7 @@ class ArcticMoE(nn.Module):
         config: MoEConfig object
     """
 
-    def __init__(self, config: MoEConfig, ep_group=None):
+    def __init__(self, config: MoEConfig, ep_group):
         super(ArcticMoE, self).__init__()
         self._config = config
         self.num_experts = config.num_experts

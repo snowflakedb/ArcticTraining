@@ -60,8 +60,7 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-
-# from arctic_training.trainer.parallel_groups import ParallelGroups
+from arctic_training.trainer.parallel_groups import ParallelGroups
 from arctic_training.utils import append_json_file
 
 
@@ -225,14 +224,21 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # Arctic MoE - has to be called before optimizer is created
         from arctic_training.model.moe.utils import detect_if_moe_model
-        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_deepspeed_moe
+        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_arctic_moe
 
         if self.config.arctic_moe == "auto":
             use_arctic_moe = detect_if_moe_model(self.model)
         else:
             use_arctic_moe = self.config.arctic_moe
         if use_arctic_moe:
-            remap_moe_mlp_params_to_deepspeed_moe(self.model)
+
+            self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
+            expert_parallel_group = self.groups.get_expert_parallel_group()
+
+            remap_moe_mlp_params_to_arctic_moe(self.model, expert_parallel_group)
+            # XXX: check we can remap back
+            # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
+            # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
