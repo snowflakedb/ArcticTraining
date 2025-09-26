@@ -171,22 +171,29 @@ def remap_moe_mlp_params_to_arctic_moe(model, expert_parallel_group):
             to_param.copy_(weight_stacked)
 
         with torch.no_grad():
+            gate_up_is_split = 0
             for n, m in orig_experts.named_parameters():
                 if n == "gate_up_proj":  # gpt-oss
-                    gate_up = m
-                    # XXX: this is wrong/incomplete
-                    # gate, up = gate_up[..., ::2], gate_up[..., 1::2]
-                    # arctic_moe._gate_proj.weight.copy_(gate)
-                    # arctic_moe.expert_intermediate_weights.copy_(up)
-
-                    # move for now
-                    arctic_moe.gate_up = gate_up
+                    # move for now - XXX: will have to copy if resetting the original weights
+                    arctic_moe.gate_up = m
                 elif n == "gate_proj":
-                    copy_weights("gate_proj", arctic_moe._gate_proj.weight)
+                    gate_up_is_split += 1
+                    # copy_weights("gate_proj", arctic_moe._gate_proj.weight)
                 elif n == "up_proj":
-                    copy_weights("up_proj", arctic_moe.expert_intermediate_weights)
+                    gate_up_is_split += 1
+                    # copy_weights("up_proj", arctic_moe.expert_intermediate_weights)
                 elif n == "down_proj":
                     copy_weights("down_proj", arctic_moe.expert_output_weights)
+
+            # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
+            if gate_up_is_split == 2:
+                gate_stacked = torch.stack(
+                    [getattr(orig_experts[i], "gate_proj").weight for i in range(len(orig_experts))]
+                )
+                up_stacked = torch.stack(
+                    [getattr(orig_experts[i], "up_proj").weight for i in range(len(orig_experts))]
+                )
+                arctic_moe.gate_up = torch.cat((gate_stacked, up_stacked), dim=-1)
 
         # override the original with unified representation
         # 1. store the original structure for later restoration
