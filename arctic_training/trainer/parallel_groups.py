@@ -76,41 +76,54 @@ class ParallelGroups:
         #         " is used for experts."
         #     )
 
+    @property
     def get_data_parallel_rank(self):
         return dist.get_rank(group=self.data_parallel_group)
 
+    # @property
     # def get_model_parallel_rank(self):
     #     return dist.get_rank(group=self.model_parallel_group)
 
+    @property
     def get_sequence_parallel_rank(self):
         return dist.get_rank(group=self.sequence_parallel_group)
 
+    @property
     def get_expert_parallel_rank(self):
         return dist.get_rank(group=self.expert_parallel_group)
 
+    @property
     def get_data_parallel_world_size(self):
         return dist.get_world_size(group=self.data_parallel_group)
 
+    # @property
     # def get_model_parallel_world_size(self):
     #     return dist.get_world_size(group=self.model_parallel_group)
 
+    @property
     def get_sequence_parallel_world_size(self):
         return dist.get_world_size(group=self.sequence_parallel_group)
 
+    @property
     def get_expert_parallel_world_size(self):
         return dist.get_world_size(group=self.expert_parallel_group)
 
+    @property
     def get_data_parallel_group(self):
         return self.data_parallel_group
 
+    # @property
     # def get_model_parallel_group(self):
     #     return self.model_parallel_group
 
+    @property
     def get_sequence_parallel_group(self):
         return self.sequence_parallel_group
 
+    @property
     def get_expert_parallel_group(self):
         return self.expert_parallel_group
 
+    # @property
     # def get_expert_data_parallel_group(self):
     #     return self.expert_data_parallel_group

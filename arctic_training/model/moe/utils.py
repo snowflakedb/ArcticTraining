@@ -95,7 +95,7 @@ def detect_if_moe_model(model):
 #         layer_module.mlp = layer_module.mlp_orig
 
 
-def remap_moe_mlp_params_to_arctic_moe(model, expert_parallel_group):
+def remap_moe_mlp_params_to_arctic_moe(model, groups):
     """
     remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
 
@@ -137,6 +137,14 @@ def remap_moe_mlp_params_to_arctic_moe(model, expert_parallel_group):
     # XXX: need a new yaml config?
     arctic_moe_config.use_triton = False
 
+    expert_parallel_size = groups.get_expert_parallel_world_size
+    expert_parallel_rank = groups.get_expert_parallel_rank
+    expert_parallel_group = groups.expert_parallel_group
+    num_local_experts = arctic_moe_config.num_experts // expert_parallel_size
+    local_expert_indices = list(
+        range(num_local_experts * expert_parallel_rank, num_local_experts * (expert_parallel_rank + 1))
+    )
+
     for layer_num, layer_module in enumerate(model.model.layers):
         # some models don't have moe in every layer
         if not hasattr(layer_module.mlp, "experts"):
@@ -158,24 +166,23 @@ def remap_moe_mlp_params_to_arctic_moe(model, expert_parallel_group):
         # qwen
         # XXX
         orig_experts = layer_module.mlp.experts
-        # qwen is a list
+        # qwen is a ModuleList
         experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
 
-        def copy_weights(from_name, to_param):
+        def copy_weights(from_name, to_param, local_expert_indices):
             if experts_is_a_list:  # ModuleList models like qwen
                 weight_stacked = torch.stack(
-                    [getattr(orig_experts[i], from_name).weight for i in range(len(orig_experts))]
+                    [getattr(orig_experts[i], from_name).weight for i in local_expert_indices]
                 )
             else:  # gpt-oss-like models with a stack of experts weights
-                weight_stacked = getattr(orig_experts, from_name).weight
+                weight_stacked = getattr(orig_experts, from_name).weight[local_expert_indices, ...]
             to_param.copy_(weight_stacked)
 
         with torch.no_grad():
             gate_up_is_split = 0
             for n, m in orig_experts.named_parameters():
                 if n == "gate_up_proj":  # gpt-oss
-                    # move for now - XXX: will have to copy if resetting the original weights
-                    arctic_moe.gate_up = m
+                    arctic_moe.gate_up.copy_(m[local_expert_indices, ...])
                 elif n == "gate_proj":
                     gate_up_is_split += 1
                     # copy_weights("gate_proj", arctic_moe._gate_proj.weight)
@@ -188,11 +195,9 @@ def remap_moe_mlp_params_to_arctic_moe(model, expert_parallel_group):
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
             if gate_up_is_split == 2:
                 gate_stacked = torch.stack(
-                    [getattr(orig_experts[i], "gate_proj").weight for i in range(len(orig_experts))]
+                    [getattr(orig_experts[i], "gate_proj").weight for i in local_expert_indices]
                 )
-                up_stacked = torch.stack(
-                    [getattr(orig_experts[i], "up_proj").weight for i in range(len(orig_experts))]
-                )
+                up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight for i in local_expert_indices])
                 arctic_moe.gate_up = torch.cat((gate_stacked, up_stacked), dim=-1)
 
         # override the original with unified representation

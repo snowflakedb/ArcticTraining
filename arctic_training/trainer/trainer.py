@@ -233,9 +233,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if use_arctic_moe:
 
             self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
-            expert_parallel_group = self.groups.get_expert_parallel_group()
-
-            remap_moe_mlp_params_to_arctic_moe(self.model, expert_parallel_group)
+            remap_moe_mlp_params_to_arctic_moe(self.model, self.groups)
             # XXX: check we can remap back
             # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
             # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
