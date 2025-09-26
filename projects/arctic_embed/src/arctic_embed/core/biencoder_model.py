@@ -44,6 +44,8 @@ class Biencoder(nn.Module):
         self.config = encoder.config
 
     def encode(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
+        if getattr(self.config, "model_type", "") == "qwen3":
+            attention_mask = _qwen3_attention_masks(attention_mask, dtype=attention_mask.dtype, device=attention_mask.device)
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         if not hasattr(out, "last_hidden_state"):
             raise ValueError(
@@ -133,3 +135,15 @@ def last_token_pool(out: Tensor, attention_mask: Tensor) -> Tensor:
     row = torch.arange(batch_size, device=out.device)
     col = attention_mask.sum(dim=1) - 1  # position of the last non-padding token
     return out[row, col, ...]
+
+def _qwen3_attention_masks(pad_mask: torch.Tensor, *, dtype: torch.dtype, device: torch.device, has_sliding: bool = False) -> dict[str, torch.Tensor]:
+    batch, seq_len = pad_mask.shape
+    key_padding = ~pad_mask.bool()
+    neg_inf = torch.finfo(dtype).min
+    attn_bias = torch.zeros(batch, 1, seq_len, seq_len, dtype=dtype, device=device)
+    if key_padding.any():
+        attn_bias = attn_bias.masked_fill(key_padding[:, None, None, :], neg_inf)
+    masks = {"full_attention": attn_bias}
+    if has_sliding:
+        masks["sliding_attention"] = attn_bias
+    return masks
