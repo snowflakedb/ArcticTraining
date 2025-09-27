@@ -42,7 +42,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         name_or_path=cfg["BASE_MODEL"],
         pooling=cfg.get("POOLING_METHOD", "last_token"),
         disable_activation_checkpoint=not cfg.get("ACTIVATION_CHECKPOINTING", False),
-        attn_implementation=cfg.get("ATTN_IMPLEMENTATION", "flash_attn_2"),
+        attn_implementation=cfg.get("ATTN_IMPLEMENTATION", "flash_attention_2"),
     )
 
     # Data
