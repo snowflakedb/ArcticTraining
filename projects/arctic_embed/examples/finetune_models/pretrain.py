@@ -90,7 +90,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
 
     cconf = BiencoderS3CheckpointConfig(
         output_dir=local_cache_dir,  # Used as staging directory
-        s3_path=cfg.get("S3_CHECKPOINT_PATH"),
+        s3_path=cfg.get("S3_CHECKPOINT_PATH", "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/training/checkpoints/"),
         local_cache_dir=str(local_cache_dir),
         max_local_checkpoints=cfg.get("MAX_LOCAL_CHECKPOINTS", 3),
         save_every_n_steps=cfg.get("SAVE_STEPS", 300),
