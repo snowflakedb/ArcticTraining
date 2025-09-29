@@ -44,8 +44,23 @@ class Biencoder(nn.Module):
         self.config = encoder.config
 
     def encode(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
+        original_attention_mask = attention_mask
         if getattr(self.config, "model_type", "") == "qwen3":
-            attention_mask = _qwen3_attention_masks(attention_mask, dtype=attention_mask.dtype, device=attention_mask.device)
+            has_sliding = getattr(self.encoder, "has_sliding_layers", False)
+            embeddings = getattr(self.encoder, "embed_tokens", None)
+            if embeddings is not None:
+                attn_dtype = embeddings.weight.dtype
+            else:
+                try:
+                    attn_dtype = next(self.encoder.parameters()).dtype
+                except StopIteration:
+                    attn_dtype = torch.get_default_dtype()
+            attention_mask = _qwen3_attention_masks(
+                pad_mask=original_attention_mask,
+                dtype=attn_dtype,
+                device=original_attention_mask.device,
+                has_sliding=has_sliding,
+            )
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         if not hasattr(out, "last_hidden_state"):
             raise ValueError(
@@ -56,11 +71,11 @@ class Biencoder(nn.Module):
         out = out.last_hidden_state
         assert out.ndim == 3  # batch, token, hidden_dim.
         if self.pooling == "first_token":
-            out = first_token_pool(out, attention_mask)
+            out = first_token_pool(out, original_attention_mask)
         elif self.pooling == "last_token":
-            out = last_token_pool(out, attention_mask)
+            out = last_token_pool(out, original_attention_mask)
         elif self.pooling == "mean":
-            out = average_pool(out, attention_mask)
+            out = average_pool(out, original_attention_mask)
         else:
             raise ValueError(f"Unknown pooling method: {self.pooling}")
         out = F.normalize(out, dim=-1)
