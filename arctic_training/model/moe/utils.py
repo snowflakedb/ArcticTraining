@@ -137,6 +137,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
     # XXX: need a new yaml config?
     arctic_moe_config.use_triton = False
     arctic_moe_config.is_gated = True
+    arctic_moe_config.return_router_scores = False if "Qwen3MoeForCausalLM" in config.architectures else True
 
     expert_parallel_size = groups.get_expert_parallel_world_size
     expert_parallel_rank = groups.get_expert_parallel_rank
@@ -176,7 +177,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
                     [getattr(orig_experts[i], from_name).weight.T for i in local_expert_indices]
                 )
             else:  # gpt-oss-like models with a stack of experts weights
-                weight_stacked = getattr(orig_experts, from_name).weight[local_expert_indices, ...]
+                weight_stacked = getattr(orig_experts, from_name)[local_expert_indices, ...]
             to_param.copy_(weight_stacked)
 
         with torch.no_grad():
@@ -191,7 +192,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
                     gate_up_is_split += 1
                     # copy_weights("up_proj", arctic_moe.expert_intermediate)
                 elif n == "down_proj":
-                    copy_weights("down_proj", arctic_moe.expert_down)
+                    copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
 
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
             if gate_up_is_split == 2:

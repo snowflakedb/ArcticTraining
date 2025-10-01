@@ -33,6 +33,7 @@ class MoEConfig:
     input_dtype: torch.dtype
     activation: str
     normalize_scores: bool
+    return_router_scores: bool
     is_gated: bool = True
     loss_coeff: float = 0.01
     use_triton: bool = True
@@ -121,7 +122,7 @@ class ArcticMoE(nn.Module):
         moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
         output = self.MoECombine(moe_output, token_mapped_slots)
         output = output.reshape(orig_shape)
-        return output
+        return (output, scores) if self._config.return_router_scores else output
 
     def AlltoAllV(self, x, token_snd_count=None, token_rcv_count=None):
         """AlltoAllV operation for distributed MoE.
