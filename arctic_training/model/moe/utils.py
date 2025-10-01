@@ -182,7 +182,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
             gate_up_is_split = 0
             for n, m in orig_experts.named_parameters():
                 if n == "gate_up_proj":  # gpt-oss
-                    arctic_moe.gate_up.copy_(m[local_expert_indices, ...])
+                    arctic_moe.expert_gate_up_weight.copy_(m[local_expert_indices, ...])
                 elif n == "gate_proj":
                     gate_up_is_split += 1
                     # copy_weights("gate_proj", arctic_moe._gate_proj.weight)
@@ -190,7 +190,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
                     gate_up_is_split += 1
                     # copy_weights("up_proj", arctic_moe.expert_intermediate_weights)
                 elif n == "down_proj":
-                    copy_weights("down_proj", arctic_moe.expert_output_weights)
+                    copy_weights("down_proj", arctic_moe.expert_down_weight)
 
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
             if gate_up_is_split == 2:
@@ -198,7 +198,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
                     [getattr(orig_experts[i], "gate_proj").weight for i in local_expert_indices]
                 )
                 up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight for i in local_expert_indices])
-                arctic_moe.gate_up = torch.cat((gate_stacked, up_stacked), dim=-1)
+                arctic_moe.expert_gate_up_weight = torch.cat((gate_stacked, up_stacked), dim=-1)
 
         # override the original with unified representation
         # 1. store the original structure for later restoration
