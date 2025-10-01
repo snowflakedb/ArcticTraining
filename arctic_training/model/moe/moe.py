@@ -32,8 +32,8 @@ class MoEConfig:
     top_k: int
     input_dtype: torch.dtype
     activation: str
-    is_gated: bool
     normalize_scores: bool
+    is_gated: bool = True
     loss_coeff: float = 0.01
     use_triton: bool = True
 
@@ -70,10 +70,18 @@ class ArcticMoE(nn.Module):
         num_local_experts = self.num_experts // self.ep_size
 
         # Initialize expert weights
-        self.expert_intermediate_weights = nn.Parameter(
-            torch.empty(num_local_experts, self.model_dim, self.intermediate_dim, dtype=self.input_dtype)
+        self.expert_gate_up_weight = nn.Parameter(
+            torch.empty(
+                num_local_experts,
+                self.model_dim,
+                (2 * self.intermediate_dim) if config.is_gated else self.intermediate_dim,
+                dtype=self.input_dtype,
+            )
         )
-        self.expert_output_weights = nn.Parameter(
+        self.gate_scale = 1.0
+        self.up_scale = 0.0
+
+        self.expert_down_weight = nn.Parameter(
             torch.empty(num_local_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
         )
 
@@ -92,9 +100,12 @@ class ArcticMoE(nn.Module):
         intermediate = torch.empty((n_topk_tokens, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
         # TODO(Reza): we need to add a transformation kernel that put the local-experts together!
         expert_count_cumsum = expert_token_rcv_count.view(-1, self.ep_size).sum(-1).cumsum(0)
-        intermediate = self.moegemm(x, self.expert_intermediate_weights, expert_count_cumsum)
-        intermediate = self._activation(intermediate) if self._activation else intermediate
-        output = self.moegemm(intermediate, self.expert_output_weights, expert_count_cumsum)
+        intermediate = self.moegemm(x, self.expert_gate_up_weight, expert_count_cumsum)
+        if self._config.is_gated:
+            gate, up = intermediate[0::2], intermediate[1::2]
+            gate = self._activation(gate * self.gate_scale) if self._activation else intermediate
+            intermediate = (up + self.up_scale) * up
+        output = self.moegemm(intermediate, self.expert_down_weight, expert_count_cumsum)
         return output
 
     def forward(self, hidden_states):
