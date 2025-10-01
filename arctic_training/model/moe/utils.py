@@ -198,7 +198,11 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
                     [getattr(orig_experts[i], "gate_proj").weight for i in local_expert_indices]
                 )
                 up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight for i in local_expert_indices])
-                arctic_moe.expert_gate_up_weight = torch.cat((gate_stacked, up_stacked), dim=-1)
+                # putting the gate and up weigths in every-other order to match arctic-moe style
+                gate_up_list = sum(
+                    [[gate_stacked[:, i, :], up_stacked[:, i, :]] for i in range(gate_stacked.size(1))], []
+                )
+                arctic_moe.expert_gate_up_weight = torch.cat(gate_up_list, dim=-1)
 
         # override the original with unified representation
         # 1. store the original structure for later restoration
