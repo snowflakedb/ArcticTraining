@@ -27,6 +27,7 @@ class HFSchedulerConfig(SchedulerConfig):
     name: str = "linear"
     warmup_ratio: HumanFloat = Field(default=0.1, ge=0.0, le=1.0)
     """ The fraction of total training steps used for linear learning rate warmup. """
+    scheduler_specific_kwargs: dict = {}
 
 
 class HFSchedulerFactory(SchedulerFactory):
@@ -39,5 +40,6 @@ class HFSchedulerFactory(SchedulerFactory):
             name=self.config.name,
             optimizer=optimizer,
             num_warmup_steps=num_warmup_steps * self.trainer.config.sequence_parallel_size,
+            scheduler_specific_kwargs=self.config.scheduler_specific_kwargs,
             num_training_steps=self.trainer.training_horizon * self.trainer.config.sequence_parallel_size,
         )
