@@ -136,6 +136,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
 
     # XXX: need a new yaml config?
     arctic_moe_config.use_triton = False
+    arctic_moe_config.is_gated = True
 
     expert_parallel_size = groups.get_expert_parallel_world_size
     expert_parallel_rank = groups.get_expert_parallel_rank
@@ -172,7 +173,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
         def copy_weights(from_name, to_param, local_expert_indices):
             if experts_is_a_list:  # ModuleList models like qwen
                 weight_stacked = torch.stack(
-                    [getattr(orig_experts[i], from_name).weight for i in local_expert_indices]
+                    [getattr(orig_experts[i], from_name).weight.T for i in local_expert_indices]
                 )
             else:  # gpt-oss-like models with a stack of experts weights
                 weight_stacked = getattr(orig_experts, from_name).weight[local_expert_indices, ...]
@@ -182,27 +183,27 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
             gate_up_is_split = 0
             for n, m in orig_experts.named_parameters():
                 if n == "gate_up_proj":  # gpt-oss
-                    arctic_moe.expert_gate_up_weight.copy_(m[local_expert_indices, ...])
+                    arctic_moe.expert_gate_up.copy_(m[local_expert_indices, ...])
                 elif n == "gate_proj":
                     gate_up_is_split += 1
                     # copy_weights("gate_proj", arctic_moe._gate_proj.weight)
                 elif n == "up_proj":
                     gate_up_is_split += 1
-                    # copy_weights("up_proj", arctic_moe.expert_intermediate_weights)
+                    # copy_weights("up_proj", arctic_moe.expert_intermediate)
                 elif n == "down_proj":
-                    copy_weights("down_proj", arctic_moe.expert_down_weight)
+                    copy_weights("down_proj", arctic_moe.expert_down)
 
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
             if gate_up_is_split == 2:
                 gate_stacked = torch.stack(
-                    [getattr(orig_experts[i], "gate_proj").weight for i in local_expert_indices]
+                    [getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices]
                 )
-                up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight for i in local_expert_indices])
+                up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight.T for i in local_expert_indices])
                 # putting the gate and up weigths in every-other order to match arctic-moe style
                 gate_up_list = sum(
-                    [[gate_stacked[:, i, :], up_stacked[:, i, :]] for i in range(gate_stacked.size(1))], []
+                    [[gate_stacked[..., i], up_stacked[..., i]] for i in range(gate_stacked.size(1))], []
                 )
-                arctic_moe.expert_gate_up_weight = torch.cat(gate_up_list, dim=-1)
+                arctic_moe.expert_gate_up = torch.cat(gate_up_list, dim=-1)
 
         # override the original with unified representation
         # 1. store the original structure for later restoration

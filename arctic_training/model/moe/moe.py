@@ -70,7 +70,7 @@ class ArcticMoE(nn.Module):
         num_local_experts = self.num_experts // self.ep_size
 
         # Initialize expert weights
-        self.expert_gate_up_weight = nn.Parameter(
+        self.expert_gate_up = nn.Parameter(
             torch.empty(
                 num_local_experts,
                 self.model_dim,
@@ -81,7 +81,7 @@ class ArcticMoE(nn.Module):
         self.gate_scale = 1.0
         self.up_scale = 0.0
 
-        self.expert_down_weight = nn.Parameter(
+        self.expert_down = nn.Parameter(
             torch.empty(num_local_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
         )
 
@@ -100,12 +100,12 @@ class ArcticMoE(nn.Module):
         intermediate = torch.empty((n_topk_tokens, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
         # TODO(Reza): we need to add a transformation kernel that put the local-experts together!
         expert_count_cumsum = expert_token_rcv_count.view(-1, self.ep_size).sum(-1).cumsum(0)
-        intermediate = self.moegemm(x, self.expert_gate_up_weight, expert_count_cumsum)
+        intermediate = self.moegemm(x, self.expert_gate_up, expert_count_cumsum)
         if self._config.is_gated:
-            gate, up = intermediate[0::2], intermediate[1::2]
+            gate, up = intermediate[..., 0::2], intermediate[..., 1::2]
             gate = self._activation(gate * self.gate_scale) if self._activation else intermediate
-            intermediate = (up + self.up_scale) * up
-        output = self.moegemm(intermediate, self.expert_down_weight, expert_count_cumsum)
+            intermediate = (up + self.up_scale) * gate
+        output = self.moegemm(intermediate, self.expert_down, expert_count_cumsum)
         return output
 
     def forward(self, hidden_states):
