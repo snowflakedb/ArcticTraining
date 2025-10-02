@@ -55,6 +55,7 @@ class BiencoderModelFactory(ModelFactory):
     def create_model(self, model_config: AutoConfig) -> Biencoder:
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
+
         trust_remote_code = arctic_training_model_config.kwargs.get("trust_remote_code", None)
         if arctic_training_model_config.pooling == "splade":
             print(f"🤨 model_config: {model_config}")
@@ -85,7 +86,30 @@ class BiencoderModelFactory(ModelFactory):
             model.encoder = get_peft_model(model.encoder, peft_config)
 
         if not self.config.disable_activation_checkpoint:
-            model.encoder.gradient_checkpointing_enable()
+            import torch
+
+            def enable_gc_every_n_layers(model, n=2, use_reentrant=False):
+                try:
+                    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": use_reentrant})
+                except TypeError:
+                    model.gradient_checkpointing_enable()
+
+                if hasattr(model, "layers"):
+                    for i, layer in enumerate(model.layers):
+                        if not hasattr(layer, "_gradient_checkpointing_func"):
+                            layer._gradient_checkpointing_func = (
+                                lambda f, *args, **kwargs: torch.utils.checkpoint.checkpoint(
+                                    f, *args, use_reentrant=use_reentrant, **kwargs
+                                )
+                            )
+                        layer.gradient_checkpointing = i % n == 0
+                else:
+                    raise ValueError(f"Model {model} has no `layers` attribute")
+
+                if hasattr(model, "config") and hasattr(model.config, "use_cache"):
+                    model.config.use_cache = False
+
             model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(model.encoder)
+            enable_gc_every_n_layers(model.encoder, n=1, use_reentrant=False)
 
         return model

@@ -41,7 +41,9 @@ from arctic_training.trainer.trainer import Trainer
 
 from .biencoder_model_factory import BiencoderModelConfig
 from .biencoder_model_factory import BiencoderModelFactory
-from .checkpointing import BiencoderCheckpointEngine
+
+# from .checkpointing import BiencoderCheckpointEngine
+from .biencoder_s3_checkpoint import BiencoderS3CheckpointEngine
 from .contrastive_dataloader import ContrastivePretokenizedDataConfig
 from .contrastive_dataloader import ContrastivePretokenizedDataFactory
 from .core.biencoder_model import Biencoder
@@ -151,7 +153,7 @@ def splade_flops_warmup_cb(self: BiencoderTrainer) -> None:
         self.config._splade_flops_warmup_steps = int(os.environ.get("SPLADE_FLOPS_WARMUP_STEPS", "2000"))
         self.config._splade_flops_weight_query_target = self.config.splade_flops_weight_query
         self.config._splade_flops_weight_doc_target = self.config.splade_flops_weight_doc
-    
+
     if self.global_step < self.config._splade_flops_warmup_steps:
         # Linear warmup from 0 to target
         warmup_factor = self.global_step / self.config._splade_flops_warmup_steps
@@ -168,7 +170,7 @@ class BiencoderTrainer(Trainer):
     config: BiencoderTrainerConfig
     data_factory: ContrastivePretokenizedDataFactory
     model_factory: BiencoderModelFactory
-    checkpoint_engine: BiencoderCheckpointEngine
+    checkpoint_engine: BiencoderS3CheckpointEngine
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: Union[WSDSchedulerFactory, HFSchedulerFactory]
     tokenizer_factory: FakeTokenizerFactory
@@ -185,7 +187,29 @@ class BiencoderTrainer(Trainer):
     def is_wandb_logger(self) -> bool:
         return self.global_rank == 0 and self.config.wandb.enable
 
+    def _recreate_dataloader_for_resume(self, start_batch_idx: int) -> None:
+        """Recreate dataloader to skip batches when resuming."""
+        if start_batch_idx > 0:
+            logger.info(f"Recreating dataloader to skip {start_batch_idx} batches for resume")
+            # Create new data factory with start_batch_idx
+            data_factory = self.config.data.factory(self)
+            self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)  # type: ignore[call-arg]
+
     def pre_train_callback(self) -> None:
+        # Synchronize all ranks before starting training
+        # This is especially important when resuming from checkpoint
+        if self.world_size > 1:
+            logger.info(f"Rank {self.global_rank} synchronizing before training starts...")
+            torch.distributed.barrier()
+            logger.info(f"Rank {self.global_rank} synchronized, starting training")
+
+        # Log training configuration for debugging
+        if self.global_rank == 0:
+            logger.info(
+                f"Starting training from batch_idx={self.train_batch_idx}, "
+                f"log_interval={self.config.train_log_iter_interval}"
+            )
+
         # Turn on weights and biases on the master worker.
         if self.is_wandb_logger:
             import wandb
@@ -283,11 +307,7 @@ class BiencoderTrainer(Trainer):
 
         # Remove L1 regularizer in favor of SPLADE v2 FLOPs regularizers per side.
         # Keep code path off unless legacy weight is set.
-        if (
-            isinstance(model_core, Biencoder)
-            and model_core.pooling == "splade"
-            and self.config.splade_reg_weight > 0
-        ):
+        if isinstance(model_core, Biencoder) and model_core.pooling == "splade" and self.config.splade_reg_weight > 0:
             # No-op by default; legacy users can still get old behavior if they set this.
             reg_q = query_embeddings.abs().sum(dim=1).mean()
             reg_d = document_embeddings.abs().sum(dim=1).mean()
@@ -321,12 +341,8 @@ class BiencoderTrainer(Trainer):
             # SPLADE average active terms per query/doc for this step.
             if isinstance(model_core, Biencoder) and model_core.pooling == "splade":
                 thr = self.config.splade_nnz_threshold
-                metrics["train/avg_terms_query"] = (
-                    (query_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
-                )
-                metrics["train/avg_terms_doc"] = (
-                    (document_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
-                )
+                metrics["train/avg_terms_query"] = (query_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
+                metrics["train/avg_terms_doc"] = (document_embeddings > thr).to(torch.float32).sum(dim=1).mean().item()
             if loss_truncated is not None:
                 truncated_loss_name = f"train/loss_truncate_{self.config.mrl_dim}"
                 metrics[truncated_loss_name] = loss_truncated.item()
