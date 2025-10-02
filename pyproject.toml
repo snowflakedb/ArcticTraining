@@ -61,7 +61,7 @@ dependencies = [
     "peft",
     "psutil",
     "pydantic>=2.10",
-    "pynvml",
+    "nvidia-ml-py",
     "tabulate",
     "torch",
     "tqdm",
