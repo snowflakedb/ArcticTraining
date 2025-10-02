@@ -46,7 +46,7 @@ class UniqueKeyLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep)
 
 
-def parse_human_val(value: Union[str]) -> float:
+def parse_human_val(value: str) -> float:
     if not isinstance(value, str):
         raise ValueError("Non-string values are not supported")
 
