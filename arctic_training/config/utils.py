@@ -47,6 +47,8 @@ class UniqueKeyLoader(yaml.SafeLoader):
 
 
 def parse_human_val(value: Union[str, int, float]) -> float:
+    if isinstance(value, bool):
+        raise ValueError("Boolean values are not supported")
     if isinstance(value, str):
         value = value.replace("_", "")
         value = value.lower().strip()
