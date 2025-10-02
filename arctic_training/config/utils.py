@@ -46,7 +46,11 @@ class UniqueKeyLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep)
 
 
-def parse_human_val(value: str) -> float:
+def parse_human_val(value: Union[str, int, float]) -> Union[int, float]:
+    if isinstance(value, (int, float)):
+        # Already a number, return as is
+        return value
+
     if not isinstance(value, str):
         # This error will not be raised to user, just prevent transformation of non-strings
         raise ValueError("Non-string values are not supported")
