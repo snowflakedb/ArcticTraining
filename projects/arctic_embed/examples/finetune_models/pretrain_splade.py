@@ -180,8 +180,8 @@ if __name__ == "__main__":
         mrl_dim=None,
         splade_reg_weight=float(os.getenv("SPLADE_REG_WEIGHT", "0.0")),
         # Per-side SPLADE v2 FLOPs regularizers.
-        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-2")),
-        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-5")),
+        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-1")),
+        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-4")),
         splade_nnz_threshold=float(os.getenv("SPLADE_NNZ_THRESHOLD", "0")),
     )
     trainer = BiencoderTrainer(config=tconf)
