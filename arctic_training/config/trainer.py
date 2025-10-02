@@ -141,7 +141,11 @@ class TrainerConfig(BaseConfig):
     train_iters: HumanInt = Field(default=0, ge=0)
     """ Maximum number of training iterations. """
 
-    eval_frequency: int = Field(default=0, ge=0)
+    eval_interval: HumanInt = Field(default=0, ge=0)
+    """ Number of iterations between evaluations. If 0, no evaluation is performed. """
+
+    eval_log_iter_interval: HumanInt = Field(default=1, ge=0)
+    """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
     """ Force exit of training after specified iteration count (useful for debugging). """
@@ -163,6 +167,20 @@ class TrainerConfig(BaseConfig):
 
     kill_switch_path: Path = Path("/tmp/at_kill_switch")
     """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
+
+    @model_validator(mode="after")
+    def set_max_length(self) -> Self:
+        if "max_length" not in self.data.model_fields_set:
+            from transformers import AutoConfig
+
+            model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+            if not hasattr(model_config, "max_position_embeddings"):
+                raise ValueError(
+                    f"Model config for {self.model.name_or_path} does not have a `max_position_embeddings` settings."
+                    " Set `data.max_length` in your config."
+                )
+            self.data.max_length = model_config.max_position_embeddings
+        return self
 
     @model_validator(mode="after")
     def init_dist(self) -> Self:
@@ -316,9 +334,13 @@ class TrainerConfig(BaseConfig):
         return cast(TokenizerConfig, subconfig)
 
     @model_validator(mode="after")
-    def validate_eval_frequency(self) -> Self:
+    def validate_eval_interval(self) -> Self:
         if self.data.eval_sources or self.data.train_eval_split[1] > 0.0:
-            assert self.eval_frequency > 0, "eval_frequency must be set if eval dataset is provided."
+            assert self.eval_interval > 0, "`eval_interval` must be set if eval dataset is provided."
+        if self.eval_interval > 0:
+            assert (
+                self.data.eval_sources or self.data.train_eval_split[1] > 0.0
+            ), "`eval_interval` must be set only if eval dataset is provided."
         return self
 
     @model_validator(mode="after")
@@ -364,14 +386,30 @@ class TrainerConfig(BaseConfig):
         ds_config["gradient_accumulation_steps"] = self.gradient_accumulation_steps
         ds_config["sequence_parallel_size"] = self.sequence_parallel_size
         ds_config["steps_per_print"] = ds_config.get("steps_per_print", 10)
+
+        from transformers import AutoConfig
+
+        model_config = AutoConfig.from_pretrained(self.model.name_or_path)
+        if hasattr(model_config, "hidden_size"):
+            hidden_size = model_config.hidden_size
+        elif hasattr(model_config, "hidden_sizes"):
+            # if there are many hidden sizes pick the largest one
+            hidden_size = max(model_config.hidden_sizes)
+        else:
+            raise ValueError(
+                "Can find neither `model_config.hidden_size` nor `model_config.hidden_sizes`, in the "
+                f" {self.model.name_or_path}'s config"
+            )
+
+        # the following defaults come from the Deepspeed team recommendation
         ds_config["zero_optimization"] = ds_config.get(
             "zero_optimization",
             {
                 "stage": 2,
-                "stage3_param_persistence_threshold": 1e4,
-                "stage3_max_live_parameters": 3e7,
-                "stage3_prefetch_bucket_size": 3e7,
-                "memory_efficient_linear": False,
+                "stage3_param_persistence_threshold": 10 * hidden_size,
+                "stage3_max_live_parameters": 2 * hidden_size * hidden_size,
+                "stage3_prefetch_bucket_size": int(0.9 * hidden_size * hidden_size),
+                "reduce_bucket_size": hidden_size * hidden_size,
             },
         )
         if "bfloat16" not in ds_config:

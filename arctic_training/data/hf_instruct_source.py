@@ -30,7 +30,9 @@ from arctic_training.data.utils import DatasetType
 
 # Known datasets with their default role mappings
 KNOWN_HF_INSTRUCT_DATASETS: Dict[str, Dict[str, Any]] = {
-    "nvidia/AceMath-Instruct-Training-Data": dict(role_mapping=dict(user="messages.role.user", assistant="answers")),
+    "nvidia/AceMath-Instruct-Training-Data": dict(
+        role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")
+    ),
     "HuggingFaceH4/ultrachat_200k": dict(
         role_mapping=dict(user="messages.role.user", assistant="messages.role.assistant")
     ),
@@ -112,6 +114,12 @@ class HFDataSourceInstruct(HFDataSource):
 
             return {"messages": messages}
 
+        # TODO: make it so this special case is not necessary
+        if self.config.name_or_path == "nvidia/AceMath-Instruct-Training-Data":
+            dataset = dataset.map(
+                lambda example: {"messages": example["messages"] + [dict(role="assistant", content=example["answer"])]}
+            )
+
         return dataset.map(
             process_example,
             num_proc=self.data_factory.config.num_proc,
@@ -120,16 +128,20 @@ class HFDataSourceInstruct(HFDataSource):
 
     def _extract_messages_from_paths(self, example: Dict[str, Any]) -> List[Dict[str, str]]:
         """Extract messages using flexible path-based mapping."""
-        messages = []
+        messages: Dict[str, List] = {role: [] for role in self.config.role_mapping.keys()}
 
         for role, path_spec in self.config.role_mapping.items():
             contents = self._extract_content_from_path(example, path_spec)
 
             for content in contents:
                 if content:
-                    messages.append({"role": role, "content": content})
+                    messages[role].append({"role": role, "content": content})
 
-        return messages
+        # filter out zero-length
+        messages = {role: msgs for role, msgs in messages.items() if len(msgs) > 0}
+
+        # zip and then flatten
+        return [msg for msgs in zip(*messages.values()) for msg in msgs]
 
     def _extract_content_from_path(self, data: Dict[str, Any], path_spec: str) -> List[str]:
         """

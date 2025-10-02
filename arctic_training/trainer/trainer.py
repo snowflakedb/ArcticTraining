@@ -151,13 +151,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
-        self.eval_batch_idx = 0
         self.early_stop = False
         self.world_size = config.world_size
         self.global_rank = config.global_rank
         self.epoch_finished = False
         self.training_finished = False
         self.wandb_experiment: Optional[WandbRun] = None
+        self.is_resume = False  # Track if we resumed from ckpt
 
         self._set_seeds(self.config.seed)
 
@@ -168,7 +168,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.tokenizer = tokenizer_factory()
 
         data_factory = self.config.data.factory(self)
-        self.train_dataloader, self.eval_dataloader_map = data_factory()
+        self.train_dataloader, self.eval_dataloader = data_factory()
         if mode == "process-data":
             return
 
@@ -211,10 +211,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
-        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation != "flash_attention_2":
+        if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [
+            "flash_attention_2",
+            "flash_attention_3",
+        ]:
             import transformers.masking_utils
 
-            transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] = lambda *args, **kwargs: None
+            transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -249,11 +252,23 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 device=self.device,
             )
 
+            if self.eval_dataloader is not None:
+                self.eval_dataloader = UlyssesSPDataLoaderAdapter(
+                    self.eval_dataloader,
+                    sp_rank=self.sp_rank,
+                    sp_group=self.sp_group,
+                    sp_world_size=self.sp_world_size,
+                    device=self.device,
+                )
+
         self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
 
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
                 engine.load(self.model)
+                # Check if we actually loaded a checkpoint by seeing if global_step changed
+                if self.global_step > 0:
+                    self.is_resume = True
 
         self.metrics = Metrics(self)
 
@@ -306,6 +321,19 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             unit="batch",
             disable=(self.global_rank != 0) or (self.config.train_log_iter_interval != 0),
         )
+
+    @property
+    def eval_batches(self) -> tqdm:
+        """Evaluation data iterator."""
+        return tqdm(
+            self.eval_dataloader,
+            desc="Eval Batches",
+            unit="batch",
+            disable=self.global_rank != 0 or not self.is_eval_log_iter(),
+        )
+
+    def is_eval_log_iter(self) -> bool:
+        return self.global_step // self.config.eval_interval % self.config.eval_log_iter_interval == 0
 
     @cached_property
     def device(self) -> torch.device:
@@ -360,7 +388,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.step()
 
-        # use deepspeed global step as golden truth
+        # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
         if self.global_step >= self.training_horizon:
             self.early_stop = True
@@ -385,19 +413,23 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.mem_profiler == "step":
             torch.cuda.memory._record_memory_history(max_entries=self.config.mem_profiler_max_entries)
 
-        for batch in self.train_batches:
+        batch_iterator = iter(self.train_batches)
+        if self.is_resume:
+            logger.info(f"Resumed from checkpoint at global step: {self.global_step}.")
+            batches_to_skip = self.global_step % len(self.train_dataloader)
+            logger.info(f"Advancing {batches_to_skip} batches.")
+            for _ in range(batches_to_skip):
+                next(batch_iterator)
+            self.train_batch_idx += batches_to_skip
+            self.is_resume = False
+
+        for batch in batch_iterator:
             self.train_batch_idx += 1
 
-            if (
-                self.config.gradient_accumulation_steps == 1
-                or self.train_batch_idx % self.config.gradient_accumulation_steps == 0
-            ):
-                self.gas_boundary = True
-            else:
-                self.gas_boundary = False
+            self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0
 
-            if "packed_sample_seqlens" in batch and self.config.model.attn_implementation == "flash_attention_2":
-                # deal correctly with packed samples under FA2, by calculating each seqlen tflos separately
+            if "packed_sample_seqlens" in batch and "flash_attention" in self.config.model.attn_implementation:
+                # deal correctly with packed samples under FA2/FA3, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
                 sample_seqlens = [
@@ -412,21 +444,32 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if (
-                self.config.train_log_iter_interval != 0
-                and self.train_batch_idx % self.config.train_log_iter_interval == 0
-            ):
+            if self.config.train_log_iter_interval != 0:
                 self.metrics.print_summary()
-                if self.global_rank == 0 and self.gas_boundary:
 
+            if self.gas_boundary:
+                if (
+                    self.global_rank == 0
+                    and self.config.train_log_iter_interval != 0
+                    and self.global_step % self.config.train_log_iter_interval == 0
+                ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
-                    # first iter is a massive outlier for many fields - so skip it in wandb
-                    if self.wandb_experiment is not None and self.train_batch_idx > 1:
-                        metrics.pop("iter")  # not needed for wandb
-                        self.wandb_experiment.log(metrics, step=self.model.global_steps)
+                    if self.wandb_experiment is not None:
+                        metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
+                        self.wandb_experiment.log(metrics, step=self.global_step)
+
+                if self.config.eval_interval != 0 and self.global_step % self.config.eval_interval == 0:
+                    self.evaluate()
+
+                    if self.is_eval_log_iter():
+                        self.metrics.print_summary(prefix="eval")
+
+                        if self.wandb_experiment is not None:
+                            metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
+                            self.wandb_experiment.log(metrics, step=self.global_step)
 
             if self.config.kill_switch_path.exists():
                 self.early_stop = True
@@ -461,6 +504,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             if self.wandb_experiment is not None:
                 self.wandb_experiment.finish()
+
+    @callback_wrapper("evaluate")
+    def evaluate(self) -> None:
+        """
+        Evaluation loop. Measures the model's performance on the evaluation dataset.
+        """
+        self.model.eval()
+        with torch.no_grad():
+            losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
+        self.metrics.record("loss/eval", losses)  # type: ignore
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:

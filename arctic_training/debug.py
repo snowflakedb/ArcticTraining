@@ -38,8 +38,25 @@ torch_max_memory_reserved = get_accelerator().max_memory_reserved
 pynvml_handle = None
 
 
-def get_local_rank():
-    return int(os.getenv("LOCAL_RANK", 0))
+def get_device_id():
+    """
+    Derive the device id running this rank with the help of LOCAL_RANK and CUDA_VISIBLE_DEVICES env vars. The device id is
+    needed for applications like pynvml.
+
+    returns `None` if CUDA_VISIBLE_DEVICES is set to ""
+    """
+
+    cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "0")
+    if cuda_visible_devices == "":
+        return None
+    visible_device_ids = list(map(int, cuda_visible_devices.split(",")))
+
+    if dist.is_initialized():
+        local_rank = int(os.getenv("LOCAL_RANK", 0))
+    else:
+        local_rank = 0
+
+    return visible_device_ids[local_rank]
 
 
 def get_nvml_mem():
@@ -49,8 +66,10 @@ def get_nvml_mem():
         return 0
 
     if pynvml_handle is None:
-        rank = get_local_rank() if dist.is_initialized() else 0
-        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(rank)
+        device_id = get_device_id()
+        if device_id is None:
+            return 0
+        pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
         # pynvml.nvmlShutdown()
     memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
     return memory_info.used

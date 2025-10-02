@@ -1,17 +1,15 @@
 type: sft
 micro_batch_size: 1
-min_iterations: 6
-exit_iteration: 6
-#activation_checkpoint_cpu_offload: true
-#tiled_mlp_compute: true
-
-sequence_parallel_size: 1
+exit_iteration: 4
+min_iterations: 4
+sequence_parallel_size: 8
 
 deepspeed:
   zero_optimization:
     stage: 3
     offload_optimizer:
       device: cpu
+
   seq_parallel_communication_data_type: bf16
 
 optimizer:
@@ -34,12 +32,12 @@ data:
         user: messages.role.user
         assistant: messages.role.assistant
 
+
   cache_dir: data-cache
 
   dl_num_workers: 1
 
-  max_length: 36_000 # ok
-
+  max_length: 32_000
 
 logger:
   level: WARNING

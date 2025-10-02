@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import random
+import re
 from typing import Dict
 from typing import List
 from typing import Literal
@@ -22,10 +23,10 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from datasets import concatenate_datasets
 from pydantic import Field
 from pydantic import model_validator
 from torch.utils.data import DataLoader
-from torch.utils.data import DistributedSampler
 from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 from typing_extensions import Self
@@ -258,6 +259,12 @@ class SFTDataConfig(DataConfig):
     with probability equal to the value of this configuration parameter.
     """
 
+    repeat_to_pack_max_length: bool = False
+    """ Whether to repeat the dataset samples to get closer to `max_length` for a packed sample. """
+
+    ignore_empty_think: bool = False
+    """ Whether to mask the empty think tokens preventing the loss of thinking ability."""
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -291,9 +298,38 @@ def filter_dataset_length(self, dataset: DatasetType) -> DatasetType:
     return dataset
 
 
+def repeat_dataset(dataset: DatasetType, max_length: int, num_proc: int) -> DatasetType:
+    lengths = dataset.map(
+        lambda x: {"n_tokens": len(x["input_ids"])},
+        remove_columns=dataset.column_names,
+        num_proc=num_proc,
+        desc="Count tokens",
+    )["n_tokens"]
+    total_tokens_per_round = sum(lengths)
+
+    # Calculate repeats and number of tokens to allocate in the final repeat
+    repeats = max(1, max_length // total_tokens_per_round)
+    tokens_used = repeats * total_tokens_per_round
+    remaining_tokens = max_length - tokens_used
+
+    # Figure out how many samples to include from the final repeat
+    partial_len, end_idx = 0, 0
+    for length in lengths:
+        if partial_len + length > remaining_tokens:
+            break
+        partial_len += length
+        end_idx += 1
+
+    # Final dataset = full repeats + partial
+    return concatenate_datasets([dataset] * repeats + [dataset.select(range(end_idx))])
+
+
 def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     if not self.config.pack_samples:
         return dataset
+
+    if self.config.repeat_to_pack_max_length:
+        dataset = repeat_dataset(dataset=dataset, max_length=self.config.max_length, num_proc=self.config.num_proc)
 
     batch_size = len(dataset) // self.config.num_proc + 1
     dataset = dataset.shuffle(seed=self.config.seed)
@@ -343,6 +379,7 @@ class SFTDataFactory(DataFactory):
                     ex["messages"],
                     self.tokenizer,
                     mask_inputs=self.config.mask_inputs,
+                    ignore_empty_think=self.config.ignore_empty_think,
                 )
             },
             remove_columns=dataset.column_names,
@@ -356,6 +393,7 @@ class SFTDataFactory(DataFactory):
         messages: List[Dict[str, str]],
         tokenizer: PreTrainedTokenizerBase,
         mask_inputs: bool = True,
+        ignore_empty_think: bool = False,
     ) -> BatchEncoding:
         conversation_text = tokenizer.apply_chat_template(conversation=messages, tokenize=False)
         conversation_ids = tokenizer(
@@ -365,7 +403,7 @@ class SFTDataFactory(DataFactory):
         )
 
         if mask_inputs:
-            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text)
+            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text, ignore_empty_think)
             # _ = get_assistant_start_end_indices(messages, conversation_text)
             labels = cls.get_masked_labels(conversation_ids, assistant_ranges)
             conversation_ids["labels"] = labels
@@ -379,12 +417,16 @@ class SFTDataFactory(DataFactory):
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
     def get_assistant_start_end_indices(
-        messages: List[Dict[str, str]], conversation_text: str
+        messages: List[Dict[str, str]],
+        conversation_text: str,
+        ignore_empty_think: bool = False,
     ) -> List[Tuple[int, int]]:
         return_indices = []
         for message in messages:
             if message["role"] == "assistant":
                 message_text = message["content"]
+                if ignore_empty_think:
+                    message_text = re.sub(r"^<think>\s*</think>\s*", "", message_text)
                 match_index = conversation_text.find(message_text)
                 # start_indices.append(match_index)
                 end_indices = match_index + len(message_text)
@@ -422,11 +464,6 @@ class SFTDataFactory(DataFactory):
         return output
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        return DataLoader(
-            dataset,
-            collate_fn=DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config),
-            batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank),
-            num_workers=self.config.dl_num_workers,
-            drop_last=True,
-        )
+        dataloader = super().create_dataloader(dataset)
+        dataloader.collate_fn = DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config)
+        return dataloader

@@ -31,7 +31,7 @@ class LigerModelFactory(HFModelFactory):
             raise ImportError(
                 "You need to install the liger-kernel package to use LigerKernel models: `pip install liger-kernel`"
             )
-        liger_version_min = "0.5.9"  # shift_labels support
+        liger_version_min = "0.6.1"  # int64 indexing
         liger_version_have = importlib.metadata.version("liger_kernel")
         if version.parse(liger_version_have) < version.parse(liger_version_min):
             raise ValueError(
@@ -42,10 +42,18 @@ class LigerModelFactory(HFModelFactory):
         swiglu = False if self.trainer.config.tiled_mlp_compute else True
         # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
 
-        return AutoLigerKernelForCausalLM.from_pretrained(
-            self.config.name_or_path,
-            config=model_config,
-            attn_implementation=self.config.attn_implementation,
-            torch_dtype=self.config.dtype.value,
-            swiglu=swiglu,
-        )
+        try:
+            return AutoLigerKernelForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+                swiglu=swiglu,
+            )
+        except KeyError as e:
+            raise ValueError(
+                f"It appears that liger-kernel=={liger_version_have} doesn't support the architecture of"
+                f" {self.config.name_or_path}, perhaps try the latest liger-kernel version. It can't find {e}."
+            )
+        except Exception:
+            raise

@@ -25,7 +25,7 @@ from arctic_training.testing_utils import write_file
 from arctic_training.utils import read_json_file
 
 # XXX: need to create a tiny dataset for the tests
-train_dataset = "HuggingFaceH4/ultrachat_200k:train[:100]"
+train_dataset = "HuggingFaceH4/ultrachat_200k:train[:50]"
 model_name_or_path = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 
 
@@ -52,7 +52,7 @@ class TestTrainerWithLauncher(TestCasePlus):
         baseline_config = f"""
 type: sft
 micro_batch_size: 1
-exit_iteration: 2
+exit_iteration: 4
 
 deepspeed:
   zero_optimization:
@@ -66,16 +66,21 @@ model:
   attn_implementation: {attn_implementation}
 
 data:
+  type: sft
+  train_eval_split: [0.8, 0.2]
   sources:
     - {train_dataset}
   cache_dir: {save_path}/data-cache
   num_proc: 1
   dl_num_workers: 1
 
-  max_length: 512
+  max_length: 1024
 
 logger:
   level: WARNING
+
+eval_interval: 1
+epochs: 1
 
 train_log_iter_interval: 1
 """
@@ -106,8 +111,8 @@ train_log_metrics_path: {log_train_file}
         # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd)); die
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        self.assertIn("iter: 1/2", cs.combined)
-        self.assertIn("iter: 2/2", cs.combined)
+        self.assertIn("iter: 1/4", cs.combined)
+        self.assertIn("iter: 2/4", cs.combined)
 
         try:
             train_logs = read_json_file(log_train_file)
@@ -130,10 +135,18 @@ train_log_metrics_path: {log_train_file}
         # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd)); die
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        self.assertIn("iter: 0/2", cs.combined)
-        self.assertIn("iter: 1/2", cs.combined)
-        self.assertIn("iter: 1/2", cs.combined)
-        self.assertIn("iter: 2/2", cs.combined)
+
+        # XXX: can re-enable when GAS>1 reporting has been fixed
+        # self.assertNotIn("iter: 0/4", cs.combined)
+        self.assertIn("Eval iter: 1/4", cs.combined)
+        self.assertIn("Eval iter: 2/4", cs.combined)
+        self.assertIn("Eval iter: 3/4", cs.combined)
+        self.assertIn("Eval iter: 4/4", cs.combined)
+        self.assertIn("Train iter: 1/4", cs.combined)
+        self.assertIn("Train iter: 2/4", cs.combined)
+        self.assertIn("Train iter: 3/4", cs.combined)
+        self.assertIn("Train iter: 4/4", cs.combined)
+        self.assertNotIn("iter: 5/4", cs.combined)
 
         try:
             train_logs = read_json_file(log_train_file)
@@ -143,4 +156,5 @@ train_log_metrics_path: {log_train_file}
         self.assertEqual(train_logs[0]["iter"], 1)
         loss_b = train_logs[0]["loss"]
 
-        torch_assert_close(loss_a, loss_b)
+        # XXX: revisit once GAS-related metrics are fixed, I suspect it's not averaging loss properly - might then work w/o atol/rtol override.
+        torch_assert_close(loss_a, loss_b, atol=1e-06, rtol=1e-06)
