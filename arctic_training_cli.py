@@ -50,6 +50,16 @@ def main():
         help="Operation mode, 'process-data' will run the data processing pipeline.",
     )
     parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
+    parser.add_argument(
+        "--python_profile",
+        type=str,
+        choices=["tottime", "cumtime", "disable"],
+        default="disable",
+        help=(
+            "Train under Python profile. Sort results by tottime or cumtime. This is an experimental feature and the"
+            " API is likely to change"
+        ),
+    )
     args, deepspeed_args = parser.parse_known_args()
 
     if not args.config.exists():
@@ -68,6 +78,8 @@ def main():
             args.mode,
             "--config",
             str(args.config),
+            "--python_profile",
+            str(args.python_profile),
         ]
     )
 

@@ -44,6 +44,16 @@ def launch():
         default=int(os.getenv("LOCAL_RANK", 0)),
         help="Local rank of the process.",
     )
+    parser.add_argument(
+        "--python_profile",
+        type=str,
+        choices=["tottime", "cumtime", "disable"],
+        default="disable",
+        help=(
+            "Train under Python profile. Sort results by tottime or cumtime. This is an experimental feature and the"
+            " API is likely to change"
+        ),
+    )
     args = parser.parse_args()
 
     if not args.config.exists():
@@ -53,7 +63,20 @@ def launch():
     trainer_cls = get_registered_trainer(name=config.type)
     trainer = trainer_cls(config, mode=args.mode)
     if args.mode == "train":
-        trainer.train()
+
+        def train():
+            trainer.train()
+
+        if args.python_profile == "disable" or args.local_rank != 0:
+            train()
+        else:
+            # run profiler on rank 0
+            # XXX: how do we prent it from running on other nodes?
+            import cProfile
+            from pstats import SortKey
+
+            sort_key = SortKey.TIME if args.python_profile == "tottime" else SortKey.CUMULATIVE
+            cProfile.runctx("train()", None, locals(), sort=sort_key)
 
     if dist.is_initialized():
         dist.barrier()
