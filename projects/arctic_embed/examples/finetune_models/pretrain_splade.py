@@ -38,7 +38,7 @@ from arctic_embed.trainer import BiencoderTrainer
 from arctic_embed.trainer import BiencoderTrainerConfig
 from transformers import AutoTokenizer
 
-from arctic_training.config.checkpoint import CheckpointConfig
+from arctic_training.config.checkpoint import BiencoderS3CheckpointConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.wandb import WandBConfig
@@ -130,11 +130,19 @@ dsconf = {
     # this risk.
     "communication_data_type": "fp32",
 }
-cconf = CheckpointConfig(
-    output_dir=checkpoint_dir,
-    type="biencoder",
+# S3 Checkpoint configuration (always required)
+# Local cache directory
+local_cache_dir = Path("/tmp") / "arctic_embed_checkpoints_cache"
+local_cache_dir.mkdir(parents=True, exist_ok=True)
+
+cconf = BiencoderS3CheckpointConfig(
+    output_dir=local_cache_dir,  # Used as staging directory
+    s3_path="s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/answerdotai_ModernBERT_base/splade_checkpoints_1e-1_1e-4",
+    local_cache_dir=str(local_cache_dir),
+    max_local_checkpoints=3,
     save_every_n_steps=300,
     save_end_of_training=True,
+    auto_resume=True,
 )
 
 
