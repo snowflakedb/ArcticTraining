@@ -89,7 +89,7 @@ mconf = BiencoderModelConfig(
         "unpad_inputs": True,
         "use_memory_efficient_attention": True,
     },
-    dtype="fp32",
+    dtype="bf16",
     attn_implementation="flash_attention_2",
 )
 dconf = ContrastivePretokenizedDataConfig(
@@ -100,8 +100,8 @@ dconf = ContrastivePretokenizedDataConfig(
     # Depending on how much GPU memory you have, you may need to split each
     # batch into a number of smaller sub-batches by setting the split_factor.
     # If you do so, you will probably want to decrease the learning rate accordingly.
-    split_factor=16,
-    eval_split_factor=16,
+    split_factor=8,
+    eval_split_factor=8,
     max_seq_length_query=32,
     max_seq_length_doc=256,
     eval_root_directories=EVAL_DATA_PATHS,
@@ -180,8 +180,8 @@ if __name__ == "__main__":
         mrl_dim=None,
         splade_reg_weight=float(os.getenv("SPLADE_REG_WEIGHT", "0.0")),
         # Per-side SPLADE v2 FLOPs regularizers.
-        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-2")),
-        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-5")),
+        splade_flops_weight_query=float(os.getenv("SPLADE_FLOPS_WEIGHT_QUERY", "1e-1")),
+        splade_flops_weight_doc=float(os.getenv("SPLADE_FLOPS_WEIGHT_DOC", "1e-4")),
         splade_nnz_threshold=float(os.getenv("SPLADE_NNZ_THRESHOLD", "0")),
     )
     trainer = BiencoderTrainer(config=tconf)
