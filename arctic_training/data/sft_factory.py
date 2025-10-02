@@ -417,7 +417,8 @@ class SFTDataFactory(DataFactory):
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
     def get_assistant_start_end_indices(
-        messages: List[Dict[str, str]], conversation_text: str,
+        messages: List[Dict[str, str]],
+        conversation_text: str,
         ignore_empty_think: bool = False,
     ) -> List[Tuple[int, int]]:
         return_indices = []
