@@ -48,6 +48,7 @@ class UniqueKeyLoader(yaml.SafeLoader):
 
 def parse_human_val(value: str) -> float:
     if not isinstance(value, str):
+        # This error will not be raised to user, just prevent transformation of non-strings
         raise ValueError("Non-string values are not supported")
 
     value = value.replace("_", "")
