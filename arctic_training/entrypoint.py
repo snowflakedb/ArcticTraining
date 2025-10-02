@@ -71,7 +71,7 @@ def launch():
             train()
         else:
             # run profiler on rank 0
-            # XXX: how do we prent it from running on other nodes?
+            # XXX: how do we prevent it from running on other nodes?
             import cProfile
             from pstats import SortKey
 
