@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import random
+import re
 from typing import Dict
 from typing import List
 from typing import Literal
@@ -261,6 +262,9 @@ class SFTDataConfig(DataConfig):
     repeat_to_pack_max_length: bool = False
     """ Whether to repeat the dataset samples to get closer to `max_length` for a packed sample. """
 
+    ignore_empty_think: bool = False
+    """ Whether to mask the empty think tokens preventing the loss of thinking ability."""
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -375,6 +379,7 @@ class SFTDataFactory(DataFactory):
                     ex["messages"],
                     self.tokenizer,
                     mask_inputs=self.config.mask_inputs,
+                    ignore_empty_think=self.config.ignore_empty_think,
                 )
             },
             remove_columns=dataset.column_names,
@@ -388,6 +393,7 @@ class SFTDataFactory(DataFactory):
         messages: List[Dict[str, str]],
         tokenizer: PreTrainedTokenizerBase,
         mask_inputs: bool = True,
+        ignore_empty_think: bool = False,
     ) -> BatchEncoding:
         conversation_text = tokenizer.apply_chat_template(conversation=messages, tokenize=False)
         conversation_ids = tokenizer(
@@ -397,7 +403,7 @@ class SFTDataFactory(DataFactory):
         )
 
         if mask_inputs:
-            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text)
+            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text, ignore_empty_think)
             # _ = get_assistant_start_end_indices(messages, conversation_text)
             labels = cls.get_masked_labels(conversation_ids, assistant_ranges)
             conversation_ids["labels"] = labels
@@ -411,12 +417,15 @@ class SFTDataFactory(DataFactory):
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
     def get_assistant_start_end_indices(
-        messages: List[Dict[str, str]], conversation_text: str
+        messages: List[Dict[str, str]], conversation_text: str,
+        ignore_empty_think: bool = False,
     ) -> List[Tuple[int, int]]:
         return_indices = []
         for message in messages:
             if message["role"] == "assistant":
                 message_text = message["content"]
+                if ignore_empty_think:
+                    message_text = re.sub(r"^<think>\s*</think>\s*", "", message_text)
                 match_index = conversation_text.find(message_text)
                 # start_indices.append(match_index)
                 end_indices = match_index + len(message_text)
