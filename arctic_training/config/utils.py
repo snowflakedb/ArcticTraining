@@ -46,37 +46,37 @@ class UniqueKeyLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep)
 
 
-def parse_human_val(value: Union[str, int, float]) -> float:
-    if isinstance(value, bool):
-        raise ValueError("Boolean values are not supported")
-    if isinstance(value, str):
-        value = value.replace("_", "")
-        value = value.lower().strip()
+def parse_human_val(value: Union[str]) -> float:
+    if not isinstance(value, str):
+        raise ValueError("Non-string values are not supported")
 
-        # Handle percentage values
-        if value.endswith("%"):
-            return float(value[:-1]) / 100
+    value = value.replace("_", "")
+    value = value.lower().strip()
 
-        # Handle X^Y expressions
-        match_exp = re.match(r"^(-?\d+\.?\d?)\^(-?\d+\.?\d?)$", value)
-        if match_exp:
-            base, exp = map(float, match_exp.groups())
-            sign = -1 if base < 0 else 1
-            return sign * abs(base) ** exp
+    # Handle percentage values
+    if value.endswith("%"):
+        return float(value[:-1]) / 100
 
-        # Handle XeY expressions
-        match_exp = re.match(r"^(-?\d+\.?\d?)e(-?\d+\.?\d?)$", value)
-        if match_exp:
-            base, exp = map(float, match_exp.groups())
-            return base * 10**exp
+    # Handle X^Y expressions
+    match_exp = re.match(r"^(-?\d+\.?\d?)\^(-?\d+\.?\d?)$", value)
+    if match_exp:
+        base, exp = map(float, match_exp.groups())
+        sign = -1 if base < 0 else 1
+        return sign * abs(base) ** exp
 
-        # Handle suffixes like k, m, b (base 10) and ki, mi, gi (base 2)
-        suffixes = {s: 10 ** (i * 3) for i, s in enumerate(("k", "m", "b", "t"), start=1)}
-        suffixes.update({s: 2 ** (i * 10) for i, s in enumerate(("ki", "mi", "gi", "ti"), start=1)})
-        match_suffix = re.match(rf"^(-?\d+\.?\d?)({'|'.join(suffixes.keys())})$", value)
-        if match_suffix:
-            num, suffix = match_suffix.groups()
-            return float(num) * suffixes[suffix]
+    # Handle XeY expressions
+    match_exp = re.match(r"^(-?\d+\.?\d?)e(-?\d+\.?\d?)$", value)
+    if match_exp:
+        base, exp = map(float, match_exp.groups())
+        return base * 10**exp
+
+    # Handle suffixes like k, m, b (base 10) and ki, mi, gi (base 2)
+    suffixes = {s: 10 ** (i * 3) for i, s in enumerate(("k", "m", "b", "t"), start=1)}
+    suffixes.update({s: 2 ** (i * 10) for i, s in enumerate(("ki", "mi", "gi", "ti"), start=1)})
+    match_suffix = re.match(rf"^(-?\d+\.?\d?)({'|'.join(suffixes.keys())})$", value)
+    if match_suffix:
+        num, suffix = match_suffix.groups()
+        return float(num) * suffixes[suffix]
 
     # Fallback to python conversion
     return float(value)
