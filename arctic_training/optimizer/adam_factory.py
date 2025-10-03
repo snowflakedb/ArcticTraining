@@ -103,9 +103,7 @@ class CPUAdamMoEOptimizerFactory(FusedAdamOptimizerFactory):
         from arctic_training.model.moe.utils import split_params_into_different_moe_groups_for_optimizer
 
         # this gets us `param.data_ptr` of MoE parameters, so that later we could separate those into their own optimizer group
-        moe_param_data_ptrs = identify_moe_params(
-            self.model, expert_parallel_size=self.trainer.config.expert_parallel_size
-        )
+        moe_param_data_ptrs = identify_moe_params(self.model, ep_size=self.trainer.config.expert_parallel_size)
 
         optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
         print(f"Orig optim groups: {[group.keys() for group in optimizer_grouped_params]}")

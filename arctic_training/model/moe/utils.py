@@ -30,7 +30,6 @@
 
 import re
 from collections import defaultdict
-from copy import deepcopy
 from typing import Any
 from typing import Dict
 from typing import List
@@ -40,6 +39,7 @@ from typing import Union
 from typing import cast
 
 import torch
+from deepspeed.utils import groups
 from torch import nn
 
 from arctic_training.model.moe.moe import ArcticMoE
@@ -95,7 +95,7 @@ def detect_if_moe_model(model):
 #         layer_module.mlp = layer_module.mlp_orig
 
 
-def remap_moe_mlp_params_to_arctic_moe(model, groups):
+def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     """
     remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
 
@@ -103,16 +103,28 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
 
     Args:
       - model: expects an unwrapped model object
-      - expert_parallel_group: EP group
+      - ep_size: EP size
     """
 
     device = model.device
     meta_device = torch.device("meta")
 
     config = model.config
-    arctic_moe_config = deepcopy(config)
+    # arctic_moe_config = deepcopy(config)
 
-    # remap config entries
+    from types import SimpleNamespace
+
+    arctic_moe_config = SimpleNamespace(
+        **dict(
+            model_dim=config.hidden_size,
+            intermediate_dim=config.intermediate_size,
+            input_dtype=model.dtype,
+            activation=config.hidden_act,
+            top_k=config.num_experts_per_tok,
+        )
+    )
+
+    # remap config entries which use different names for the same concept
     if hasattr(config, "num_local_experts"):  # gpt-oss
         arctic_moe_config.num_experts = config.num_local_experts
     elif hasattr(config, "num_experts"):  # qwen
@@ -123,29 +135,22 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
             f" {config.__dict__.keys()}"
         )
 
-    # XXX: may be create a new dict seeded from the orig config which only has what ArcticMoE needs
-    arctic_moe_config.update(
-        dict(
-            model_dim=config.hidden_size,
-            intermediate_dim=config.intermediate_size,
-            input_dtype=model.dtype,
-            activation=config.hidden_act,
-            top_k=config.num_experts_per_tok,
-        )
-    )
+    archs_with_router_scores = ["GptOssForCausalLM"]
+    arctic_moe_config.return_router_scores = True if config.architectures[0] in archs_with_router_scores else False
 
-    # XXX: need a new yaml config?
+    # XXX: need a new yaml config to use triton?
     arctic_moe_config.use_triton = False
+    # at the moment the models we support are gated
     arctic_moe_config.is_gated = True
-    arctic_moe_config.return_router_scores = False if "Qwen3MoeForCausalLM" in config.architectures else True
 
-    expert_parallel_size = groups.get_expert_parallel_world_size
-    expert_parallel_rank = groups.get_expert_parallel_rank
-    expert_parallel_group = groups.expert_parallel_group
-    num_local_experts = arctic_moe_config.num_experts // expert_parallel_size
-    local_expert_indices = list(
-        range(num_local_experts * expert_parallel_rank, num_local_experts * (expert_parallel_rank + 1))
-    )
+    ep_group_name = f"ep_size_{ep_size}"
+    ep_rank = groups._get_expert_parallel_rank(ep_group_name)
+    ep_group = groups._get_expert_parallel_group(ep_group_name)
+    num_local_experts = arctic_moe_config.num_experts // ep_size
+    local_expert_indices = list(range(num_local_experts * ep_rank, num_local_experts * (ep_rank + 1)))
+
+    arctic_moe_config.ep_size = ep_size
+    arctic_moe_config.ep_group = ep_group
 
     for layer_num, layer_module in enumerate(model.model.layers):
         # some models don't have moe in every layer
@@ -155,7 +160,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, groups):
 
         # XXX: is there a point of using meta-device - it won't preallocate structures
         with meta_device:
-            arctic_moe = ArcticMoE(arctic_moe_config, expert_parallel_group)
+            arctic_moe = ArcticMoE(arctic_moe_config)
         # move onto cuda
         arctic_moe.to_empty(device=device)
 
@@ -264,12 +269,12 @@ Out[5]: torch.Size([32, 32, 128])
 # model.layers.1.mlp.experts
 
 
-def identify_moe_params(model, expert_parallel_size):
+def identify_moe_params(model, ep_size):
     # regex = r'arctic_moe.experts.deepspeed_experts.*?.weight'
     # regex = r"experts"
     # moe_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
 
-    expert_group_name = f"ep_size_{expert_parallel_size}"
+    expert_group_name = f"ep_size_{ep_size}"
 
     moe_param_data_ptrs = []
     for n, m in model.named_modules():
