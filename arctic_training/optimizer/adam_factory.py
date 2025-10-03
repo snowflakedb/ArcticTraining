@@ -53,6 +53,7 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
                     if (not any(nd in n.lower() for nd in no_decay_name_list) and p.requires_grad)
                 ],
                 "weight_decay": weight_decay,
+                "name": "with_weight_decay",
             },
             {
                 "params": [
@@ -61,6 +62,7 @@ class FusedAdamOptimizerFactory(OptimizerFactory):
                     if (any(nd in n.lower() for nd in no_decay_name_list) and p.requires_grad)
                 ],
                 "weight_decay": 0.0,
+                "name": "without_weight_decay",
             },
         ]
 
@@ -85,6 +87,32 @@ class CPUAdamOptimizerFactory(FusedAdamOptimizerFactory):
 
     def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
         optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
+        optimizer = DeepSpeedCPUAdam(
+            optimizer_grouped_params,
+            lr=optimizer_config.learning_rate,
+            betas=optimizer_config.betas,
+        )
+        return optimizer
+
+
+class CPUAdamMoEOptimizerFactory(FusedAdamOptimizerFactory):
+    name = "cpu_adam_moe"
+
+    def create_optimizer(self, model: Any, optimizer_config: "OptimizerConfig") -> Any:
+        from arctic_training.model.moe.utils import identify_moe_params
+        from arctic_training.model.moe.utils import split_params_into_different_moe_groups_for_optimizer
+
+        # this gets us `param.data_ptr` of MoE parameters, so that later we could separate those into their own optimizer group
+        moe_param_data_ptrs = identify_moe_params(self.model, ep_size=self.trainer.config.expert_parallel_size)
+
+        optimizer_grouped_params = self.get_optimizer_grouped_params(model, optimizer_config.weight_decay)
+        print(f"Orig optim groups: {[group.keys() for group in optimizer_grouped_params]}")
+
+        optimizer_grouped_params = split_params_into_different_moe_groups_for_optimizer(
+            optimizer_grouped_params, moe_param_data_ptrs
+        )
+        print(f"Final optim groups: {[group.keys() for group in optimizer_grouped_params]}")
+
         optimizer = DeepSpeedCPUAdam(
             optimizer_grouped_params,
             lr=optimizer_config.learning_rate,
