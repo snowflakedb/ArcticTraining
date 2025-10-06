@@ -24,6 +24,8 @@ import torch.nn.functional as F
 @dataclass
 class MoEConfig:
     num_experts: int
+    ep_size: int
+    ep_group: dist.ProcessGroup
     model_dim: int
     intermediate_dim: int
     top_k: int
@@ -51,7 +53,7 @@ class ArcticMoE(nn.Module):
         config: MoEConfig object
     """
 
-    def __init__(self, config: MoEConfig, ep_group):
+    def __init__(self, config: MoEConfig):
         super(ArcticMoE, self).__init__()
         self._config = config
         self.num_experts = config.num_experts
@@ -59,22 +61,20 @@ class ArcticMoE(nn.Module):
         self.model_dim = config.model_dim
         self.intermediate_dim = config.intermediate_dim
         self.input_dtype = config.input_dtype
+        self.ep_size = config.ep_size
+        self.ep_group = config.ep_group
 
-        if config.activation == "relu":
-            self._activation = F.relu
-        elif config.activation == "gelu":
-            self._activation = F.gelu
-        elif config.activation == "silu":
-            self._activation = F.silu
+        supported_activations = ["relu", "gelu", "silu"]
+        if config.activation in supported_activations:
+            self._activation = getattr(F, config.activation)
         elif config.activation is None:
             self._activation = None
         else:
             raise ValueError(f"Unsupported activation {config.activation}")
 
-        self._gate_proj = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
-        self.ep_group = ep_group
-        self.ep_size = dist.get_world_size(group=self.ep_group)
         num_local_experts = self.num_experts // self.ep_size
+
+        self._gate_proj = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
 
         # Initialize expert weights
         self.expert_gate_up = nn.Parameter(
@@ -99,6 +99,19 @@ class ArcticMoE(nn.Module):
             self.moegemm = group_gemm_fn
         else:
             self.moegemm = torch_group_gemm_fn
+
+    # def set_deepspeed_parallelism(self, use_data_before_expert_parallel_: bool = False) -> None:
+    #     self._create_process_groups(use_data_before_expert_parallel_=use_data_before_expert_parallel_)
+    #
+    # def _create_process_groups(self, use_data_before_expert_parallel_: bool = False) -> None:
+    #     # Create process group for a layer if needed
+    #     if self.expert_group_name not in groups._get_expert_parallel_group_dict():
+    #         print(f"No existing process group found, creating a new group named: {self.expert_group_name}")
+    #         groups._create_expert_data_and_model_parallel(
+    #             self.ep_size, mpu=groups.mpu, use_data_before_expert_parallel_=use_data_before_expert_parallel_
+    #         )
+    #
+    #     self.ep_group = groups._get_expert_parallel_group(self.expert_group_name)
 
     def GroupGeMM(self, x, expert_token_rcv_count):
         """Grouped GEMM for MoE experts.
@@ -139,8 +152,8 @@ class ArcticMoE(nn.Module):
         """AlltoAllV operation for distributed MoE.
         Args:
             x: Input tensor
-            token_snd_count: Counts of elements to snd to each rank
-            token_rcv_count: Counts of elements to receive from each rank
+            token_snd_count: Number of elements to send to each rank
+            token_rcv_count: Number of elements to receive from each rank
         Returns:
             Output tensor after AlltoAllV
         """

@@ -60,7 +60,6 @@ from arctic_training.registry import _validate_class_attribute_type
 from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
-from arctic_training.trainer.parallel_groups import ParallelGroups
 from arctic_training.utils import append_json_file
 
 
@@ -222,7 +221,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
-        # Arctic MoE - has to be called before optimizer is created
+        # Arctic MoE model remapping has to be called before optimizer is created
         from arctic_training.model.moe.utils import detect_if_moe_model
         from arctic_training.model.moe.utils import remap_moe_mlp_params_to_arctic_moe
 
@@ -232,8 +231,27 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             use_arctic_moe = self.config.arctic_moe
         if use_arctic_moe:
 
-            self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
-            remap_moe_mlp_params_to_arctic_moe(self.model, self.groups)
+            import deepspeed.comm as dist
+
+            if not dist.is_initialized():
+                dist.init_distributed(dist_backend="nccl", dist_init_required=True)
+
+            from deepspeed.utils import groups
+
+            # this config comes from use_data_before_expert_parallelism ds config which defaults to False
+            # engine._config.use_data_before_expert_parallel_)
+            # but we don't have the engine yet to get the ds config values - perhaps could extract this via AT-config?
+            use_data_before_expert_parallel_ = False
+            # the ep group has to be created before remap_moe_mlp_params_to_arctic_moe as ep rank info is needed to remap pre-trained experts
+            groups._create_expert_data_and_model_parallel(
+                self.config.expert_parallel_size,
+                mpu=None,
+                use_data_before_expert_parallel_=use_data_before_expert_parallel_,
+            )
+
+            # self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
+            remap_moe_mlp_params_to_arctic_moe(self.model, ep_size=self.config.expert_parallel_size)
+            # self.groups)
             # XXX: check we can remap back
             # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
             # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
