@@ -53,7 +53,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>=0.17.5",
+    "deepspeed>=0.17.5",  # we want >=0.17.7 once it's released for TiledMLP for MoE
     "devtools",
     "jsonlines",
     "loguru",
