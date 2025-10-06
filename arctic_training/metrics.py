@@ -24,6 +24,7 @@ import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 
 from arctic_training.debug import get_mem_metrics
+from arctic_training.trainer.flops_counter import estimate_decoder_transformer_tflos
 from arctic_training.utils import human_format_base10_number
 from arctic_training.utils import human_format_secs
 
@@ -116,8 +117,6 @@ class Metrics:
         self.summary_dict["epoch"] = self.trainer.epoch_idx
         self.summary_dict["iter"] = self.trainer.global_step
         self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
-
-        from arctic_training.trainer.flops_counter import estimate_decoder_transformer_tflos
 
         tflos_total: float = 0.0
         if self.seqlens is not None:

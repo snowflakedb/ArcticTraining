@@ -76,7 +76,7 @@ def estimate_decoder_transformer_tflos(hf_model_config, model_size, batch_of_seq
     tflos = 0
     # iterate over batch size
     for seqlens in batch_of_seqlens:
-        tflos += flops_counter.estimate_flops(batch_seqlens=seqlens, delta_time=1)
+        tflos += flops_counter.estimate_tflos(batch_seqlens=seqlens, delta_time=1)
         seqlen += sum(seqlens)
 
     return tflos, seqlen
@@ -366,20 +366,17 @@ class FlopsCounter:
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
         return flops_achieved
 
-    def estimate_flops(self, batch_seqlens, delta_time):
+    def estimate_tflos(self, batch_seqlens, delta_time=1):
         """
-        Estimate the FLOPS based on the number of valid tokens in the current batch and the time taken.
-
+        Estimate the floating point op count based on the number of valid tokens in the current batch.
         Args:
-            batch_seqlens (List[int]): A list where each element represents the number of valid tokens in the
-                current batch.
-            delta_time (float): The time taken to process the batch, in seconds.
+            - batch_seqlens (List[int]): A list where each element represents the number of valid tokens in the current batch.
+            - delta_time (float): time input is ignored, as we just want the flos and not flops - it's here to keep up with the verl-implementation so it'd be easy to update in the future
 
         Returns:
-            estimated_flops (float): The estimated FLOPS based on the input tokens and time.
-            promised_flops (float): The expected FLOPS of the current device.
+            - estimated_flos (float): The estimated flos based on the input tokens and time.
         """
         tokens_sum = sum(batch_seqlens)
         func = self.estimate_func.get(self.config.model_type, self._estimate_dense_decoder_transformer_tflos)
-        estimated_flops = func(tokens_sum, batch_seqlens, delta_time)
-        return estimated_flops
+        estimated_tflops = func(tokens_sum, batch_seqlens, delta_time=1)
+        return estimated_tflops
