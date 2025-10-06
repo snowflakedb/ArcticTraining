@@ -103,17 +103,6 @@ class Metrics:
         self.stop_timer(key)
         self.start_timer(key)
 
-    def _estimate_decoder_transformer_tflos(self, seq_len: Union[int, float]) -> float:
-        """Given a sequence length, estimates the number of floating point operations required to run the model.
-        It currently hardwires activation checkpointing always on (co-efficient 4, otherwise should be 3) so it measures hardware flops (used for HFU)
-        """
-        hardware_flops = True
-        coef = 4 if hardware_flops else 3
-        return (
-            2 * coef * self.model_size * seq_len
-            + 2 * 2 * coef * self.model_num_layers * self.model_hidden_size * seq_len**2
-        ) / 1e12
-
     def get_value(self, key: str) -> Union[int, float]:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
@@ -128,20 +117,14 @@ class Metrics:
         self.summary_dict["iter"] = self.trainer.global_step
         self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
 
+        from arctic_training.trainer.flops_counter import estimate_decoder_transformer_tflos
+
         tflos_total: float = 0.0
         if self.seqlens is not None:
-            # expects a bs-size list of lists, where each sub-list is seqlens of each sub-sample, or a single seqlen if these are unpacked samples.
-            # Examples of self.values["seqlens"]:
-            # - bs=1 + packed samples:   [[100, 200, 4090]]
-            # - bs=2 + packed samples:   [[100, 200, 4090], [4090, 100, 200]]
-            # - bs=1 + an unpacked sample: [[4090]]
-            # - bs=2 + unpacked samples: [[4090], [4090]]
-            seqlen_subtotal = 0
-            tflos_subtotal = 0
-            # iterate over batch size
-            for seqlens in self.seqlens:
-                tflos_subtotal += sum(self._estimate_decoder_transformer_tflos(seqlen) for seqlen in seqlens)
-                seqlen_subtotal += sum(seqlens)
+
+            tflos_subtotal, seqlen_subtotal = estimate_decoder_transformer_tflos(
+                self.trainer.model_unwrapped.config, self.model_size, self.seqlens
+            )
 
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
             tflos_total = (
