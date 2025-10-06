@@ -20,9 +20,6 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
-from arctic_training.model.moe.moe_gemm import group_gemm_fn
-from arctic_training.model.moe.moe_gemm import torch_group_gemm_fn
-
 
 @dataclass
 class MoEConfig:
@@ -37,6 +34,15 @@ class MoEConfig:
     is_gated: bool = True
     loss_coeff: float = 0.01
     use_triton: bool = True
+
+
+def torch_group_gemm_fn(A, B, rows_cumsum):
+    C = torch.zeros((rows_cumsum[-1], B.size(-1)), device=A.device, dtype=A.dtype)
+    for i in range(len(rows_cumsum)):
+        start = 0 if i == 0 else rows_cumsum[i - 1]
+        end = rows_cumsum[i]
+        C[start:end, :] = torch.matmul(A[start:end, :], B[i])
+    return C
 
 
 class ArcticMoE(nn.Module):
@@ -87,7 +93,12 @@ class ArcticMoE(nn.Module):
         )
 
         self.comm_stream = torch.cuda.Stream()
-        self.moegemm = group_gemm_fn if config.use_triton else torch_group_gemm_fn
+        if config.use_triton:
+            from arctic_training.model.moe.moe_gemm import group_gemm_fn
+
+            self.moegemm = group_gemm_fn
+        else:
+            self.moegemm = torch_group_gemm_fn
 
     def GroupGeMM(self, x, expert_token_rcv_count):
         """Grouped GEMM for MoE experts.

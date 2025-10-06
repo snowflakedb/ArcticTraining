@@ -15,6 +15,7 @@
 
 
 import torch
+
 import triton
 import triton.language as tl
 
@@ -163,13 +164,4 @@ def group_gemm_fn(A, B, rows_cumsum):
         group_size,
     )
 
-    return C
-
-
-def torch_group_gemm_fn(A, B, rows_cumsum):
-    C = torch.zeros((rows_cumsum[-1], B.size(-1)), device=A.device, dtype=A.dtype)
-    for i in range(len(rows_cumsum)):
-        start = 0 if i == 0 else rows_cumsum[i - 1]
-        end = rows_cumsum[i]
-        C[start:end, :] = torch.matmul(A[start:end, :], B[i])
     return C
