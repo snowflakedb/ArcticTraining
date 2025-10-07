@@ -47,8 +47,7 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
-
-# from arctic_training.debug import pr0
+from arctic_training.debug import pr0
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -230,7 +229,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         else:
             use_arctic_moe = self.config.arctic_moe
         if use_arctic_moe:
-
+            pr0("Activating ArcticMoE")
             import deepspeed.comm as dist
 
             if not dist.is_initialized():

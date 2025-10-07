@@ -15,12 +15,12 @@
 
 from parameterized import parameterized
 
-# from arctic_training.testing_utils import torch_assert_close
 from arctic_training.testing_utils import CaptureStd
 from arctic_training.testing_utils import TestCasePlus
 from arctic_training.testing_utils import execute_subprocess_async
 from arctic_training.testing_utils import get_unique_port_number
 from arctic_training.testing_utils import require_torch_multi_gpu
+from arctic_training.testing_utils import torch_assert_close
 from arctic_training.testing_utils import write_file
 from arctic_training.utils import read_json_file
 
@@ -44,19 +44,14 @@ class TestTrainerWithLauncher(TestCasePlus):
         # later add support for pytest-xdist for unique ports
         master_port = get_unique_port_number()
 
-        output_dir = self.get_auto_remove_tmp_dir()  # "./xxx", after=False)
+        output_dir = self.get_auto_remove_tmp_dir("./xxx", after=False)
         save_path = output_dir / "saved"
 
         baseline_config = f"""
 type: sft
 micro_batch_size: 1
 exit_iteration: 4
-arctic_moe: true
-expert_parallel_size: 2
 
-deepspeed:
-  zero_optimization:
-    stage: 2
 optimizer:
   learning_rate: 1e-5
 
@@ -67,7 +62,6 @@ model:
 
 data:
   type: sft
-  #train_eval_split: [0.8, 0.2]
   sources:
     - {train_dataset}
   cache_dir: {save_path}/data-cache
@@ -79,7 +73,6 @@ data:
 logger:
   level: WARNING
 
-#eval_interval: 1
 epochs: 1
 
 train_log_iter_interval: 1
@@ -91,12 +84,53 @@ train_log_iter_interval: 1
             """.split()
         cmd = launcher
 
-        # 1. e2e baseline run
-        log_train_file = save_path / "logs" / "train_logs-baseline.jsonl"
+        # 1. e2e ds z3 baseline run
+        deepspeed_zero_config_extra = """
+deepspeed:
+  zero_optimization:
+    stage: 3
+#arctic_moe: false
+#expert_parallel_size: 1
+"""
+        log_train_file = save_path / "logs" / "train_logs-ds-baseline.jsonl"
         log_config = f"""
 train_log_metrics_path: {log_train_file}
 """
-        config = baseline_config + log_config
+        config = baseline_config + deepspeed_zero_config_extra + log_config
+        write_file(config_file, config)
+        log_train_file.unlink(missing_ok=True)
+
+        # keep for quick debug
+        print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
+        with CaptureStd() as cs:
+            execute_subprocess_async(cmd, env=self.get_env())
+        self.assertIn("iter: 1/4", cs.combined)
+        self.assertIn("iter: 2/4", cs.combined)
+
+        try:
+            train_logs = read_json_file(log_train_file)
+        except FileNotFoundError as e:
+            raise RuntimeError(f"Error caught while reading {log_train_file}: {e}Relevant stderr output:\n{cs.err}")
+        # test that we run max_num_opt_steps_this_run=3 steps and not more
+        self.assertEqual(train_logs[0]["iter"], 1)
+        loss_a = train_logs[0]["loss"]
+
+        # exit(0)
+
+        # 2. e2e ds z2 arctic moe run
+        arctic_moe_config_extra = """
+deepspeed:
+  zero_optimization:
+    stage: 2
+arctic_moe: true
+expert_parallel_size: 2
+"""
+
+        log_train_file = save_path / "logs" / "train_logs-arctic-moe.jsonl"
+        log_config = f"""
+train_log_metrics_path: {log_train_file}
+"""
+        config = baseline_config + arctic_moe_config_extra + log_config
         write_file(config_file, config)
         log_train_file.unlink(missing_ok=True)
 
@@ -113,4 +147,7 @@ train_log_metrics_path: {log_train_file}
             raise RuntimeError(f"Error caught while reading {log_train_file}: {e}Relevant stderr output:\n{cs.err}")
         # test that we run max_num_opt_steps_this_run=3 steps and not more
         self.assertEqual(train_logs[0]["iter"], 1)
-        # loss_a = train_logs[0]["loss"]
+        loss_b = train_logs[0]["loss"]
+
+        # comparisons
+        torch_assert_close(loss_a, loss_b, atol=0, rtol=0)
