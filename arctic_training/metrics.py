@@ -122,7 +122,10 @@ class Metrics:
         if self.seqlens is not None:
 
             tflos_subtotal, seqlen_subtotal = estimate_decoder_transformer_tflos(
-                self.trainer.model_unwrapped.config, self.model_size, self.seqlens
+                hf_model_config=self.trainer.model_unwrapped.config,
+                model_size=self.model_size,
+                batch_of_seqlens=self.seqlens,
+                enable_gradient_checkpointing=not self.trainer.config.model.disable_activation_checkpoint,
             )
 
             # need total seqlen for tflos calculation because of O(n**2), but then divide by sp_world_size because each rank calculated its fraction of these tflos
