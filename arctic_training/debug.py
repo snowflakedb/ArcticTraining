@@ -259,3 +259,7 @@ def debug_gathered_tensor(tensor, group, name=None, dim=0):
     print_rank0(f"{prefix}: shape: {gathered_tensor.shape}")
     print_rank0(f"{prefix}: norm:  {torch.norm(gathered_tensor)}")
     # print_rank0(f"{prefix}:  {gathered_tensor}")
+
+
+def tensor_has_nan(t):
+    return torch.isnan(t).any()

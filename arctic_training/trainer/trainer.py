@@ -229,7 +229,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         else:
             use_arctic_moe = self.config.arctic_moe
         if use_arctic_moe:
-            pr0("Activating ArcticMoE")
+            pr0("Activating ArcticMoE", force=True)
             import deepspeed.comm as dist
 
             if not dist.is_initialized():

@@ -42,6 +42,8 @@ import torch
 from deepspeed.utils import groups
 from torch import nn
 
+from arctic_training.debug import pr0
+from arctic_training.debug import tensor_has_nan
 from arctic_training.model.moe.moe import ArcticMoE
 
 
@@ -124,6 +126,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         )
     )
 
+    # pr0(f"{arctic_moe_config}", force=True)
     # remap config entries which use different names for the same concept
     if hasattr(config, "num_local_experts"):  # gpt-oss
         arctic_moe_config.num_experts = config.num_local_experts
@@ -158,6 +161,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             print(f"{layer_num} is not an MoE layer")
             continue
 
+        print(f"{layer_num} is an MoE layer")
         # XXX: is there a point of using meta-device - it won't preallocate structures
         with meta_device:
             arctic_moe = ArcticMoE(arctic_moe_config)
@@ -175,6 +179,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         orig_experts = layer_module.mlp.experts
         # qwen is a ModuleList
         experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
+        pr0(f"{experts_is_a_list=}", force=True)
 
         def copy_weights(from_name, to_param, local_expert_indices):
             if experts_is_a_list:  # ModuleList models like qwen
@@ -186,30 +191,40 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             to_param.copy_(weight_stacked)
 
         with torch.no_grad():
-            gate_up_is_split = 0
-            for n, m in orig_experts.named_parameters():
-                if n == "gate_up_proj":  # gpt-oss
-                    arctic_moe.expert_gate_up.copy_(m[local_expert_indices, ...])
-                elif n == "gate_proj":
-                    gate_up_is_split += 1
-                    # copy_weights("gate_proj", arctic_moe._gate_proj.weight)
-                elif n == "up_proj":
-                    gate_up_is_split += 1
-                    # copy_weights("up_proj", arctic_moe.expert_intermediate)
-                elif n == "down_proj":
-                    copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
-
+            # pr0(f"{local_expert_indices=}", force=True)
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
-            if gate_up_is_split == 2:
+            if experts_is_a_list:
+                # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
+
+                # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
+                # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
                 gate_stacked = torch.stack(
                     [getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices]
                 )
+                # pr0(f"{gate_stacked.shape=}", force=True)
+                # same shape as gate_stacked
                 up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight.T for i in local_expert_indices])
+                # pr0(f"{up_stacked.shape=}", force=True)
+
+                # pr0(f"util 1 {tensor_has_nan(up_stacked)}", force=True)
                 # putting the gate and up weigths in every-other order to match arctic-moe style
-                gate_up_list = sum(
-                    [[gate_stacked[..., i], up_stacked[..., i]] for i in range(gate_stacked.size(1))], []
-                )
-                arctic_moe.expert_gate_up = torch.cat(gate_up_list, dim=-1)
+
+                gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
+                # pr0(f"{gate_up.shape=}", force=True)
+
+                # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
+                arctic_moe.expert_gate_up.copy_(gate_up)
+
+                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+
+            else:  # gpt-oss
+                # arctic_moe.expert_gate_up.copy_(m[local_expert_indices, ...])
+                copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
+                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+
+        pr0(f"util 3 {tensor_has_nan(arctic_moe.expert_gate_up)}", force=True)
+        pr0(f"util 4 {tensor_has_nan(arctic_moe.expert_down)}", force=True)
+        # exit()
 
         # override the original with unified representation
         # 1. store the original structure for later restoration
