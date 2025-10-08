@@ -108,7 +108,7 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         dataset.save_to_disk(tmp_cache_path.as_posix())
         tmp_cache_path.rename(self.cache_path)
 
-        return dataset
+        return load_from_disk(self.cache_path.as_posix())
 
     @property
     def trainer(self) -> Trainer:
