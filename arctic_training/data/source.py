@@ -108,6 +108,10 @@ class DataSource(ABC, CallbackMixin, metaclass=RegistryMeta):
         dataset.save_to_disk(tmp_cache_path.as_posix())
         tmp_cache_path.rename(self.cache_path)
 
+        # NOTE: We use load_from_disk to get a disk-mmap backed dataset. This
+        # avoids the need to pickle data and send to subprocesses for filtering
+        # and data packing with a in-memory backed dataset and significantly
+        # improves performances.
         return load_from_disk(self.cache_path.as_posix())
 
     @property
