@@ -167,7 +167,7 @@ PRINT_FLOCK_FILE = __file__
 #
 # XXX: perhaps add API so that the operator could tweak this global from the main script and not
 # mess with this module and commit wrong things by mistake
-DISABLE_DEBUG = False
+DISABLE_DEBUG = True
 
 
 def printflock(*args, **kwargs):

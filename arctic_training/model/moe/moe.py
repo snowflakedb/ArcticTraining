@@ -74,7 +74,7 @@ class ArcticMoE(nn.Module):
 
         num_local_experts = self.num_experts // self.ep_size
 
-        self._gate_proj = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
+        self.router_gate = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
 
         # Initialize expert weights
         self.expert_gate_up = nn.Parameter(
@@ -126,25 +126,28 @@ class ArcticMoE(nn.Module):
         # TODO(Reza): we need to add a transformation kernel that put the local-experts together!
         expert_count_cumsum = expert_token_rcv_count.view(-1, self.ep_size).sum(-1).cumsum(0)
         intermediate = self.moegemm(x, self.expert_gate_up, expert_count_cumsum)
+        # intermediate = torch.matmul(x, self.expert_gate_up[0])
         if self._config.is_gated:
             gate, up = intermediate[..., 0::2], intermediate[..., 1::2]
             gate = self._activation(gate * self.gate_scale) if self._activation else intermediate
             intermediate = (up + self.up_scale) * gate
         output = self.moegemm(intermediate, self.expert_down, expert_count_cumsum)
+        # output = torch.matmul(intermediate, self.expert_down[0])
         return output
 
     def forward(self, hidden_states):
         # Forward pass through the MoE layer
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
-        logits = self._gate_proj(hidden_states)
+        logits = self.router_gate(hidden_states)
         (moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots) = self.MoERouter(
             hidden_states, logits
         )
-        moe_input = self.AlltoAllV(moe_input, expert_token_count, expert_token_rcv_count)
+        # moe_input = self.AlltoAllV(moe_input, expert_token_count, expert_token_rcv_count)
         moe_output = self.GroupGeMM(moe_input, expert_token_rcv_count)
-        moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
-        output = self.MoECombine(moe_output, token_mapped_slots)
+        # moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
+        output = self.MoECombine(moe_output, token_mapped_slots, scores)
+        # output = moe_output
         output = output.reshape(orig_shape)
         return (output, scores) if self._config.return_router_scores else output
 
@@ -186,30 +189,31 @@ class ArcticMoE(nn.Module):
 
     def _gate(self, logits):
         logits = logits.view(-1, self.num_experts)
+        # print(f'router logits norm {logits.norm().item():.3f}')
+        probs = F.softmax(logits, dim=-1, dtype=torch.float32)  # T x E
 
-        probs = torch.softmax(logits, dim=-1, dtype=torch.float32)  # T x E
-
-        _, topk_expert_indices = torch.topk(probs, k=self.top_k, dim=-1)  # T x top_k
-        topk_scores = torch.gather(probs, dim=-1, index=topk_expert_indices).to(self._config.input_dtype)  # T x top_k
+        topk_scores, topk_expert_indices = torch.topk(probs, k=self.top_k, dim=-1)  # T x top_k
+        # print(f'topk indices norm {topk_expert_indices.float().norm().item():.3f}')
+        topk_scores = topk_scores.to(self._config.input_dtype)  # T x top_k
         topk_scores = topk_scores.t().reshape(-1)
         topk_expert_indices = topk_expert_indices.t().reshape(-1)
 
-        T = probs.size(0)
+        T = probs.shape[0]
 
         topk_expert_mask = F.one_hot(topk_expert_indices, num_classes=self.num_experts).t()  # E x (T * top_k)
 
-        token_mapped_slots = torch.cat(
-            [torch.where(topk_expert_mask[i])[0] % T for i in range(topk_expert_mask.shape[0])]
-        )
+        token_mapped_slots = torch.cat([torch.where(topk_expert_mask[i])[0] for i in range(topk_expert_mask.shape[0])])
         topk_scores = topk_scores[token_mapped_slots]
+        token_mapped_slots = token_mapped_slots % T
 
         expert_token_count = topk_expert_mask.sum(dim=-1)  # E
         total_count = expert_token_count.sum()
         expert_freq = expert_token_count / total_count
 
         expert_token_rcv_count = torch.empty_like(expert_token_count)
-        with torch.cuda.stream(self.comm_stream):
-            dist.all_to_all_single(expert_token_rcv_count, expert_token_count, group=self.ep_group)
+        expert_token_rcv_count.copy_(expert_token_count)
+        # with torch.cuda.stream(self.comm_stream):
+        #     dist.all_to_all_single(expert_token_rcv_count, expert_token_count, group=self.ep_group)
 
         def _load_balance_grad_hook(grad):
             """
@@ -221,24 +225,24 @@ class ArcticMoE(nn.Module):
             - grad (hence the corresponding LB loss) is further adjusted by `num_experts`, `num_layers`
               and `num_microbatches` to ensure the invariance of loss magnitude across model settings.
             """
-            coeff = (
-                self._config.loss_coeff / T / 1
-            )  # get_num_microbatches() TODO(Reza): get the actual number of microbatches
+            # get_num_microbatches() TODO(Reza): get the actual number of microbatches
+            coeff = self._config.loss_coeff / T / 1
             return grad + expert_freq.unsqueeze(0) * coeff / self.ep_size
 
         if probs.requires_grad:
             probs.register_hook(_load_balance_grad_hook)
+        # print(f"router logits norm {topk_scores.norm().item():.3f}")
         return topk_scores, token_mapped_slots, expert_token_count, expert_token_rcv_count
 
-    def MoECombine(self, moe_output, token_mapped_slots):
+    def MoECombine(self, moe_output, token_mapped_slots, scores):
         """MoE gather operation.
         Args:
             moe_output: [#tokens * topk, hidden_size]
         Returns:
             output: [#tokens, hidden_size]
         """
-        output = torch.empty(
+        output = torch.zeros(
             (moe_output.size(0) // self.top_k, self.model_dim), dtype=moe_output.dtype, device=moe_output.device
         )
-        output.index_add_(0, token_mapped_slots, moe_output)
+        output.index_add_(0, token_mapped_slots, moe_output * scores[:, None])
         return output

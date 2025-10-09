@@ -123,6 +123,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             input_dtype=model.dtype,
             activation=config.hidden_act,
             top_k=config.num_experts_per_tok,
+            loss_coeff=0.01,  # not used at the moment
         )
     )
 
@@ -195,7 +196,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
             if experts_is_a_list:
                 # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
-
+                arctic_moe.router_gate.weight.copy_(layer_module.mlp.gate.weight)
                 # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
                 # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
                 gate_stacked = torch.stack(
