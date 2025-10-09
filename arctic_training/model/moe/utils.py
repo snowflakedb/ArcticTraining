@@ -42,8 +42,8 @@ import torch
 from deepspeed.utils import groups
 from torch import nn
 
-from arctic_training.debug import pr0
-from arctic_training.debug import tensor_has_nan
+from arctic_training.debug.utils import pr0
+from arctic_training.debug.utils import tensor_has_nan
 from arctic_training.model.moe.moe import ArcticMoE
 
 

@@ -47,7 +47,7 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
-from arctic_training.debug import pr0
+from arctic_training.debug.utils import pr0
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -209,6 +209,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
+
+        # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
+        # debug_overflow = DebugUnderflowOverflow(self.model, max_frames_to_save=100)  # noqa
 
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?

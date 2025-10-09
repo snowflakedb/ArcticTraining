@@ -23,7 +23,7 @@ from typing import cast
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 
-from arctic_training.debug import get_mem_metrics
+from arctic_training.debug.utils import get_mem_metrics
 from arctic_training.utils import human_format_base10_number
 from arctic_training.utils import human_format_secs
 

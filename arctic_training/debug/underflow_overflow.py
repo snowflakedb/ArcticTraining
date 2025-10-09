@@ -296,12 +296,8 @@ class DebugUnderflowOverflow:
 
         if self.detected_overflow and not trace_mode:
             self.dump_saved_frames()
-            #import time
-
-            #time.sleep(10)
             # now we can abort, as it's pointless to continue running
-            #raise ValueError(
-            print(
+            raise ValueError(
                 "DebugUnderflowOverflow: inf/nan detected, aborting as there is no point running further. "
                 "Please scroll up above this traceback to see the activation values prior to this event."
             )

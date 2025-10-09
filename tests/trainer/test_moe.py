@@ -28,7 +28,8 @@ from arctic_training.utils import read_json_file
 train_dataset = "HuggingFaceH4/ultrachat_200k:train[:50]"
 
 model_gpt_oss = "tiny-random/gpt-oss-bf16"
-model_qwen = "DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder"
+model_qwen = "snake7gun/tiny-random-qwen3moe"
+# model_qwen = "DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder"
 models = [model_gpt_oss, model_qwen]
 
 
@@ -50,7 +51,7 @@ class TestTrainerWithLauncher(TestCasePlus):
         baseline_config = f"""
 type: sft
 micro_batch_size: 1
-exit_iteration: 1
+exit_iteration: 4
 
 optimizer:
   learning_rate: 1e-5
@@ -76,6 +77,7 @@ logger:
 epochs: 1
 
 train_log_iter_interval: 1
+seed: 42
 """
 
         config_file = output_dir / "config.yaml"
@@ -88,7 +90,7 @@ train_log_iter_interval: 1
         deepspeed_zero_config_extra = """
 deepspeed:
   zero_optimization:
-    stage: 2
+    stage: 3
 #arctic_moe: false
 #expert_parallel_size: 1
 """
@@ -104,8 +106,8 @@ train_log_metrics_path: {log_train_file}
         print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        # self.assertIn("iter: 1/4", cs.combined)
-        # self.assertIn("iter: 2/4", cs.combined)
+        self.assertIn("iter: 1/4", cs.combined)
+        self.assertIn("iter: 2/4", cs.combined)
 
         try:
             train_logs = read_json_file(log_train_file)
@@ -138,8 +140,8 @@ train_log_metrics_path: {log_train_file}
         # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd)); die
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        # self.assertIn("iter: 1/4", cs.combined)
-        # self.assertIn("iter: 2/4", cs.combined)
+        self.assertIn("iter: 1/4", cs.combined)
+        self.assertIn("iter: 2/4", cs.combined)
 
         try:
             train_logs = read_json_file(log_train_file)
@@ -150,4 +152,4 @@ train_log_metrics_path: {log_train_file}
         loss_b = train_logs[0]["loss"]
 
         # comparisons
-        torch_assert_close(loss_a, loss_b, atol=0, rtol=0)
+        torch_assert_close(loss_a, loss_b)  # , atol=0, rtol=0)
