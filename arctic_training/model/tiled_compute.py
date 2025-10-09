@@ -15,16 +15,34 @@
 
 
 import math
+from typing import Tuple
 
 import torch
 import torch.distributed as dist
 from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledMLP
 from transformers import AutoConfig
+from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
 
 def get_model_type(model_name_or_path):
     config = AutoConfig.from_pretrained(model_name_or_path)
     return config.model_type
+
+
+def get_causal_lm_model_cls_prefix(model_type: str) -> Tuple[str, str]:
+    if model_type in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
+        causal_lm_cls = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES[model_type]
+        causal_lm_cls_prefix = causal_lm_cls
+        for suffix in [
+            "ForCausalLM",
+            "ForConditionalGeneration",
+            "LMHeadModel",
+            "GenerationDecoder",
+        ]:
+            causal_lm_cls_prefix = causal_lm_cls_prefix.replace(suffix, "")
+        return causal_lm_cls_prefix, causal_lm_cls
+    causal_lm_cls_prefix = "".join([part.capitalize() for part in model_type.split("_")])
+    return causal_lm_cls_prefix, f"{causal_lm_cls_prefix}ForCausalLM"
 
 
 def tiled_mlp_forward_common(self, x):
@@ -33,7 +51,8 @@ def tiled_mlp_forward_common(self, x):
     num_shards = "auto"
 
     if num_shards == "auto":
-        bs, seqlen, hidden = x.shape
+        # x.shape could be [bs, seqlen, hidden_size] or [seqlen, hidden_size] (moe experts)
+        seqlen, hidden = x.shape[-2:]
         num_shards = math.ceil(seqlen / hidden)
 
         # it's crucial that all ranks run the same number of shards, otherwise if one of the ranks
@@ -66,26 +85,18 @@ def enable_tiled_mlp_compute(model_name_or_path):
     """
     Important: this monkey patching call, that overrides the original HF Transformers model's MLP class, has to happen before a model is instantiated.
 
-    Currently only some models are supported, but we can easily add support for more model architectures if needed.
+    This code will try to override the MLP's `forward` of any model. This of course will only work correctly as long as the MLP function is `down(act_fn(gate_proj(x)) * up_proj(x))` - the behavior is unpredictable if it's not.
 
     Also beware of other packages overriding it - e.g. Liger-Kernel - you can tell Liger-Kernel not to override it via its `from_pretrained(..., swiglu=False)`
     """
 
     model_type = get_model_type(model_name_or_path)
-    if model_type == "llama":
-        from transformers.models.llama import modeling_llama
-
-        modeling_llama.LlamaMLP.forward = tiled_mlp_forward_common
-    elif model_type == "qwen2":
-        from transformers.models.qwen2 import modeling_qwen2
-
-        modeling_qwen2.Qwen2MLP.forward = tiled_mlp_forward_common
-    elif model_type == "qwen3":
-        from transformers.models.qwen3 import modeling_qwen3
-
-        modeling_qwen3.Qwen3MLP.forward = tiled_mlp_forward_common
-    else:
-        raise ValueError(
-            f"model type {model_type} is currently not supported. Please open an Issue and ask to add Tiled MLP"
-            f" support for {model_type} or alternatively submit a PR."
-        )
+    try:
+        # Dynamically import the module and MLP class
+        module_path = f"transformers.models.{model_type}.modeling_{model_type}"
+        model_cls_prefix, _ = get_causal_lm_model_cls_prefix(model_type)
+        module = __import__(module_path, fromlist=[f"{model_cls_prefix}MLP"])
+        mlp_cls = getattr(module, f"{model_cls_prefix}MLP")
+        setattr(mlp_cls, "forward", tiled_mlp_forward_common)
+    except Exception as e:
+        raise ValueError(f"Failed to autodetect {mlp_cls}: {e}")
