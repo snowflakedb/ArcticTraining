@@ -30,6 +30,7 @@
 
 import re
 from collections import defaultdict
+from types import SimpleNamespace
 from typing import Any
 from typing import Dict
 from typing import List
@@ -111,11 +112,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     device = model.device
     meta_device = torch.device("meta")
-
     config = model.config
-    # arctic_moe_config = deepcopy(config)
-
-    from types import SimpleNamespace
 
     arctic_moe_config = SimpleNamespace(
         **dict(
@@ -145,7 +142,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     # XXX: need a new yaml config to use triton?
     arctic_moe_config.use_triton = False
-    # at the moment the models we support are gated
+    # at the moment the models we support are all gated
     arctic_moe_config.is_gated = True
 
     ep_group_name = f"ep_size_{ep_size}"
