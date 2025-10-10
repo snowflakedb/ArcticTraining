@@ -83,6 +83,8 @@ def detect_if_moe_model(model):
 #             else:  # gpt-oss-like models with a stack of experts weights
 #                 getattr(orig_experts, from_name).weight.copy_(from_param)
 
+#         # XXX: use torch.unbind to reverse torch.stack for Qwen3 gate_up interleaving
+
 #         with torch.no_grad():
 #             for n, m in orig_experts.named_parameters():
 #                 if n == "gate_up_proj":  # gpt-oss
@@ -121,7 +123,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             input_dtype=model.dtype,
             activation=config.hidden_act,
             top_k=config.num_experts_per_tok,
-            normalize_topk_scores=config.norm_topk_prob,
+            normalize_topk_scores=getattr(config, "norm_topk_prob", False),
             loss_coeff=config.router_aux_loss_coef,
         )
     )
