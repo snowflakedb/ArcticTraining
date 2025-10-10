@@ -90,7 +90,7 @@ seed: 42
         deepspeed_zero_config_extra = """
 deepspeed:
   zero_optimization:
-    stage: 3
+    stage: 2
 #arctic_moe: false
 #expert_parallel_size: 1
 """
