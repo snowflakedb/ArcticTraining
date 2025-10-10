@@ -74,7 +74,13 @@ class ArcticMoE(nn.Module):
 
         num_local_experts = self.num_experts // self.ep_size
 
-        self.router_gate = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
+        self.router_gate = nn.Parameter(
+            torch.empty(
+                self.num_experts,
+                self.model_dim,
+                dtype=self.input_dtype,
+            )
+        )
 
         # Initialize expert weights
         self.expert_gate_up = nn.Parameter(
@@ -139,7 +145,7 @@ class ArcticMoE(nn.Module):
         # Forward pass through the MoE layer
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
-        logits = self.router_gate(hidden_states)
+        logits = F.linear(hidden_states, self.router_gate)
         (moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots) = self.MoERouter(
             hidden_states, logits
         )

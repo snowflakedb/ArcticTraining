@@ -196,7 +196,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
                 # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
 
                 # 1. mlp.gate => router_gate
-                arctic_moe.router_gate.weight.copy_(layer_module.mlp.gate.weight)
+                arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
 
                 # 2. gate_proj + up_proj => expert_gate_up
                 # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
@@ -224,7 +224,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             else:  # gpt-oss
 
                 # 1. mlp.router => router_gate
-                arctic_moe.router_gate.weight.copy_(layer_module.mlp.router.weight.T)
+                arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
                 # 2. gate_up_proj -> expert_gate_up
                 copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
                 # 3. down_proj -> expert_down
