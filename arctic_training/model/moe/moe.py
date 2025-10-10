@@ -31,7 +31,7 @@ class MoEConfig:
     top_k: int
     input_dtype: torch.dtype
     activation: str
-    normalize_scores: bool
+    normalize_topk_scores: bool
     return_router_scores: bool
     is_gated: bool = True
     loss_coeff: float = 0.01
@@ -72,14 +72,14 @@ class ArcticMoE(nn.Module):
         else:
             raise ValueError(f"Unsupported activation {config.activation}")
 
-        num_local_experts = self.num_experts // self.ep_size
+        self.num_local_experts = self.num_experts // self.ep_size
 
         self.router_gate = nn.Linear(self.model_dim, self.num_experts, bias=False).to(self.input_dtype)
 
         # Initialize expert weights
         self.expert_gate_up = nn.Parameter(
             torch.empty(
-                num_local_experts,
+                self.num_local_experts,
                 self.model_dim,
                 (2 * self.intermediate_dim) if config.is_gated else self.intermediate_dim,
                 dtype=self.input_dtype,
@@ -89,7 +89,7 @@ class ArcticMoE(nn.Module):
         self.up_scale = 0.0
 
         self.expert_down = nn.Parameter(
-            torch.empty(num_local_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
+            torch.empty(self.num_local_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
         )
 
         self.comm_stream = torch.cuda.Stream()
@@ -113,7 +113,7 @@ class ArcticMoE(nn.Module):
     #
     #     self.ep_group = groups._get_expert_parallel_group(self.expert_group_name)
 
-    def GroupGeMM(self, x, expert_token_rcv_count):
+    def GroupGeMM(self, x, expert_count_cumsum):
         """Grouped GEMM for MoE experts.
         Args:
             x: Input tensor of shape [#tokens * topk, model_dim]
@@ -123,17 +123,35 @@ class ArcticMoE(nn.Module):
         n_topk_tokens = x.size(0)
         output = torch.empty_like(x)
         intermediate = torch.empty((n_topk_tokens, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
-        # TODO(Reza): we need to add a transformation kernel that put the local-experts together!
-        expert_count_cumsum = expert_token_rcv_count.view(-1, self.ep_size).sum(-1).cumsum(0)
         intermediate = self.moegemm(x, self.expert_gate_up, expert_count_cumsum)
-        # intermediate = torch.matmul(x, self.expert_gate_up[0])
         if self._config.is_gated:
             gate, up = intermediate[..., 0::2], intermediate[..., 1::2]
             gate = self._activation(gate * self.gate_scale) if self._activation else intermediate
             intermediate = (up + self.up_scale) * gate
         output = self.moegemm(intermediate, self.expert_down, expert_count_cumsum)
-        # output = torch.matmul(intermediate, self.expert_down[0])
         return output
+
+    def local_ep_transpose(self, x, expert_token_rcv_count):
+        x_split = torch.split(x, expert_token_rcv_count.tolist(), dim=0)
+        x = torch.cat(
+            [
+                x_split[i * self.num_local_experts + j]
+                for j in range(self.num_local_experts)
+                for i in range(self.ep_size)
+            ],
+            dim=0,
+        )
+        expert_count_cumsum = expert_token_rcv_count.view(self.ep_size, self.num_local_experts).sum(0).cumsum(0)
+        reordered_expert_count = expert_token_rcv_count.view(self.ep_size, self.num_local_experts).t().reshape(-1)
+        return x, expert_count_cumsum, reordered_expert_count
+
+    def local_ep_depermute(self, x, reordered_expert_count):
+        out_split = torch.split(x, reordered_expert_count.tolist(), dim=0)
+        x = torch.cat(
+            [out_split[i * self.ep_size + j] for j in range(self.ep_size) for i in range(self.num_local_experts)],
+            dim=0,
+        )
+        return x
 
     def forward(self, hidden_states):
         # Forward pass through the MoE layer
@@ -143,12 +161,23 @@ class ArcticMoE(nn.Module):
         (moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots) = self.MoERouter(
             hidden_states, logits
         )
-        # moe_input = self.AlltoAllV(moe_input, expert_token_count, expert_token_rcv_count)
-        moe_output = self.GroupGeMM(moe_input, expert_token_rcv_count)
-        # moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
+
+        if self.ep_size > 1:
+            moe_input = self.AlltoAllV(moe_input, expert_token_count, expert_token_rcv_count)
+            moe_input, expert_count_cumsum, reordered_expert_count = self.local_ep_transpose(
+                moe_input, expert_token_rcv_count
+            )
+        else:
+            expert_count_cumsum = expert_token_count.cumsum(0)
+        moe_output = self.GroupGeMM(moe_input, expert_count_cumsum)
+
+        if self.ep_size > 1:
+            moe_output = self.local_ep_depermute(moe_output, reordered_expert_count)
+            moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
+
         output = self.MoECombine(moe_output, token_mapped_slots, scores)
-        # output = moe_output
         output = output.reshape(orig_shape)
+
         return (output, scores) if self._config.return_router_scores else output
 
     def AlltoAllV(self, x, token_snd_count=None, token_rcv_count=None):
@@ -189,11 +218,11 @@ class ArcticMoE(nn.Module):
 
     def _gate(self, logits):
         logits = logits.view(-1, self.num_experts)
-        # print(f'router logits norm {logits.norm().item():.3f}')
         probs = F.softmax(logits, dim=-1, dtype=torch.float32)  # T x E
 
         topk_scores, topk_expert_indices = torch.topk(probs, k=self.top_k, dim=-1)  # T x top_k
-        # print(f'topk indices norm {topk_expert_indices.float().norm().item():.3f}')
+        if self._config.normalize_topk_scores:
+            topk_scores = topk_scores / torch.sum(topk_scores, dim=-1, keepdim=True)
         topk_scores = topk_scores.to(self._config.input_dtype)  # T x top_k
         topk_scores = topk_scores.t().reshape(-1)
         topk_expert_indices = topk_expert_indices.t().reshape(-1)
@@ -210,10 +239,12 @@ class ArcticMoE(nn.Module):
         total_count = expert_token_count.sum()
         expert_freq = expert_token_count / total_count
 
-        expert_token_rcv_count = torch.empty_like(expert_token_count)
-        expert_token_rcv_count.copy_(expert_token_count)
-        # with torch.cuda.stream(self.comm_stream):
-        #     dist.all_to_all_single(expert_token_rcv_count, expert_token_count, group=self.ep_group)
+        if self.ep_size > 1:
+            expert_token_rcv_count = torch.empty_like(expert_token_count)
+            with torch.cuda.stream(self.comm_stream):
+                dist.all_to_all_single(expert_token_rcv_count, expert_token_count, group=self.ep_group)
+        else:
+            expert_token_rcv_count = expert_token_count
 
         def _load_balance_grad_hook(grad):
             """

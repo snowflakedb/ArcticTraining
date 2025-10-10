@@ -123,6 +123,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             input_dtype=model.dtype,
             activation=config.hidden_act,
             top_k=config.num_experts_per_tok,
+            normalize_topk_scores=config.norm_topk_prob,
             loss_coeff=0.01,  # not used at the moment
         )
     )
