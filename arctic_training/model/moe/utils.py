@@ -160,10 +160,10 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     for layer_num, layer_module in enumerate(model.model.layers):
         # some models don't have moe in every layer
         if not hasattr(layer_module.mlp, "experts"):
-            print(f"{layer_num} is not an MoE layer")
+            # pr0(f"{layer_num} is not an MoE layer", force=True)
             continue
 
-        print(f"{layer_num} is an MoE layer")
+        # pr0(f"{layer_num} is an MoE layer, force=True")
         # XXX: is there a point of using meta-device - it won't preallocate structures
         with meta_device:
             arctic_moe = ArcticMoE(arctic_moe_config)
@@ -242,9 +242,9 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         # 2. now hijack it with our structure
         layer_module.mlp = arctic_moe
 
-        print(f"{layer_module.mlp}")
+        pr0(f"{layer_module.mlp}", force=True)
 
-    print(f"Rewritten model: {model}")
+    pr0(f"Rewritten model: {model}", force=True)
 
     # now copy over the params from the original model, while freeing their memory usage
 
