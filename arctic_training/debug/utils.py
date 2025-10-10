@@ -32,6 +32,12 @@ try:
 except Exception:
     can_run_pynvml = False
 
+# Set to True to quickly temporarily turn off all debugging w/o needing to disable each call
+#
+# XXX: perhaps add API so that the operator could tweak this global from the main script and not
+# mess with this module and commit wrong things by mistake
+DISABLE_DEBUG = True
+
 torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
@@ -163,12 +169,6 @@ USE_PRINTFLOCK = True
 # PRINT_FLOCK_FILE = "/tmp/printflock.lock"
 PRINT_FLOCK_FILE = __file__
 
-# Set to True to quickly temporarily turn off all debugging w/o needing to disable each call
-#
-# XXX: perhaps add API so that the operator could tweak this global from the main script and not
-# mess with this module and commit wrong things by mistake
-DISABLE_DEBUG = True
-
 
 def printflock(*args, **kwargs):
     """
@@ -233,6 +233,9 @@ def print_rank0(*msg, force=False):
         print(f"[{global_rank}]", *msg)
 
 
+pr0 = print_rank0
+
+
 def debug_gathered_tensor(tensor, group, name=None, dim=0):
     """gather a tensor across ranks of the given group and dump its shape and norm
 
@@ -256,3 +259,7 @@ def debug_gathered_tensor(tensor, group, name=None, dim=0):
     print_rank0(f"{prefix}: shape: {gathered_tensor.shape}")
     print_rank0(f"{prefix}: norm:  {torch.norm(gathered_tensor)}")
     # print_rank0(f"{prefix}:  {gathered_tensor}")
+
+
+def tensor_has_nan(t):
+    return torch.isnan(t).any()
