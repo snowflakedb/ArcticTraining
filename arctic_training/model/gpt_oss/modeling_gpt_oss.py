@@ -63,6 +63,8 @@ from transformers.utils.deprecation import deprecate_kwarg
 from transformers.utils.generic import OutputRecorder
 from transformers.utils.generic import check_model_inputs
 
+from arctic_training.debug.utils import pr0
+
 from .configuration_gpt_oss import GptOssConfig
 
 
@@ -468,6 +470,9 @@ class GptOssModel(GptOssPreTrainedModel):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
+        # XXX: debug shortcut
+        # config.num_hidden_layers = 2
+
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
             [GptOssDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
@@ -526,7 +531,8 @@ class GptOssModel(GptOssPreTrainedModel):
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        for decoder_layer in self.layers:
+        for idx, decoder_layer in enumerate(self.layers):
+            pr0(f"layer {idx}", force=True)
             hidden_states = decoder_layer(
                 hidden_states,
                 attention_mask=causal_mask_mapping[decoder_layer.attention_type],

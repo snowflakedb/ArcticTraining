@@ -34,7 +34,7 @@ class HFModelFactory(ModelFactory):
         # XXX: temp - using a local copy of the HF modeling code
         config = self.create_config()
 
-        if config.architectures[0] == "Qwen3MoeForCausalLM1":
+        if config.architectures[0] == "Qwen3MoeForCausalLM":
             pr0("Using custom Qwen3MoeForCausalLM", force=True)
             from arctic_training.model.qwen3_moe import Qwen3MoeForCausalLM
 
@@ -44,7 +44,7 @@ class HFModelFactory(ModelFactory):
                 attn_implementation=self.config.attn_implementation,
                 dtype=self.config.dtype.value,
             )
-        elif config.architectures[0] == "GptOssForCausalLM1":
+        elif config.architectures[0] == "GptOssForCausalLM":
             pr0("Using custom GptOssForCausalLM", force=True)
             from arctic_training.model.gpt_oss import GptOssForCausalLM
 
