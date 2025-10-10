@@ -67,7 +67,7 @@ from transformers.utils.deprecation import deprecate_kwarg
 from transformers.utils.generic import OutputRecorder
 from transformers.utils.generic import check_model_inputs
 
-from arctic_training.debug import pr0
+from arctic_training.debug.utils import pr0
 
 from .configuration_qwen3_moe import Qwen3MoeConfig
 

@@ -30,6 +30,7 @@
 
 import re
 from collections import defaultdict
+from types import SimpleNamespace
 from typing import Any
 from typing import Dict
 from typing import List
@@ -42,8 +43,9 @@ import torch
 from deepspeed.utils import groups
 from torch import nn
 
-from arctic_training.debug import pr0
-from arctic_training.debug import tensor_has_nan
+from arctic_training.debug.utils import pr0
+
+# from arctic_training.debug.utils import tensor_has_nan
 from arctic_training.model.moe.moe import ArcticMoE
 
 
@@ -110,11 +112,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     device = model.device
     meta_device = torch.device("meta")
-
     config = model.config
-    # arctic_moe_config = deepcopy(config)
-
-    from types import SimpleNamespace
 
     arctic_moe_config = SimpleNamespace(
         **dict(
@@ -145,7 +143,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     # XXX: need a new yaml config to use triton?
     arctic_moe_config.use_triton = False
-    # at the moment the models we support are gated
+    # at the moment the models we support are all gated
     arctic_moe_config.is_gated = True
 
     ep_group_name = f"ep_size_{ep_size}"
@@ -197,7 +195,11 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
             if experts_is_a_list:
                 # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
-                arctic_moe.router_gate.weight.copy_(layer_module.mlp.gate.weight)
+
+                # 1. mlp.gate => router_gate
+                arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
+
+                # 2. gate_proj + up_proj => expert_gate_up
                 # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
                 # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
                 gate_stacked = torch.stack(
@@ -217,16 +219,20 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
                 # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
                 arctic_moe.expert_gate_up.copy_(gate_up)
 
+                # 3. down_proj -> expert_down
                 copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
 
             else:  # gpt-oss
-                # arctic_moe.expert_gate_up.copy_(m[local_expert_indices, ...])
+
+                # 1. mlp.router => router_gate
+                arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
+                # 2. gate_up_proj -> expert_gate_up
                 copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
+                # 3. down_proj -> expert_down
                 copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
 
-        pr0(f"util 3 {tensor_has_nan(arctic_moe.expert_gate_up)}", force=True)
-        pr0(f"util 4 {tensor_has_nan(arctic_moe.expert_down)}", force=True)
-        # exit()
+        # pr0(f"util 3 {tensor_has_nan(arctic_moe.expert_gate_up)}", force=True)
+        # pr0(f"util 4 {tensor_has_nan(arctic_moe.expert_down)}", force=True)
 
         # override the original with unified representation
         # 1. store the original structure for later restoration

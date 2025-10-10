@@ -18,7 +18,7 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
-from arctic_training.debug import pr0
+from arctic_training.debug.utils import pr0
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 
