@@ -44,9 +44,36 @@ class HFModelFactory(ModelFactory):
                 attn_implementation=self.config.attn_implementation,
                 dtype=self.config.dtype.value,
             )
-        elif config.architectures[0] == "GptOssForCausalLM":
+        elif config.architectures[0] == "GptOssForCausalLM" and not str(self.config.name_or_path).startswith(
+            "openai/gpt-oss-"
+        ):
+            # for some reason if we are using a copy of GptOssForCausalLM the official gpt-oss models with Mxfp4 weights leave the model on a meta device, but it works fine if we use transformers.models.gpt_oss.modeling_gpt_oss.GptOssForCausalLM which is identical.
+            # it fails then when trying to copy the weights: NotImplementedError: Cannot copy out of meta tensor; no data!
+            # if we use for example unsloth/gpt-oss-20b-BF16 the local copy works fine.
+            # so for now we will use a local copy only for non-openai/gpt-oss-* models.
+
             pr0("Using custom GptOssForCausalLM", force=True)
+
             from arctic_training.model.gpt_oss import GptOssForCausalLM
+
+            # a failed attempt to make the local modeling code copy work with official mxfp4 models
+            # # https://cookbook.openai.com/articles/gpt-oss/fine-tune-transfomers
+            # import transformers.models.gpt_oss.modeling_gpt_oss
+            # transformers.models.gpt_oss.modeling_gpt_oss.GptOssForCausalLM = GptOssForCausalLM
+            # import torch
+            # from transformers import Mxfp4Config
+            # quantization_config = Mxfp4Config(**config.quantization_config)
+            # print(quantization_config)
+            # quantization_config = Mxfp4Config(dequantize=True)
+            # model_kwargs = dict(
+            #     # attn_implementation="eager",
+            #     dtype=torch.bfloat16,
+            #     quantization_config=quantization_config,
+            #     use_cache=False,
+            #     #device_map="auto",
+            # )
+            # model = AutoModelForCausalLM.from_pretrained("openai/gpt-oss-20b", **model_kwargs)
+            # return model
 
             return GptOssForCausalLM.from_pretrained(
                 self.config.name_or_path,
