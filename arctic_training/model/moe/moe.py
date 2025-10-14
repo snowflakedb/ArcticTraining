@@ -76,8 +76,7 @@ class ArcticMoE(nn.Module):
 
         self.router_gate = nn.Parameter(
             torch.empty(
-                self.num_experts,
-                self.model_dim,
+                (self.num_experts, self.model_dim),
                 dtype=self.input_dtype,
             )
         )
@@ -85,9 +84,11 @@ class ArcticMoE(nn.Module):
         # Initialize expert weights
         self.expert_gate_up = nn.Parameter(
             torch.empty(
-                self.num_local_experts,
-                self.model_dim,
-                (2 * self.intermediate_dim) if config.is_gated else self.intermediate_dim,
+                (
+                    self.num_local_experts,
+                    self.model_dim,
+                    (2 * self.intermediate_dim) if config.is_gated else self.intermediate_dim,
+                ),
                 dtype=self.input_dtype,
             )
         )
@@ -95,7 +96,7 @@ class ArcticMoE(nn.Module):
         self.up_scale = 0.0
 
         self.expert_down = nn.Parameter(
-            torch.empty(self.num_local_experts, self.intermediate_dim, self.model_dim, dtype=self.input_dtype)
+            torch.empty((self.num_local_experts, self.intermediate_dim, self.model_dim), dtype=self.input_dtype)
         )
 
         self.comm_stream = torch.cuda.Stream()
