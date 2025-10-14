@@ -40,6 +40,7 @@ from typing import Union
 from typing import cast
 
 import torch
+import torch.nn.functional as F
 from deepspeed.utils import groups
 from torch import nn
 
@@ -105,6 +106,8 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     """
     remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
 
+    Currently supporting: GptOssForCausalLM and Qwen3MoeForCausalLM
+
     XXX: this will not work with zero.Init since the weights will be already sharded. If we want to add zero.Init support we will need to gather, remap, re-shard.
 
     Args:
@@ -121,12 +124,23 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             model_dim=config.hidden_size,
             intermediate_dim=config.intermediate_size,
             input_dtype=model.dtype,
-            activation=config.hidden_act,
+            # activation=config.hidden_act,
             top_k=config.num_experts_per_tok,
             normalize_topk_scores=getattr(config, "norm_topk_prob", False),
             loss_coeff=config.router_aux_loss_coef,
         )
     )
+
+    supported_activations = ["relu", "gelu", "silu"]
+    if "GptOssForCausalLM" in config.architectures[0]:
+        # gpt-oss uses a variation of silu with an alpha coefficient for the sigmoid arg
+        # alpha comes from https://github.com/huggingface/transformers/blob/94df0e65602922be2831b3faa457a2bde78b936b/src/transformers/models/gpt_oss/modeling_gpt_oss.py#L78C7-L78C27
+        alpha = 1.702
+        arctic_moe_config.act_fn = lambda x: x * torch.sigmoid(x * alpha)
+    elif config.hidden_act in supported_activations:
+        arctic_moe_config.act_fn = getattr(F, config.hidden_act)
+    else:
+        raise ValueError(f"Unsupported activation {config.hidden_act}")
 
     # pr0(f"{arctic_moe_config}", force=True)
     # remap config entries which use different names for the same concept

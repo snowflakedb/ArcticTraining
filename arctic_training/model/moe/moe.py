@@ -23,7 +23,7 @@ import torch.nn.functional as F
 
 @dataclass(kw_only=True)
 class MoEConfig:
-    activation: str
+    act_fn: object
     ep_group: dist.ProcessGroup
     ep_size: int
     input_dtype: torch.dtype
@@ -56,6 +56,8 @@ class ArcticMoE(nn.Module):
     def __init__(self, config: MoEConfig):
         super(ArcticMoE, self).__init__()
         self._config = config
+
+        self.act_fn = config.act_fn
         self.ep_group = config.ep_group
         self.ep_size = config.ep_size
         self.input_dtype = config.input_dtype
@@ -63,14 +65,6 @@ class ArcticMoE(nn.Module):
         self.model_dim = config.model_dim
         self.num_experts = config.num_experts
         self.top_k = config.top_k
-
-        supported_activations = ["relu", "gelu", "silu"]
-        if config.activation in supported_activations:
-            self._activation = getattr(F, config.activation)
-        elif config.activation is None:
-            self._activation = None
-        else:
-            raise ValueError(f"Unsupported activation {config.activation}")
 
         self.num_local_experts = self.num_experts // self.ep_size
 
@@ -92,6 +86,7 @@ class ArcticMoE(nn.Module):
                 dtype=self.input_dtype,
             )
         )
+
         self.gate_scale = 1.0
         self.up_scale = 0.0
 
@@ -111,6 +106,7 @@ class ArcticMoE(nn.Module):
         """Grouped GEMM for MoE experts.
         Args:
             x: Input tensor of shape [#tokens * topk, model_dim]
+            expert_count_cumsum: ???
         Returns:
             Output tensor after applying expert weights and activation.
         """
@@ -120,7 +116,7 @@ class ArcticMoE(nn.Module):
         intermediate = self.moegemm(x, self.expert_gate_up, expert_count_cumsum)
         if self._config.is_gated:
             gate, up = intermediate[..., 0::2], intermediate[..., 1::2]
-            gate = self._activation(gate * self.gate_scale) if self._activation else intermediate
+            gate = self.act_fn(gate * self.gate_scale)
             intermediate = (up + self.up_scale) * gate
         output = self.moegemm(intermediate, self.expert_down, expert_count_cumsum)
         return output
