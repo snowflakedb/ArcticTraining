@@ -39,7 +39,7 @@ class MoEConfig:
 
 
 def torch_group_gemm_fn(A, B, rows_cumsum):
-    C = torch.zeros((rows_cumsum[-1], B.size(-1)), device=A.device, dtype=A.dtype)
+    C = torch.zeros((rows_cumsum[-1], B.shape[-1]), device=A.device, dtype=A.dtype)
     for i in range(len(rows_cumsum)):
         start = 0 if i == 0 else rows_cumsum[i - 1]
         end = rows_cumsum[i]
@@ -113,7 +113,7 @@ class ArcticMoE(nn.Module):
         Returns:
             Output tensor after applying expert weights and activation.
         """
-        n_topk_tokens = x.size(0)
+        n_topk_tokens = x.shape[0]
         output = torch.empty_like(x)
         intermediate = torch.empty((n_topk_tokens, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
         intermediate = self.moegemm(x, self.expert_gate_up, expert_count_cumsum)
@@ -187,7 +187,7 @@ class ArcticMoE(nn.Module):
         token_rcv_count = token_rcv_count.reshape(self.ep_size, -1).sum(dim=-1)
         input_splits = token_snd_count.tolist()
         output_splits = token_rcv_count.tolist()
-        output = torch.empty((sum(output_splits), x.size(1)), dtype=x.dtype, device=x.device)
+        output = torch.empty((sum(output_splits), x.shape[1]), dtype=x.dtype, device=x.device)
         dist.all_to_all_single(
             output, x, output_split_sizes=output_splits, input_split_sizes=input_splits, group=self.ep_group
         )
@@ -245,7 +245,7 @@ class ArcticMoE(nn.Module):
             LB loss wrt `probs` and use that to modify the original grad via grad hook.
 
             - LB loss is defined as `sum(prob * freq)` where `prob = mean(probs, dim=0)`.
-            - grad of the LB loss wrt `probs` is therefore `freq / probs.size(0)`.
+            - grad of the LB loss wrt `probs` is therefore `freq / probs.shape[0]`.
             - grad (hence the corresponding LB loss) is further adjusted by `num_experts`, `num_layers`
               and `num_microbatches` to ensure the invariance of loss magnitude across model settings.
             """
@@ -266,7 +266,7 @@ class ArcticMoE(nn.Module):
             output: [#tokens, hidden_size]
         """
         output = torch.zeros(
-            (moe_output.size(0) // self.top_k, self.model_dim), dtype=moe_output.dtype, device=moe_output.device
+            (moe_output.shape[0] // self.top_k, self.model_dim), dtype=moe_output.dtype, device=moe_output.device
         )
         output.index_add_(0, token_mapped_slots, moe_output * scores[:, None])
         return output
