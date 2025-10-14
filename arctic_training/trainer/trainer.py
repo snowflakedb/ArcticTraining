@@ -279,6 +279,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 project=self.config.wandb.project,
                 name=self.config.wandb.name,
                 config=self.config.model_dump(),
+                # do not put `wandb` in the root of the repo as it conflicts with wandb package
+                dir=f"{self.config.logger.output_dir}/wandb",
             )
 
     def _set_seeds(self, seed: int) -> None:
