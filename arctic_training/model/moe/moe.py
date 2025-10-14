@@ -68,6 +68,7 @@ class ArcticMoE(nn.Module):
 
         self.num_local_experts = self.num_experts // self.ep_size
 
+        # XXX: shouldn't be inside expert param group - should be data parallel
         self.router_gate = nn.Parameter(
             torch.empty(
                 (self.num_experts, self.model_dim),
