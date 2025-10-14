@@ -27,9 +27,16 @@ from arctic_training.utils import read_json_file
 # XXX: need to create a tiny dataset for the tests
 train_dataset = "HuggingFaceH4/ultrachat_200k:train[:50]"
 
+# gpt-oss models, tiny random and smallish non-random
 model_gpt_oss = "tiny-random/gpt-oss-bf16"
+# model_gpt_oss = "AmanPriyanshu/gpt-oss-6.0b-specialized-all-pruned-moe-only-7-experts"
+# model_gpt_oss = "TroyDoesAI/gpt-oss-4B"
+
+# qwen3 models and small non-random
 model_qwen = "snake7gun/tiny-random-qwen3moe"
 # model_qwen = "DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder"
+
+
 models = [model_gpt_oss, model_qwen]
 
 
