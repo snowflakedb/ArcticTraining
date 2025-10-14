@@ -106,19 +106,6 @@ class ArcticMoE(nn.Module):
         else:
             self.moegemm = torch_group_gemm_fn
 
-    # def set_deepspeed_parallelism(self, use_data_before_expert_parallel_: bool = False) -> None:
-    #     self._create_process_groups(use_data_before_expert_parallel_=use_data_before_expert_parallel_)
-    #
-    # def _create_process_groups(self, use_data_before_expert_parallel_: bool = False) -> None:
-    #     # Create process group for a layer if needed
-    #     if self.expert_group_name not in groups._get_expert_parallel_group_dict():
-    #         print(f"No existing process group found, creating a new group named: {self.expert_group_name}")
-    #         groups._create_expert_data_and_model_parallel(
-    #             self.ep_size, mpu=groups.mpu, use_data_before_expert_parallel_=use_data_before_expert_parallel_
-    #         )
-    #
-    #     self.ep_group = groups._get_expert_parallel_group(self.expert_group_name)
-
     def GroupGeMM(self, x, expert_count_cumsum):
         """Grouped GEMM for MoE experts.
         Args:
