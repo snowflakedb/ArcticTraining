@@ -41,6 +41,7 @@ class Biencoder(nn.Module):
         super().__init__()
         self.encoder = encoder
         self.pooling = pooling
+        self.config = encoder.config
 
     def encode(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)

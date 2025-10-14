@@ -17,7 +17,7 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://hf.co/datasets/Snowflake/arctic-embed-ft
 mv ./data.gitignore ./data/.gitignore
 
 # Ensure we have all the files you need for training downloaded from LFS.
-cd arctic-embed-ft-v1/
+cd data/
 git lfs pull --include="combined/pretokenized/example_dot95/,eval/"
 
 # Optional: Download more large files (e.g. everything but the very large precomputed embeddings).

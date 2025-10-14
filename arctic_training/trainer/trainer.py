@@ -225,6 +225,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
+        # Synchronize all processes before DeepSpeed initialization
+        # This helps ensure all processes are ready, especially in multi-node setups
+        if self.config.world_size > 1:
+            logger.info(f"Rank {self.global_rank} synchronizing before DeepSpeed initialization...")
+            torch.distributed.barrier()
+            logger.info(f"Rank {self.global_rank} proceeding with DeepSpeed initialization")
+
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -434,10 +441,17 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 # deal correctly with packed samples under FA2/FA3, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
             else:
-                sample_seqlens = [
-                    [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
-                    for idx in range(len(batch["input_ids"]))
-                ]
+                if "input_ids" not in batch:
+                    # batch is a ContrastiveLearningBatch
+                    sample_seqlens = [
+                        [len(batch.query_tokens[idx]) * self.config.sequence_parallel_size]
+                        for idx in range(batch.query_tokens.shape[0])
+                    ]
+                else:
+                    sample_seqlens = [
+                        [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
+                        for idx in range(len(batch["input_ids"]))
+                    ]
             self.metrics.seqlens = sample_seqlens
 
             self.metrics.start_timer("step")

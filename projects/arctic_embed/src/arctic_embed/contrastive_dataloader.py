@@ -39,6 +39,8 @@ class ContrastivePretokenizedDataConfig(DataConfig):
     filesystem: FilesystemOption
     root_directory: str
     split_factor: int = 1
+    pad_value: int = 0
+    left_pad: bool = False
     sources: List[DataSourceConfig] = []
     max_seq_length_query: Optional[int] = None
     max_seq_length_doc: Optional[int] = None
@@ -52,7 +54,9 @@ class ContrastivePretokenizedDataFactory(DataFactory):
     name: str = "contrastive_pretokenized"
     config: ContrastivePretokenizedDataConfig
 
-    def __call__(self) -> Tuple[DataLoader, Optional[Dict[str, DataLoader]]]:
+    def __call__(self, **kwargs) -> Tuple[DataLoader, Optional[Dict[str, DataLoader]]]:
+        # Support optional start_batch_idx for resuming
+        start_batch_idx = kwargs.get('start_batch_idx', 0)
         fs = self.get_filesystem(self.config.filesystem)
 
         # Create the train loader.
@@ -62,9 +66,12 @@ class ContrastivePretokenizedDataFactory(DataFactory):
             split_factor=self.config.split_factor,
             shard_id=self.global_rank,
             world_size=self.world_size,
+            pad_value=self.config.pad_value,
+            left_pad=self.config.left_pad,
             max_seq_len_query=self.config.max_seq_length_query,
             max_seq_len_doc=self.config.max_seq_length_doc,
             device=self.trainer.device,
+            start_batch_idx=start_batch_idx,
         )
         train_dl = DataLoader(train_ds, batch_size=None)
 
@@ -79,6 +86,8 @@ class ContrastivePretokenizedDataFactory(DataFactory):
                     split_factor=self.config.eval_split_factor,
                     shard_id=self.global_rank,
                     world_size=self.world_size,
+                    pad_value=self.config.pad_value,
+                    left_pad=self.config.left_pad,
                     max_seq_len_query=self.config.eval_max_seq_length_query,
                     max_seq_len_doc=self.config.eval_max_seq_length_doc,
                     device=self.trainer.device,

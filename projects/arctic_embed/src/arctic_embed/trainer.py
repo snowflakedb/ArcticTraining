@@ -40,7 +40,9 @@ from arctic_training.trainer.trainer import Trainer
 
 from .biencoder_model_factory import BiencoderModelConfig
 from .biencoder_model_factory import BiencoderModelFactory
-from .checkpointing import BiencoderCheckpointEngine
+
+# from .checkpointing import BiencoderCheckpointEngine
+from .biencoder_s3_checkpoint import BiencoderS3CheckpointEngine
 from .contrastive_dataloader import ContrastivePretokenizedDataConfig
 from .contrastive_dataloader import ContrastivePretokenizedDataFactory
 from .core.biencoder_model import Biencoder
@@ -143,7 +145,7 @@ class BiencoderTrainer(Trainer):
     config: BiencoderTrainerConfig
     data_factory: ContrastivePretokenizedDataFactory
     model_factory: BiencoderModelFactory
-    checkpoint_engine: BiencoderCheckpointEngine
+    checkpoint_engine: BiencoderS3CheckpointEngine
     optimizer_factory: FusedAdamOptimizerFactory
     scheduler_factory: Union[WSDSchedulerFactory, HFSchedulerFactory]
     tokenizer_factory: FakeTokenizerFactory
@@ -159,7 +161,29 @@ class BiencoderTrainer(Trainer):
     def is_wandb_logger(self) -> bool:
         return self.global_rank == 0 and self.config.wandb.enable
 
+    def _recreate_dataloader_for_resume(self, start_batch_idx: int) -> None:
+        """Recreate dataloader to skip batches when resuming."""
+        if start_batch_idx > 0:
+            logger.info(f"Recreating dataloader to skip {start_batch_idx} batches for resume")
+            # Create new data factory with start_batch_idx
+            data_factory = self.config.data.factory(self)
+            self.train_dataloader, _ = data_factory(start_batch_idx=start_batch_idx)  # type: ignore[call-arg]
+
     def pre_train_callback(self) -> None:
+        # Synchronize all ranks before starting training
+        # This is especially important when resuming from checkpoint
+        if self.world_size > 1:
+            logger.info(f"Rank {self.global_rank} synchronizing before training starts...")
+            torch.distributed.barrier()
+            logger.info(f"Rank {self.global_rank} synchronized, starting training")
+
+        # Log training configuration for debugging
+        if self.global_rank == 0:
+            logger.info(
+                f"Starting training from batch_idx={self.train_batch_idx}, "
+                f"log_interval={self.config.train_log_iter_interval}"
+            )
+
         # Turn on weights and biases on the master worker.
         if self.is_wandb_logger:
             import wandb
@@ -208,6 +232,8 @@ class BiencoderTrainer(Trainer):
     @torch.no_grad()
     def eval(self, batch: ContrastiveLearningBatch) -> Dict[str, float]:
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
+        if self.config.use_in_batch_negatives:
+            relations[relations == 0] = -1
         q_emb = F.normalize(query_embeddings, dim=1)
         d_emb = F.normalize(document_embeddings, dim=1)
         scores = torch.matmul(q_emb, d_emb.transpose(0, 1))
