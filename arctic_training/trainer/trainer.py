@@ -459,7 +459,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
-                    if self.wandb_experiment is not None:
+                    # do not log the first train iteration to wandb, since it's a massive outlier
+                    # on all performance metrics, which messes up the scale of the report
+                    if self.wandb_experiment is not None and self.global_step > 1:
                         metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
                         self.wandb_experiment.log(metrics, step=self.global_step)
 
