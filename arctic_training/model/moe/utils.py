@@ -342,7 +342,6 @@ def is_expert_param(param: torch.Tensor, expert_param_data_ptrs: List) -> bool:
 def split_params_into_different_moe_groups_for_optimizer(
     param_groups: Union[Dict[str, Any], Tuple[Dict[str, Any], ...], List[Dict[str, Any]]],
     expert_param_data_ptrs: List,
-    max_group_size: Union[int, float] = 178956971,
 ) -> List[Dict[str, Any]]:
     """Split parameters into different MoE groups for optimizer
 
@@ -393,31 +392,13 @@ def split_params_into_different_moe_groups_for_optimizer(
                 new_params.append(param)
         param_group["params"] = new_params
 
+    # XXX: the original code was splitting moe-groups into multiple subgroups of some random group size
+    # https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/moe/utils.py#L121
+    # it was added here https://github.com/deepspeedai/DeepSpeed/pull/2079
+    # I removed it for now since I don't think it's relevant to non-fp16 use cases - can revisit when optimizing
     # Flatten the moe groups
-    if max_group_size is not None:
-        for moe_group in group_moe.values():
-            for param_group in moe_group.values():
-                cur_group: List[nn.Parameter] = []
-                all_groups: List[List[nn.Parameter]] = []
-                size_of_cur_group = 0
-
-                for param in cast(List[nn.Parameter], param_group["params"]):
-                    if size_of_cur_group + param.numel() <= max_group_size:
-                        cur_group.append(param)
-                        size_of_cur_group += param.numel()
-                    else:
-                        all_groups.append(cur_group)
-                        cur_group = [param]
-                        size_of_cur_group = param.numel()
-
-                if cur_group:
-                    all_groups.append(cur_group)
-
-                for group in all_groups:
-                    param_groups.append({**param_group, "params": group})
-    else:
-        for moe_group in group_moe.values():
-            for param_group in moe_group.values():
-                param_groups.append(param_group)
+    for moe_group in group_moe.values():
+        for param_group in moe_group.values():
+            param_groups.append(param_group)
 
     return param_groups
