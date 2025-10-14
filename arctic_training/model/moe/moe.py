@@ -21,20 +21,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MoEConfig:
-    num_experts: int
-    ep_size: int
-    ep_group: dist.ProcessGroup
-    model_dim: int
-    intermediate_dim: int
-    top_k: int
-    input_dtype: torch.dtype
     activation: str
-    normalize_topk_scores: bool
-    return_router_scores: bool
+    ep_group: dist.ProcessGroup
+    ep_size: int
+    input_dtype: torch.dtype
+    intermediate_dim: int
     is_gated: bool = True
     loss_coeff: float = 0.01
+    model_dim: int
+    normalize_topk_scores: bool
+    num_experts: int
+    return_router_scores: bool
+    top_k: int
     use_triton: bool = True
 
 
