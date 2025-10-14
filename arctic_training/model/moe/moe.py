@@ -56,13 +56,13 @@ class ArcticMoE(nn.Module):
     def __init__(self, config: MoEConfig):
         super(ArcticMoE, self).__init__()
         self._config = config
+        self.ep_group = config.ep_group
+        self.ep_size = config.ep_size
+        self.input_dtype = config.input_dtype
+        self.intermediate_dim = config.intermediate_dim
+        self.model_dim = config.model_dim
         self.num_experts = config.num_experts
         self.top_k = config.top_k
-        self.model_dim = config.model_dim
-        self.intermediate_dim = config.intermediate_dim
-        self.input_dtype = config.input_dtype
-        self.ep_size = config.ep_size
-        self.ep_group = config.ep_group
 
         supported_activations = ["relu", "gelu", "silu"]
         if config.activation in supported_activations:
