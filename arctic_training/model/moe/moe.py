@@ -20,6 +20,8 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
+from arctic_training.model.moe.alltoall import AlltoAllV
+
 
 @dataclass(kw_only=True)
 class MoEConfig:
@@ -94,7 +96,7 @@ class ArcticMoE(nn.Module):
             torch.empty((self.num_local_experts, self.intermediate_dim, self.model_dim), dtype=self.input_dtype)
         )
 
-        self.comm_stream = torch.cuda.Stream()
+        # self.comm_stream = torch.cuda.Stream()
         if config.use_triton:
             from arctic_training.model.moe.moe_gemm import group_gemm_fn
 
@@ -152,8 +154,8 @@ class ArcticMoE(nn.Module):
             hidden_states, logits
         )
 
-        if self.ep_size > 1:
-            moe_input = self.AlltoAllV(moe_input, expert_token_count, expert_token_rcv_count)
+        if self.ep_size >= 1:
+            moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
             moe_input, expert_count_cumsum, reordered_expert_count = self.local_ep_transpose(
                 moe_input, expert_token_rcv_count
             )
@@ -161,16 +163,16 @@ class ArcticMoE(nn.Module):
             expert_count_cumsum = expert_token_count.cumsum(0)
         moe_output = self.GroupGeMM(moe_input, expert_count_cumsum)
 
-        if self.ep_size > 1:
+        if self.ep_size >= 1:
             moe_output = self.local_ep_depermute(moe_output, reordered_expert_count)
-            moe_output = self.AlltoAllV(moe_output, expert_token_rcv_count, expert_token_count)
+            moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
 
         output = self.MoECombine(moe_output, token_mapped_slots, scores)
         output = output.reshape(orig_shape)
 
         return (output, scores) if self._config.return_router_scores else output
 
-    def AlltoAllV(self, x, token_snd_count=None, token_rcv_count=None):
+    def alltoall_V(self, x, token_snd_count=None, token_rcv_count=None):
         """AlltoAllV operation for distributed MoE.
         Args:
             x: Input tensor
@@ -179,15 +181,10 @@ class ArcticMoE(nn.Module):
         Returns:
             Output tensor after AlltoAllV
         """
-        torch.cuda.current_stream().wait_stream(self.comm_stream)
+        # torch.cuda.current_stream().wait_stream(self.comm_stream)
         token_snd_count = token_snd_count.reshape(self.ep_size, -1).sum(dim=-1)
         token_rcv_count = token_rcv_count.reshape(self.ep_size, -1).sum(dim=-1)
-        input_splits = token_snd_count.tolist()
-        output_splits = token_rcv_count.tolist()
-        output = torch.empty((sum(output_splits), x.shape[1]), dtype=x.dtype, device=x.device)
-        dist.all_to_all_single(
-            output, x, output_split_sizes=output_splits, input_split_sizes=input_splits, group=self.ep_group
-        )
+        output = AlltoAllV(self.ep_group, x, token_snd_count, token_rcv_count)
         return output
 
     def MoERouter(self, hidden_states, logits):
@@ -229,10 +226,10 @@ class ArcticMoE(nn.Module):
         total_count = expert_token_count.sum()
         expert_freq = expert_token_count / total_count
 
-        if self.ep_size > 1:
+        if self.ep_size >= 1:
             expert_token_rcv_count = torch.empty_like(expert_token_count)
-            with torch.cuda.stream(self.comm_stream):
-                dist.all_to_all_single(expert_token_rcv_count, expert_token_count, group=self.ep_group)
+            # with torch.cuda.stream(self.comm_stream):
+            dist.all_to_all_single(expert_token_rcv_count, expert_token_count, group=self.ep_group)
         else:
             expert_token_rcv_count = expert_token_count
 
