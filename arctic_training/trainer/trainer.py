@@ -47,6 +47,7 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
+from arctic_training.debug.utils import pr0
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -219,6 +220,57 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
+        # Arctic MoE model remapping has to be called before optimizer is created
+        from arctic_training.model.moe.utils import detect_if_moe_model
+        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_arctic_moe
+
+        if self.config.arctic_moe == "auto":
+            use_arctic_moe = detect_if_moe_model(self.model)
+        else:
+            use_arctic_moe = self.config.arctic_moe
+        if use_arctic_moe:
+            pr0("Activating ArcticMoE", force=True)
+            import deepspeed.comm as dist
+
+            if not dist.is_initialized():
+                dist.init_distributed(dist_backend="nccl", dist_init_required=True)
+
+            # DeepspeedMoE is only integrated with ZeRO-2
+            zero_stage = self.config.deepspeed.get("zero_optimization", {}).get("stage", 0)
+            if zero_stage != 2:
+                raise ValueError(
+                    "at the moment Deepspeed supports only ZeRO stage 2 with MoE, but the configuration asks for ZeRO"
+                    f" stage={zero_stage}"
+                )
+
+            from deepspeed.utils import groups
+
+            # this config comes from use_data_before_expert_parallelism ds config which defaults to False
+            # engine._config.use_data_before_expert_parallel_)
+            # but we don't have the engine yet to get the ds config values - perhaps could extract this via AT-config?
+            use_data_before_expert_parallel_ = False
+            # the ep group has to be created before remap_moe_mlp_params_to_arctic_moe as ep rank info is needed to remap pre-trained experts
+            groups._create_expert_data_and_model_parallel(
+                self.config.expert_parallel_size,
+                mpu=None,
+                use_data_before_expert_parallel_=use_data_before_expert_parallel_,
+            )
+
+            # self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
+            remap_moe_mlp_params_to_arctic_moe(self.model, ep_size=self.config.expert_parallel_size)
+            # self.groups)
+            # XXX: check we can remap back
+            # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
+            # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
+
+        # inspectors are important to call after all model tweaks are done (e.g. after AMoE)
+        #
+        # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
+        # debug_overflow = DebugUnderflowOverflow(self.model, max_frames_to_save=100)  # noqa
+        #
+        # from arctic_training.debug.underflow_overflow import DebugGradients
+        # debug_grads = DebugGradients(self.model, trace_batch_nums=[1], max_frames_to_save=100)  # noqa
+
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
 
@@ -233,6 +285,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+
+        # # XXX: future MoE support
+        # if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
+        #     for m in self.model_unwrapped.modules():
+        #         if "SparseMoeBlock" in m.__class__.__name__:
+        #             deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
+        #             pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
+        #             break
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first
@@ -387,6 +447,32 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             return v.item() if torch.is_tensor(v) else v
 
         self.metrics.record("loss", maybe_item(loss))
+
+        # if neededing to debug AMoE-EP grads
+        # from deepspeed.utils import safe_get_full_grad
+        #
+        # if hasattr(self.model_unwrapped.model.layers[1].mlp, "router_gate"):
+        #     pr0("------------------------->8------------- grads ------------->8----------",
+        #         force=True)
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.router_gate))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_gate_up))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_down))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].post_attention_layernorm.weight))=}",
+        #         force=True,
+        #     )
+        #     pr0("------------------------->8------------- grads end --------->8----------",
+        #         force=True)
+        # exit()
 
         self.model.step()
 
