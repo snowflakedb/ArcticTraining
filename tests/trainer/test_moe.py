@@ -143,7 +143,7 @@ optimizer:
   learning_rate: 1e-5
 
 arctic_moe: true
-expert_parallel_size: 1
+expert_parallel_size: 2
 """
 
         log_train_file = save_path / "logs" / "train_logs-arctic-moe.jsonl"

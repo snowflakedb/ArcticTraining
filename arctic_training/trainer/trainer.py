@@ -210,9 +210,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
-        # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
-        # debug_overflow = DebugUnderflowOverflow(self.model, max_frames_to_save=100)  # noqa
-
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
         if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [
@@ -238,6 +235,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if not dist.is_initialized():
                 dist.init_distributed(dist_backend="nccl", dist_init_required=True)
 
+            # DeepspeedMoE is only integrated with ZeRO-2
+            zero_stage = self.config.deepspeed.get("zero_optimization", {}).get("stage", 0)
+            if zero_stage != 2:
+                raise ValueError(
+                    "at the moment Deepspeed supports only ZeRO stage 2 with MoE, but the configuration asks for ZeRO"
+                    f" stage={zero_stage}"
+                )
+
             from deepspeed.utils import groups
 
             # this config comes from use_data_before_expert_parallelism ds config which defaults to False
@@ -257,6 +262,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # XXX: check we can remap back
             # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
             # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
+
+        # inspectors are important to call after all model tweaks are done (e.g. after AMoE)
+        #
+        # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
+        # debug_overflow = DebugUnderflowOverflow(self.model, max_frames_to_save=100)  # noqa
+        #
+        # from arctic_training.debug.underflow_overflow import DebugGradients
+        # debug_grads = DebugGradients(self.model, trace_batch_nums=[1], max_frames_to_save=100)  # noqa
 
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
@@ -434,6 +447,32 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             return v.item() if torch.is_tensor(v) else v
 
         self.metrics.record("loss", maybe_item(loss))
+
+        # if neededing to debug AMoE-EP grads
+        # from deepspeed.utils import safe_get_full_grad
+        #
+        # if hasattr(self.model_unwrapped.model.layers[1].mlp, "router_gate"):
+        #     pr0("------------------------->8------------- grads ------------->8----------",
+        #         force=True)
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.router_gate))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_gate_up))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_down))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].post_attention_layernorm.weight))=}",
+        #         force=True,
+        #     )
+        #     pr0("------------------------->8------------- grads end --------->8----------",
+        #         force=True)
+        # exit()
 
         self.model.step()
 

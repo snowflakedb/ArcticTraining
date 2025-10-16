@@ -115,6 +115,12 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
       - ep_size: EP size
     """
 
+    import deepspeed.runtime.engine
+
+    # this plugs us into the old DeepspeedMoE system whose integration into Z2 is needed for ArcticMoE to work with ZeRO-2
+    # https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/runtime/engine.py#L1323
+    deepspeed.runtime.engine.MoE = ArcticMoE
+
     device = model.device
     meta_device = torch.device("meta")
     config = model.config
@@ -309,6 +315,22 @@ Out[5]: torch.Size([32, 32, 128])
 
 
 def identify_expert_params(model, ep_size):
+    """
+    This util:
+    1. creates a list of data pointers to expert params, which is used by split_params_into_different_moe_groups_for_optimizer to split zero params from expert params in the optimizer param groups - we need to do it since we have no names in param groups.
+    2. assigns 2 attributes: p.allreduce and p.group_name to expert params, which DS-ZeRO2 expects to idenfity if a param is an expert param and should be handled differently from ZeRO params.
+
+    Call it before split_params_into_different_moe_groups_for_optimizer, which is called just before the optimizer is created.
+
+    Args:
+    - model: unwrapped model
+    - ep_size: expert parallel size
+
+    Returns:
+    - expert_param_data_ptrs: a list of data pointers to expert params
+
+    """
+
     # regex = r'arctic_moe.experts.deepspeed_experts.*?.weight'
     # regex = r"experts"
     # expert_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
@@ -324,6 +346,10 @@ def identify_expert_params(model, ep_size):
             for n, p in m.named_parameters():
                 if n.split(":")[-1] in expert_param_names:
                     expert_param_data_ptrs.append(p.data_ptr)
+                    # XXX: DS-MoE legacy flags to integrate with ZeRO
+                    # 1. this attribute is used in is_moe_param util https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/moe/utils.py#L28
+                    p.allreduce = False
+                    # 2. this attribute is used to discover which process group to use for reducing gradients https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/moe/utils.py#L116
                     p.group_name = expert_group_name
 
     print(f"Found {len(expert_param_data_ptrs)} MoE params")
@@ -331,7 +357,7 @@ def identify_expert_params(model, ep_size):
 
 
 def is_expert_param(param: torch.Tensor, expert_param_data_ptrs: List) -> bool:
-    # XXX: this will be set once MoE class is used
+    # XXX: this will be set once MoE class is used - find a better way to communicate it's an expert param
     if param.data_ptr in expert_param_data_ptrs and hasattr(param, "group_name"):
         # print(F"MoE param")
         return True

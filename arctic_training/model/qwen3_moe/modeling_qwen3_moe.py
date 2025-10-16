@@ -427,7 +427,7 @@ class Qwen3MoeModel(Qwen3MoePreTrainedModel):
         self.vocab_size = config.vocab_size
 
         # XXX: debug shortcut
-        # config.num_hidden_layers = 2
+        # config.num_hidden_layers = 4
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
