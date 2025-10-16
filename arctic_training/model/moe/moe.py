@@ -23,6 +23,7 @@ import torch.nn.functional as F
 from arctic_training.model.moe.alltoall import AlltoAllV
 
 
+# from arctic_training.debug.utils import pr0
 @dataclass(kw_only=True)
 class MoEConfig:
     act_fn: object
@@ -159,7 +160,7 @@ class ArcticMoE(nn.Module):
 
         if self.ep_size >= 1:
             moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
-            moe_input, expert_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
+            moe_input, expert_token_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
                 moe_input, expert_token_rcv_count
             )
         else:
@@ -248,7 +249,8 @@ class ArcticMoE(nn.Module):
             """
             # get_num_microbatches() TODO(Reza): get the actual number of microbatches
             coeff = self._config.loss_coeff / T / 1
-            return grad + expert_freq.unsqueeze(0) * coeff / self.ep_size
+            y = grad + expert_freq.unsqueeze(0) * coeff / self.ep_size
+            return y
 
         if probs.requires_grad:
             probs.register_hook(_load_balance_grad_hook)
