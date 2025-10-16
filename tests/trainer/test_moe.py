@@ -27,15 +27,14 @@ from arctic_training.utils import read_json_file
 # XXX: need to create a tiny dataset for the tests
 train_dataset = "HuggingFaceH4/ultrachat_200k:train[:50]"
 
-# gpt-oss models, tiny random and smallish non-random
-model_gpt_oss = "tiny-random/gpt-oss-bf16"
-# model_gpt_oss = "AmanPriyanshu/gpt-oss-6.0b-specialized-all-pruned-moe-only-7-experts"
-# model_gpt_oss = "TroyDoesAI/gpt-oss-4B"
-
-# qwen3 models and small non-random
+# qwen3 models: tiny random and smallish non-random
 model_qwen = "snake7gun/tiny-random-qwen3moe"
 # model_qwen = "DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder"
 
+# gpt-oss models: tiny random and smallish non-random
+model_gpt_oss = "tiny-random/gpt-oss-bf16"
+# model_gpt_oss = "AmanPriyanshu/gpt-oss-6.0b-specialized-all-pruned-moe-only-7-experts"
+# model_gpt_oss = "TroyDoesAI/gpt-oss-4B"
 
 models = [model_gpt_oss, model_qwen]
 
@@ -47,8 +46,8 @@ class TestTrainerWithLauncher(TestCasePlus):
 
     @parameterized.expand(models)
     def test_moe(self, model_name_or_path):
-        """ """
-        world_size = 1
+        """compare ds+z2 vs ds+z2+amoe"""
+        world_size = 2
         # later add support for pytest-xdist for unique ports
         master_port = get_unique_port_number()
 
@@ -60,8 +59,6 @@ type: sft
 micro_batch_size: 1
 exit_iteration: 4
 
-optimizer:
-  learning_rate: 1e-5
 
 model:
   #type: "liger"
@@ -98,6 +95,13 @@ seed: 42
 deepspeed:
   zero_optimization:
     stage: 2
+    offload_optimizer:
+      device: cpu
+
+optimizer:
+  type: cpu_adam
+  learning_rate: 1e-5
+
 #arctic_moe: false
 #expert_parallel_size: 1
 """
@@ -131,6 +135,13 @@ train_log_metrics_path: {log_train_file}
 deepspeed:
   zero_optimization:
     stage: 2
+    offload_optimizer:
+      device: cpu
+
+optimizer:
+  type: cpu_adam_moe
+  learning_rate: 1e-5
+
 arctic_moe: true
 expert_parallel_size: 1
 """

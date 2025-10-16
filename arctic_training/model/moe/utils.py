@@ -55,7 +55,7 @@ def detect_if_moe_model(model):
 
 
 # XXX: this is just a stab - not working yet
-# def remap_arctic_moe_params_to_orig_moe_mlp(model):
+# def remap_arctic_expert_params_to_orig_moe_mlp(model):
 #     """
 #     undoes remap_moe_mlp_params_to_arctic_moe, renaming the arctic_moe unified representation to the original model
 
@@ -308,28 +308,31 @@ Out[5]: torch.Size([32, 32, 128])
 # model.layers.1.mlp.experts
 
 
-def identify_moe_params(model, ep_size):
+def identify_expert_params(model, ep_size):
     # regex = r'arctic_moe.experts.deepspeed_experts.*?.weight'
     # regex = r"experts"
-    # moe_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
+    # expert_param_data_ptrs = [p.data_ptr for n, p in model.named_parameters() if re.search(regex, n) is not None]
 
     expert_group_name = f"ep_size_{ep_size}"
 
-    moe_param_data_ptrs = []
+    # router_gate isn't part of moe params
+    expert_param_names = ["expert_gate_up", "expert_down"]
+    expert_param_data_ptrs = []
     for n, m in model.named_modules():
+        # print(n)
         if isinstance(m, ArcticMoE):
-            moe_param_data_ptrs += [p.data_ptr for n, p in m.named_parameters()]
-            for p in m.parameters():
-                p.group_name = expert_group_name
+            for n, p in m.named_parameters():
+                if n.split(":")[-1] in expert_param_names:
+                    expert_param_data_ptrs.append(p.data_ptr)
+                    p.group_name = expert_group_name
 
-    print(f"Found {len(moe_param_data_ptrs)} MoE params")
-    # die
-    return moe_param_data_ptrs
+    print(f"Found {len(expert_param_data_ptrs)} MoE params")
+    return expert_param_data_ptrs
 
 
-def is_moe_param(param: torch.Tensor, moe_param_data_ptrs: List) -> bool:
+def is_expert_param(param: torch.Tensor, expert_param_data_ptrs: List) -> bool:
     # XXX: this will be set once MoE class is used
-    if param.data_ptr in moe_param_data_ptrs and hasattr(param, "group_name"):
+    if param.data_ptr in expert_param_data_ptrs and hasattr(param, "group_name"):
         # print(F"MoE param")
         return True
     else:
@@ -338,8 +341,7 @@ def is_moe_param(param: torch.Tensor, moe_param_data_ptrs: List) -> bool:
 
 def split_params_into_different_moe_groups_for_optimizer(
     param_groups: Union[Dict[str, Any], Tuple[Dict[str, Any], ...], List[Dict[str, Any]]],
-    moe_param_data_ptrs: List,
-    max_group_size: Union[int, float] = 178956971,
+    expert_param_data_ptrs: List,
 ) -> List[Dict[str, Any]]:
     """Split parameters into different MoE groups for optimizer
 
@@ -358,14 +360,14 @@ def split_params_into_different_moe_groups_for_optimizer(
     elif not isinstance(param_groups, list):
         raise ValueError(f"Unknown param group type of {type(param_groups)}")
 
-    # print("Splitting into Moe")
+    # pr("Splitting into Moe")
 
     # gather all data parallel group names
     data_parallel_group_names: Set[str] = set()
     for param_group in param_groups:
         # for param in cast(List[nn.Parameter], param_group["params"]):
         for param in param_group["params"]:
-            if is_moe_param(param, moe_param_data_ptrs):
+            if is_expert_param(param, expert_param_data_ptrs):
                 data_parallel_group_names.add(param.group_name)
 
     # Create the param MoE groups, leave param assign to next step
@@ -384,37 +386,19 @@ def split_params_into_different_moe_groups_for_optimizer(
         new_params: List[nn.Parameter] = []
 
         for param in cast(List[nn.Parameter], param_group["params"]):
-            if is_moe_param(param, moe_param_data_ptrs):
+            if is_expert_param(param, expert_param_data_ptrs):
                 group_moe[param_group["name"]][param.group_name]["params"].append(param)
             else:
                 new_params.append(param)
         param_group["params"] = new_params
 
+    # XXX: the original code was splitting moe-groups into multiple subgroups of some random group size
+    # https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/moe/utils.py#L121
+    # it was added here https://github.com/deepspeedai/DeepSpeed/pull/2079
+    # I removed it for now since I don't think it's relevant to non-fp16 use cases - can revisit when optimizing
     # Flatten the moe groups
-    if max_group_size is not None:
-        for moe_group in group_moe.values():
-            for param_group in moe_group.values():
-                cur_group: List[nn.Parameter] = []
-                all_groups: List[List[nn.Parameter]] = []
-                size_of_cur_group = 0
-
-                for param in cast(List[nn.Parameter], param_group["params"]):
-                    if size_of_cur_group + param.numel() <= max_group_size:
-                        cur_group.append(param)
-                        size_of_cur_group += param.numel()
-                    else:
-                        all_groups.append(cur_group)
-                        cur_group = [param]
-                        size_of_cur_group = param.numel()
-
-                if cur_group:
-                    all_groups.append(cur_group)
-
-                for group in all_groups:
-                    param_groups.append({**param_group, "params": group})
-    else:
-        for moe_group in group_moe.values():
-            for param_group in moe_group.values():
-                param_groups.append(param_group)
+    for moe_group in group_moe.values():
+        for param_group in moe_group.values():
+            param_groups.append(param_group)
 
     return param_groups

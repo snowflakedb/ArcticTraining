@@ -70,6 +70,7 @@ class ArcticMoE(nn.Module):
 
         self.num_local_experts = self.num_experts // self.ep_size
 
+        # XXX: shouldn't be inside expert param group - should be data parallel
         self.router_gate = nn.Parameter(
             torch.empty(
                 (self.num_experts, self.model_dim),
@@ -104,23 +105,23 @@ class ArcticMoE(nn.Module):
         else:
             self.moegemm = torch_group_gemm_fn
 
-    def GroupGeMM(self, x, expert_count_cumsum):
+    def GroupGeMM(self, x, expert_token_count_cumsum):
         """Grouped GEMM for MoE experts.
         Args:
             x: Input tensor of shape [#tokens * topk, model_dim]
-            expert_count_cumsum: ???
+            expert_token_count_cumsum: ???
         Returns:
             Output tensor after applying expert weights and activation.
         """
         n_topk_tokens = x.shape[0]
         output = torch.empty_like(x)
         intermediate = torch.empty((n_topk_tokens, self.intermediate_dim), dtype=self.input_dtype, device=x.device)
-        intermediate = self.moegemm(x, self.expert_gate_up, expert_count_cumsum)
+        intermediate = self.moegemm(x, self.expert_gate_up, expert_token_count_cumsum)
         if self._config.is_gated:
             gate, up = intermediate[..., 0::2], intermediate[..., 1::2]
             gate = self.act_fn(gate * self.gate_scale)
             intermediate = (up + self.up_scale) * gate
-        output = self.moegemm(intermediate, self.expert_down, expert_count_cumsum)
+        output = self.moegemm(intermediate, self.expert_down, expert_token_count_cumsum)
         return output
 
     def local_ep_transpose(self, x, expert_token_rcv_count):
@@ -133,12 +134,14 @@ class ArcticMoE(nn.Module):
             ],
             dim=0,
         )
-        expert_count_cumsum = expert_token_rcv_count.view(self.ep_size, self.num_local_experts).sum(0).cumsum(0)
-        reordered_expert_count = expert_token_rcv_count.view(self.ep_size, self.num_local_experts).t().reshape(-1)
-        return x, expert_count_cumsum, reordered_expert_count
+        expert_token_count_cumsum = expert_token_rcv_count.view(self.ep_size, self.num_local_experts).sum(0).cumsum(0)
+        expert_token_count_transposed = (
+            expert_token_rcv_count.view(self.ep_size, self.num_local_experts).t().reshape(-1)
+        )
+        return x, expert_token_count_cumsum, expert_token_count_transposed
 
-    def local_ep_depermute(self, x, reordered_expert_count):
-        out_split = torch.split(x, reordered_expert_count.tolist(), dim=0)
+    def local_ep_depermute(self, x, expert_token_count_transposed):
+        out_split = torch.split(x, expert_token_count_transposed.tolist(), dim=0)
         x = torch.cat(
             [out_split[i * self.ep_size + j] for j in range(self.ep_size) for i in range(self.num_local_experts)],
             dim=0,
@@ -150,21 +153,21 @@ class ArcticMoE(nn.Module):
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
         logits = F.linear(hidden_states, self.router_gate)
-        (moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots) = self.MoERouter(
+        moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots = self.MoERouter(
             hidden_states, logits
         )
 
         if self.ep_size >= 1:
             moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
-            moe_input, expert_count_cumsum, reordered_expert_count = self.local_ep_transpose(
+            moe_input, expert_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
                 moe_input, expert_token_rcv_count
             )
         else:
-            expert_count_cumsum = expert_token_count.cumsum(0)
-        moe_output = self.GroupGeMM(moe_input, expert_count_cumsum)
+            expert_token_count_cumsum = expert_token_count.cumsum(0)
+        moe_output = self.GroupGeMM(moe_input, expert_token_count_cumsum)
 
         if self.ep_size >= 1:
-            moe_output = self.local_ep_depermute(moe_output, reordered_expert_count)
+            moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)
             moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
 
         output = self.MoECombine(moe_output, token_mapped_slots, scores)
