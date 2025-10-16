@@ -57,7 +57,7 @@ class TestTrainerWithLauncher(TestCasePlus):
         baseline_config = f"""
 type: sft
 micro_batch_size: 1
-exit_iteration: 4
+exit_iteration: 3
 
 
 model:
@@ -117,16 +117,16 @@ train_log_metrics_path: {log_train_file}
         print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        self.assertIn("iter: 1/4", cs.combined)
-        self.assertIn("iter: 2/4", cs.combined)
+        self.assertIn("iter: 3/3", cs.combined)
 
         try:
             train_logs = read_json_file(log_train_file)
         except FileNotFoundError as e:
             raise RuntimeError(f"Error caught while reading {log_train_file}: {e}Relevant stderr output:\n{cs.err}")
-        # test that we run max_num_opt_steps_this_run=3 steps and not more
         self.assertEqual(train_logs[0]["iter"], 1)
-        loss_a = train_logs[0]["loss"]
+        loss_a_1 = train_logs[0]["loss"]
+        loss_a_2 = train_logs[1]["loss"]
+        loss_a_3 = train_logs[2]["loss"]
 
         # exit(0)
 
@@ -158,16 +158,19 @@ train_log_metrics_path: {log_train_file}
         # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd)); die
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        self.assertIn("iter: 1/4", cs.combined)
-        self.assertIn("iter: 2/4", cs.combined)
+        self.assertIn("iter: 3/3", cs.combined)
 
         try:
             train_logs = read_json_file(log_train_file)
         except FileNotFoundError as e:
             raise RuntimeError(f"Error caught while reading {log_train_file}: {e}Relevant stderr output:\n{cs.err}")
-        # test that we run max_num_opt_steps_this_run=3 steps and not more
         self.assertEqual(train_logs[0]["iter"], 1)
-        loss_b = train_logs[0]["loss"]
+        loss_b_1 = train_logs[0]["loss"]
+        loss_b_2 = train_logs[1]["loss"]
+        loss_b_3 = train_logs[2]["loss"]
 
-        # comparisons
-        torch_assert_close(loss_a, loss_b)  # , atol=0, rtol=0)
+        # quality checks that we are closely matching DS Z2 non-AMoE setup
+        # dtype is lost when logs are saved, so matching againt bf16 standard torch.testing.assert_close tolerance which is rtol=1.6e-2, atol=1e-5
+        torch_assert_close(loss_a_1, loss_b_1, rtol=1.6e-2, atol=1e-5)
+        torch_assert_close(loss_a_2, loss_b_2, rtol=1.6e-2, atol=1e-5)
+        torch_assert_close(loss_a_3, loss_b_3, rtol=1.6e-2, atol=1e-5)
