@@ -35,18 +35,22 @@ from arctic_embed.contrastive_dataloader import ContrastivePretokenizedDataConfi
 from arctic_embed.core.cuda_allocator_config import CUDA_ALLOCATOR_CONFIG_FOR_DYNAMICALLY_SIZED_DATA
 from arctic_embed.trainer import BiencoderTrainer
 from arctic_embed.trainer import BiencoderTrainerConfig
+from arctic_embed.biencoder_s3_checkpoint import BiencoderS3CheckpointConfig
 
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.wandb import WandBConfig
 from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
+from arctic_training.config.enums import DType
 
 LEARNING_RATE = 3e-5
 GRADIENT_CLIPPING = 10.0
-DATASET_NAME = "example_dot95"
-DATA_PATH = str(Path(__file__).parent / "data" / "combined" / "pretokenized" / DATASET_NAME / "data")
-EVAL_DATA_PATHS = [str(path) for path in (Path(__file__).parent / "data" / "eval").iterdir() if path.is_dir()]
+# DATASET_NAME = "example_dot95"
+# DATA_PATH = str(Path(__file__).parent / "data" / "combined" / "pretokenized" / DATASET_NAME / "data")
+DATA_PATH = "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/InstructIR/data"
+# EVAL_DATA_PATHS = [str(path) for path in (Path(__file__).parent / "data" / "eval").iterdir() if path.is_dir()]
+# EVAL_DATA_PATH = ["s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/InstructIR/eval/"]
 
 
 def now_timestamp_str() -> str:
@@ -55,22 +59,31 @@ def now_timestamp_str() -> str:
 
 
 ts = now_timestamp_str()
-checkpoint_dir = Path(__file__).parent / "checkpoints" / "finetune_e5_base_unsupervised" / ts
-mconf = BiencoderModelConfig(name_or_path="intfloat/e5-base-unsupervised", pooling="first_token")
+# checkpoint_dir = Path(__file__).parent / "checkpoints" / "finetune_e5_base_unsupervised" / ts
+checkpoint_dir = f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/training/checkpoints/promptriever/{ts}"
+local_cache_dir = "/scratch/checkpoints-temp"
+
+mconf = BiencoderModelConfig(
+    name_or_path="/scratch/pretrained_checkpoint_original", 
+    pooling="first_token", 
+    dtype=DType.FP32, 
+    disable_activation_checkpoint=True,
+    kwargs={"trust_remote_code": True}
+)
 dconf = ContrastivePretokenizedDataConfig(
-    # filesystem="s3",
-    # root_directory="my-bucket/path/to/combined/pretokenized/example_dot95/data",
-    filesystem="local",
+    filesystem="s3",
     root_directory=DATA_PATH,
+    # filesystem="local",
+    # root_directory=DATA_PATH,
     # Depending on how much GPU memory you have, you may need to split each
     # batch into a number of smaller sub-batches by setting the split_factor.
     # If you do so, you will probably want to decrease the learning rate accordingly.
     # split_factor=4,
-    max_seq_length_query=512,
-    max_seq_length_doc=512,
-    eval_root_directories=EVAL_DATA_PATHS,
-    eval_max_seq_length_doc=512,
-    eval_max_seq_length_query=512,
+    max_seq_length_query=1024,
+    max_seq_length_doc=1024,
+    # eval_root_directories=EVAL_DATA_PATH,
+    # eval_max_seq_length_doc=1024,
+    # eval_max_seq_length_query=1024,
 )
 sconf = WSDSchedulerConfig(num_warmup_steps=500, num_decay_steps=1_000)
 oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
@@ -92,11 +105,12 @@ dsconf = {
     # this risk.
     "communication_data_type": "fp32",
 }
-cconf = CheckpointConfig(
-    output_dir=checkpoint_dir,
-    type="biencoder",
+cconf = BiencoderS3CheckpointConfig(
+    output_dir = local_cache_dir,
+    s3_path=checkpoint_dir,
     save_every_n_steps=300,
     save_end_of_training=True,
+    max_local_checkpoints = 2, 
 )
 
 
@@ -135,7 +149,7 @@ if __name__ == "__main__":
         wandb=wconf,
         deepspeed=dsconf,
         loss_log_interval=0,
-        eval_frequency=100,
+        # eval_interval=100,
         use_in_batch_negatives=False,
         loss_temperature=0.02,
         overfit_first_batch=False,

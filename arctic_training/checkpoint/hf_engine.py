@@ -87,7 +87,7 @@ class HFCheckpointEngine(CheckpointEngine):
                     if model.global_rank == 0:
                         output_state_dict[k] = v_p
             if model.global_rank == 0:
-                model.save_pretrained(
+                model_to_save.save_pretrained(
                     self.checkpoint_dir,
                     state_dict=output_state_dict,
                     safe_serialization=True,

@@ -87,6 +87,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         max_seq_len_doc: Optional[int] = None,
         device: Optional[torch.device] = None,
         start_batch_idx: int = 0,  # Add support for resuming from specific batch
+        preserve_relations_on_split: bool = False,
     ) -> None:
         super().__init__()
         self.filesystem = filesystem
@@ -100,6 +101,7 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
         self.max_seq_len_doc = max_seq_len_doc
         self.device = device
         self.start_batch_idx = start_batch_idx
+        self.preserve_relations_on_split = preserve_relations_on_split
 
         # Look up the batch directories.
         batch_paths = sorted(filesystem.ls(root_directory))
@@ -146,10 +148,44 @@ class ContrastiveLearningBatchDataset(IterableDataset[ContrastiveLearningBatch])
             max_seq_len_query=self.max_seq_len_query,
             max_seq_len_doc=self.max_seq_len_doc,
         )
-        split_batches = split_batch(un_split_batch, self.split_factor)
-        split_sharded_batches = [shard_batch(b, self.shard_id, self.world_size) for b in split_batches]
+        if self.preserve_relations_on_split:
+            split_batches = split_batch_preserve_relations(un_split_batch, self.split_factor)
+        else:
+            split_batches = split_batch(un_split_batch, self.split_factor)
+
+        # Skip split batches that would result in zero-length shards for the current
+        # world size. This happens when the (already split) batch has fewer samples
+        # than the number of ranks, leading to empty tensors downstream.
+        filtered_splits: List[ContrastiveLearningBatch] = []
+        for split_idx, split_batch_item in enumerate(split_batches):
+            num_queries = split_batch_item.query_tokens.size(0)
+            num_documents = split_batch_item.document_tokens.size(0)
+            if num_queries < self.world_size or num_documents < self.world_size:
+                logger.warning(
+                    "[dataset.batch] Skipping split %d from %s because it has "
+                    "%d queries and %d documents, which is fewer than world_size=%d",
+                    split_idx,
+                    batch_directory,
+                    num_queries,
+                    num_documents,
+                    self.world_size,
+                )
+                continue
+            filtered_splits.append(split_batch_item)
+
+        if not filtered_splits:
+            logger.warning(
+                "[dataset.batch] Skipping entire batch directory %s because"
+                " all %d splits were smaller than world_size=%d",
+                batch_directory,
+                len(split_batches),
+                self.world_size,
+            )
+            return []
+
+        split_sharded_batches = [shard_batch(b, self.shard_id, self.world_size) for b in filtered_splits]
         # Move only the first split batch to the device, to avoid hogging device memory.
-        if self.device is not None:
+        if self.device is not None and len(split_sharded_batches) > 0:
             split_sharded_batches[0] = split_sharded_batches[0].to_device(self.device, non_blocking=True)
             b0 = split_sharded_batches[0]
             logger.info(
@@ -400,6 +436,205 @@ def split_batch(batch: ContrastiveLearningBatch, total_splits: int) -> List[Cont
         )
         split_batches.append(split_batch)
     return split_batches
+
+
+def split_batch_preserve_relations(batch: ContrastiveLearningBatch, total_splits: int) -> List[ContrastiveLearningBatch]:
+    """Split a batch into smaller ones while keeping each query's labeled docs.
+
+    Queries are grouped into equally-sized chunks (up to one-off differences due to
+    integer division). For each chunk we gather the union of all documents that
+    participate in a labeled relation with those queries, ensuring positives and
+    hard negatives remain present after the split.
+    """
+
+    assert total_splits > 0
+    if total_splits == 1:
+        return [batch]
+
+    num_queries = batch.query_tokens.size(0)
+    num_documents = batch.document_tokens.size(0)
+
+    if num_queries == 0 or num_documents == 0:
+        return [batch]
+
+    relations = batch.relevance_labels.coalesce()
+    if relations._nnz() == 0:
+        return split_batch(batch, total_splits)
+
+    # Build query -> document adjacency (include positives and negatives alike).
+    indices = relations.indices()
+    query_to_docs: List[set[int]] = [set() for _ in range(num_queries)]
+    for idx in range(indices.shape[1]):
+        q_idx = int(indices[0, idx])
+        d_idx = int(indices[1, idx])
+        query_to_docs[q_idx].add(d_idx)
+
+    if any(len(doc_set) == 0 for doc_set in query_to_docs):
+        # Fall back if the dataset has queries without labeled docs.
+        return split_batch(batch, total_splits)
+
+    # Determine the desired query count per split.
+    if total_splits >= num_queries:
+        desired_sizes = [1] * num_queries
+    else:
+        base = num_queries // total_splits
+        remainder = num_queries % total_splits
+        desired_sizes = [base + (1 if split_idx < remainder else 0) for split_idx in range(total_splits)]
+        desired_sizes = [size for size in desired_sizes if size > 0]
+        # Ensure all queries are assigned even if integer math truncates.
+        assigned = sum(desired_sizes)
+        if assigned < num_queries:
+            desired_sizes[-1] += num_queries - assigned
+
+    split_batches: List[ContrastiveLearningBatch] = []
+    query_cursor = 0
+
+    def _ordered_doc_indices(doc_set: set[int]) -> List[int]:
+        doc_mask = torch.zeros(num_documents, dtype=torch.bool)
+        if doc_set:
+            doc_mask[list(doc_set)] = True
+        return torch.nonzero(doc_mask, as_tuple=False).squeeze(1).tolist()
+
+    for desired_size in desired_sizes:
+        if query_cursor >= num_queries:
+            break
+        q_end = min(query_cursor + desired_size, num_queries)
+        q_indices = list(range(query_cursor, q_end))
+        query_cursor = q_end
+
+        doc_set: set[int] = set()
+        for q_idx in q_indices:
+            doc_set.update(query_to_docs[q_idx])
+
+        doc_indices = _ordered_doc_indices(doc_set)
+        if not doc_indices:
+            return split_batch(batch, total_splits)
+
+        q_idx_tensor = torch.tensor(q_indices, dtype=torch.long)
+        d_idx_tensor = torch.tensor(doc_indices, dtype=torch.long)
+
+        split_batches.append(
+            ContrastiveLearningBatch(
+                query_tokens=batch.query_tokens[q_idx_tensor],
+                query_attention_mask=batch.query_attention_mask[q_idx_tensor],
+                document_tokens=batch.document_tokens[d_idx_tensor],
+                document_attention_mask=batch.document_attention_mask[d_idx_tensor],
+                relevance_labels=_slice_relations_by_indices(relations, q_idx_tensor, d_idx_tensor),
+            )
+        )
+
+    # Handle any remaining queries (e.g., when total_splits < num_queries).
+    if query_cursor < num_queries:
+        q_indices = list(range(query_cursor, num_queries))
+        doc_set: set[int] = set()
+        for q_idx in q_indices:
+            doc_set.update(query_to_docs[q_idx])
+        doc_indices = _ordered_doc_indices(doc_set)
+        if not doc_indices:
+            return split_batch(batch, total_splits)
+        q_idx_tensor = torch.tensor(q_indices, dtype=torch.long)
+        d_idx_tensor = torch.tensor(doc_indices, dtype=torch.long)
+        split_batches.append(
+            ContrastiveLearningBatch(
+                query_tokens=batch.query_tokens[q_idx_tensor],
+                query_attention_mask=batch.query_attention_mask[q_idx_tensor],
+                document_tokens=batch.document_tokens[d_idx_tensor],
+                document_attention_mask=batch.document_attention_mask[d_idx_tensor],
+                relevance_labels=_slice_relations_by_indices(relations, q_idx_tensor, d_idx_tensor),
+            )
+        )
+
+    total_queries_in_splits = sum(sb.query_tokens.size(0) for sb in split_batches)
+    # We expect roughly ``total_splits`` splits unless the dataset has fewer queries
+    # than required. Fall back if we did not produce the intended number and the
+    # remainder of queries is non-zero (indicating we had to abort early).
+    if (total_queries_in_splits != num_queries) or (len(split_batches) and len(split_batches) < min(total_splits, num_queries)):
+        print("Fallback to split_batch")
+        return split_batch(batch, total_splits)
+
+    return split_batches
+
+
+def _connected_components_from_relations(relations: torch.Tensor) -> List[Tuple[List[int], List[int]]]:
+    relations = relations.coalesce()
+    if relations._nnz() == 0:
+        return []
+
+    indices = relations.indices()
+    query_idx = indices[0].tolist()
+    doc_idx = indices[1].tolist()
+
+    num_queries = relations.size(0)
+    num_docs = relations.size(1)
+
+    query_to_docs: Dict[int, set[int]] = defaultdict(set)
+    doc_to_queries: Dict[int, set[int]] = defaultdict(set)
+    for q, d in zip(query_idx, doc_idx):
+        query_to_docs[q].add(d)
+        doc_to_queries[d].add(q)
+
+    visited_queries = [False] * num_queries
+    visited_docs = [False] * num_docs
+    components: List[Tuple[List[int], List[int]]] = []
+
+    for seed_query in range(num_queries):
+        if visited_queries[seed_query] or seed_query not in query_to_docs:
+            continue
+        q_component: List[int] = []
+        d_component: List[int] = []
+        queue: deque[Tuple[str, int]] = deque()
+        queue.append(("q", seed_query))
+        visited_queries[seed_query] = True
+
+        while queue:
+            kind, idx = queue.popleft()
+            if kind == "q":
+                q_component.append(idx)
+                for doc in query_to_docs.get(idx, ()):  # type: ignore[arg-type]
+                    if not visited_docs[doc]:
+                        visited_docs[doc] = True
+                        queue.append(("d", doc))
+            else:
+                d_component.append(idx)
+                for query in doc_to_queries.get(idx, ()):  # type: ignore[arg-type]
+                    if not visited_queries[query]:
+                        visited_queries[query] = True
+                        queue.append(("q", query))
+
+        components.append((sorted(q_component), sorted(d_component)))
+
+    return components
+
+
+def _slice_relations_by_indices(relations: torch.Tensor, query_indices: torch.Tensor, doc_indices: torch.Tensor) -> torch.Tensor:
+    relations = relations.coalesce()
+    device = relations.device
+    query_indices = query_indices.to(device)
+    doc_indices = doc_indices.to(device)
+
+    num_queries = relations.size(0)
+    num_docs = relations.size(1)
+
+    q_map = torch.full((num_queries,), -1, dtype=torch.long, device=device)
+    d_map = torch.full((num_docs,), -1, dtype=torch.long, device=device)
+    q_map[query_indices] = torch.arange(query_indices.size(0), device=device)
+    d_map[doc_indices] = torch.arange(doc_indices.size(0), device=device)
+
+    indices = relations.indices()
+    values = relations.values()
+
+    mapped_q = q_map[indices[0]]
+    mapped_d = d_map[indices[1]]
+    mask = (mapped_q >= 0) & (mapped_d >= 0)
+
+    if mask.sum() == 0:
+        empty_indices = torch.zeros((2, 0), dtype=torch.long, device=device)
+        empty_values = torch.empty((0,), dtype=values.dtype, device=device)
+        return torch.sparse_coo_tensor(empty_indices, empty_values, size=(query_indices.size(0), doc_indices.size(0))).coalesce()
+
+    new_indices = torch.stack([mapped_q[mask], mapped_d[mask]], dim=0)
+    new_values = values[mask]
+    return torch.sparse_coo_tensor(new_indices, new_values, size=(query_indices.size(0), doc_indices.size(0))).coalesce()
 
 
 def collate_tokens(

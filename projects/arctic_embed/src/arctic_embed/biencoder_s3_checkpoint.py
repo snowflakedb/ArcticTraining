@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from arctic_training.trainer.trainer import Trainer
 
 import boto3
+import deepspeed
 import torch
 
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
@@ -72,6 +73,64 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             f"S3 checkpoint engine initialized: bucket={self.s3_bucket}, prefix={self.s3_prefix}, "
             f"local_cache={self.local_cache_dir}, max_local_checkpoints={config.max_local_checkpoints}"
         )
+
+    def _get_zero_stage(self) -> int:
+        return self.trainer.config.deepspeed.get("zero_optimization", {}).get("stage", 0)
+
+    def _export_encoder_weights(self, encoder, export_dir: Path) -> None:
+        zero_stage = self._get_zero_stage()
+        state_dict = None
+
+        if zero_stage >= 3:
+            params = list(encoder.parameters())
+            with deepspeed.zero.GatheredParameters(params, modifier_rank=0, enabled=True):
+                if self.global_rank == 0:
+                    state_dict = {k: v.detach().cpu() for k, v in encoder.state_dict().items()}
+        elif self.global_rank != 0:
+            return
+
+        if self.global_rank != 0:
+            return
+
+        encoder.save_pretrained(export_dir, safe_serialization=True, state_dict=state_dict)
+
+        config_path = export_dir / "config.json"
+        if not config_path.exists() and hasattr(encoder, "config"):
+            encoder.config.to_json_file(config_path)
+
+        self._export_tokenizer_assets(export_dir)
+
+    def _export_tokenizer_assets(self, export_dir: Path) -> None:
+        try:
+            from transformers import AutoTokenizer
+        except ImportError:
+            logger.warning("transformers not available, skipping tokenizer export")
+            return
+
+        tokenizer_source = None
+
+        tokenizer_cfg = getattr(self.trainer.config, "tokenizer", None)
+        if tokenizer_cfg is not None:
+            tokenizer_source = getattr(tokenizer_cfg, "name_or_path", None)
+
+        if tokenizer_source is None:
+            tokenizer_source = getattr(self.trainer.config.model, "tokenizer_name", None)
+
+        if tokenizer_source is None:
+            tokenizer_source = self.trainer.config.model.name_or_path
+
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, trust_remote_code=True)
+        except Exception as err:
+            logger.warning(
+                "Failed to export tokenizer from %s: %s", tokenizer_source, err
+            )
+            return
+
+        try:
+            tokenizer.save_pretrained(export_dir)
+        except Exception as err:
+            logger.warning("Failed to save tokenizer to %s: %s", export_dir, err)
 
     @property
     def biencoder_config_file(self) -> Path:
@@ -173,14 +232,24 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         # Only rank 0 saves additional metadata files
         if self.global_rank == 0:
             # Save biencoder configuration
-            # Access the underlying Biencoder model from DeepSpeedEngine
             biencoder_model = model.module if hasattr(model, "module") else model
-            biencoder_config = {"pooling": biencoder_model.pooling}
-            self.biencoder_config_file.write_text(json.dumps(biencoder_config, indent=2))
+            pooling_attr = getattr(biencoder_model, "pooling", None)
+            if pooling_attr is not None:
+                biencoder_config = {"pooling": pooling_attr}
+                self.biencoder_config_file.write_text(json.dumps(biencoder_config, indent=2))
 
-            # Note: Most state is saved in DeepSpeed checkpoint
-            # We only save additional metadata here
-            logger.info("DeepSpeed checkpoint saved with optimizer and scheduler states")
+            # Save the full trainer config for reproducibility
+            trainer_config_path = self.checkpoint_dir / "trainer_config.json"
+            trainer_config_path.write_text(self.trainer.config.model_dump_json(indent=2))
+
+            # Also export Hugging Face compatible weights for the encoder
+            encoder = getattr(biencoder_model, "encoder", None)
+            if encoder is not None:
+                hf_export_dir = self.checkpoint_dir / "hf_encoder"
+                hf_export_dir.mkdir(parents=True, exist_ok=True)
+                self._export_encoder_weights(encoder, hf_export_dir)
+
+            logger.info("DeepSpeed checkpoint saved with optimizer, scheduler, and HF weights")
 
         # Synchronize all ranks before uploading
         if self.trainer.world_size > 1:

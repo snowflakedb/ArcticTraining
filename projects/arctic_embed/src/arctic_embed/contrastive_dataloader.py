@@ -48,6 +48,7 @@ class ContrastivePretokenizedDataConfig(DataConfig):
     eval_split_factor: int = 1
     eval_max_seq_length_query: Optional[int] = None
     eval_max_seq_length_doc: Optional[int] = None
+    preserve_relations_on_split: bool = False
 
 
 class ContrastivePretokenizedDataFactory(DataFactory):
@@ -72,6 +73,7 @@ class ContrastivePretokenizedDataFactory(DataFactory):
             max_seq_len_doc=self.config.max_seq_length_doc,
             device=self.trainer.device,
             start_batch_idx=start_batch_idx,
+            preserve_relations_on_split=self.config.preserve_relations_on_split,
         )
         train_dl = DataLoader(train_ds, batch_size=None)
 
@@ -91,6 +93,7 @@ class ContrastivePretokenizedDataFactory(DataFactory):
                     max_seq_len_query=self.config.eval_max_seq_length_query,
                     max_seq_len_doc=self.config.eval_max_seq_length_doc,
                     device=self.trainer.device,
+                    preserve_relations_on_split=self.config.preserve_relations_on_split,
                 )
                 eval_dl = DataLoader(eval_ds, batch_size=None)
                 if eval_name in eval_dl_map:
