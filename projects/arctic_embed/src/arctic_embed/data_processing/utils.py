@@ -59,9 +59,17 @@ def first_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tens
 def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
     """Pools the hidden states by selecting the last non-padding token representation
     for each sequence."""
-    batch_size = last_hidden_states.shape[0]
+    batch_size, seq_len, _ = last_hidden_states.shape
+    mask = attention_mask.to(device=last_hidden_states.device, dtype=torch.bool)
+    mask_int = mask.to(dtype=torch.int64)
+
+    offset_from_right = torch.flip(mask_int, dims=[1]).argmax(dim=1)
+    col = seq_len - 1 - offset_from_right
+
+    has_token = mask.any(dim=1)
+    col = torch.where(has_token, col, torch.zeros_like(col))
+
     row = torch.arange(batch_size, device=last_hidden_states.device)
-    col = attention_mask.sum(dim=1) - 1  # position of the last non-padding token
     return last_hidden_states[row, col]
 
 

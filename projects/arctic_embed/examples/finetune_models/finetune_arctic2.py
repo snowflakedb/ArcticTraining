@@ -48,7 +48,7 @@ LEARNING_RATE = 3e-5
 GRADIENT_CLIPPING = 10.0
 # DATASET_NAME = "example_dot95"
 # DATA_PATH = str(Path(__file__).parent / "data" / "combined" / "pretokenized" / DATASET_NAME / "data")
-DATA_PATH = "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/InstructIR/data"
+DATA_PATH = "s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/fine_tune_data_arctic_training_format/unified_IR/batched_tokenized_Alibaba_NLP_gte_multilingual_base/batched_512/"
 # EVAL_DATA_PATHS = [str(path) for path in (Path(__file__).parent / "data" / "eval").iterdir() if path.is_dir()]
 # EVAL_DATA_PATH = ["s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/pretrain_data_arctic_training_format/InstructIR/eval/"]
 
@@ -60,11 +60,11 @@ def now_timestamp_str() -> str:
 
 ts = now_timestamp_str()
 # checkpoint_dir = Path(__file__).parent / "checkpoints" / "finetune_e5_base_unsupervised" / ts
-checkpoint_dir = f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/training/checkpoints/promptriever/{ts}"
+checkpoint_dir = f"s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/training/checkpoints/arctic2m/unified-IR-{ts}"
 local_cache_dir = "/scratch/checkpoints-temp"
 
 mconf = BiencoderModelConfig(
-    name_or_path="/scratch/pretrained_checkpoint_original", 
+    name_or_path="/scratch/local", 
     pooling="first_token", 
     dtype=DType.FP32, 
     disable_activation_checkpoint=True,
@@ -78,9 +78,10 @@ dconf = ContrastivePretokenizedDataConfig(
     # Depending on how much GPU memory you have, you may need to split each
     # batch into a number of smaller sub-batches by setting the split_factor.
     # If you do so, you will probably want to decrease the learning rate accordingly.
-    # split_factor=4,
+    split_factor=2,
     max_seq_length_query=1024,
     max_seq_length_doc=1024,
+    preserve_relations_on_split=True,
     # eval_root_directories=EVAL_DATA_PATH,
     # eval_max_seq_length_doc=1024,
     # eval_max_seq_length_query=1024,
@@ -90,8 +91,8 @@ oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
 lconf = LoggerConfig(level="INFO")
 wconf = WandBConfig(
     enable=True,
-    project="arctic-training-arctic-embed-testbed",
-    name=f"e5-base-unsupervised-finetune-{ts}",
+    project="arctic-embed",
+    name=f"arctic2m-unified-IR-{ts}",
 )
 # Reference: https://www.deepspeed.ai/training/#gradient-clipping
 dsconf = {

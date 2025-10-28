@@ -208,6 +208,26 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             logger.info(f"Removing old checkpoint from cache: {dir_to_remove}")
             shutil.rmtree(dir_to_remove, ignore_errors=True)
 
+    def _cleanup_deepspeed_subdirs(self) -> None:
+        """Remove old DeepSpeed training-step directories that are not checkpoint_dir."""
+        subdirs = []
+        for item in self.checkpoint_dir.iterdir():
+            if item.is_dir() and item.name.startswith("global_step_"):
+                try:
+                    step = int(item.name.split("_")[2])
+                    subdirs.append((step, item))
+                except (IndexError, ValueError):
+                    continue
+
+        subdirs.sort(key=lambda x: x[0])
+        limit = max(self.config.max_local_checkpoints, 1)
+        while len(subdirs) > limit:
+            step, dir_to_remove = subdirs.pop(0)
+            if dir_to_remove == self.checkpoint_dir:
+                continue
+            logger.info(f"Removing old DeepSpeed subdir: {dir_to_remove}")
+            shutil.rmtree(dir_to_remove, ignore_errors=True)
+
     def save(self, model) -> None:
         """Save model checkpoint locally then upload to S3
 
@@ -217,6 +237,7 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         """
         # Clean up old local checkpoints before saving new one
         self._cleanup_local_cache()
+        self._cleanup_deepspeed_subdirs()
 
         # The model is already a DeepSpeedEngine, use DeepSpeed's checkpoint saving
         # which includes optimizer & scheduler states

@@ -126,10 +126,25 @@ def first_token_pool(out: Tensor, attention_mask: Tensor) -> Tensor:
 
 
 def last_token_pool(out: Tensor, attention_mask: Tensor) -> Tensor:
-    """Selecting the last non-padding token representation for each sequence."""
-    assert out.ndim == 3
-    assert attention_mask.ndim == 2
-    batch_size = out.shape[0]
-    row = torch.arange(batch_size, device=out.device)
-    col = attention_mask.sum(dim=1) - 1  # position of the last non-padding token
-    return out[row, col, ...]
+    """
+    Select the last non-padding token representation for each sequence.
+    Works for left or right padding.
+    out: (B, S, H)
+    attention_mask: (B, S) with 1/True for real tokens, 0/False for pad
+    returns: (B, H)
+    """
+    B, S, H = out.shape
+    # Ensure same device + boolean mask
+    mask = attention_mask.to(device=out.device, dtype=torch.bool)
+    mask_int = mask.to(dtype=torch.int64)
+
+    # Index of last 1 in each row: S-1 - argmax(flip(mask))
+    offset_from_right = torch.flip(mask_int, dims=[1]).argmax(dim=1)  # 0..S-1
+    col = S - 1 - offset_from_right
+
+    # Handle all-zero rows (no valid tokens): default to index 0
+    has_token = mask.any(dim=1)
+    col = torch.where(has_token, col, torch.zeros_like(col))
+
+    row = torch.arange(B, device=out.device)
+    return out[row, col, ...]  # (B, H)

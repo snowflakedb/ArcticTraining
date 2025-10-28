@@ -51,52 +51,6 @@ from .core.losses import one_size_truncated_mrl_info_nce_loss
 from .core.pretokenized_batch_loader import ContrastiveLearningBatch
 
 
-def _log_tensor_health(name: str, tensor: Tensor) -> None:
-    """Log basic stats and flag NaN/Inf values for debugging."""
-    if tensor.numel() == 0:
-        logger.warning(f"[loss_debug] {name} is empty")
-        return
-
-    tensor_detached = tensor.detach()
-    dtype = tensor_detached.dtype
-
-    if tensor_detached.is_floating_point() or tensor_detached.is_complex():
-        nan_mask = torch.isnan(tensor_detached)
-        inf_mask = torch.isinf(tensor_detached)
-        num_nan = int(nan_mask.sum().item())
-        num_inf = int(inf_mask.sum().item())
-        num_bad = num_nan + num_inf
-
-        finite_tensor = tensor_detached[torch.isfinite(tensor_detached)]
-        max_abs = float("nan") if finite_tensor.numel() == 0 else finite_tensor.abs().max().item()
-
-        if num_bad > 0:
-            logger.error(
-                f"[loss_debug] {name} has non-finite values: nan={num_nan} inf={num_inf} "
-                f"shape={tuple(tensor.shape)} max_abs_finite={max_abs}"
-            )
-        else:
-            stats = {
-                "shape": tuple(tensor.shape),
-                "min": tensor_detached.min().item(),
-                "max": tensor_detached.max().item(),
-                "mean": tensor_detached.mean().item(),
-                "std": tensor_detached.std().item(),
-                "max_abs": max_abs,
-            }
-            logger.debug(f"[loss_debug] {name} stats={stats}")
-    else:
-        stats_tensor = tensor_detached.to(torch.float32)
-        stats = {
-            "shape": tuple(tensor.shape),
-            "min": tensor_detached.min().item(),
-            "max": tensor_detached.max().item(),
-            "mean": stats_tensor.mean().item(),
-            "std": stats_tensor.std().item(),
-        }
-        logger.debug(f"[loss_debug] {name} (non-float) stats={stats}")
-
-
 class BiencoderTrainerConfig(TrainerConfig):
     type: str = "biencoder"
     use_in_batch_negatives: bool = False
@@ -295,10 +249,6 @@ class BiencoderTrainer(Trainer):
 
         # Forward pass, gathering embeddings so each GPU has the full picture.
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
-        _log_tensor_health("query_embeddings", query_embeddings)
-        _log_tensor_health("document_embeddings", document_embeddings)
-        _log_tensor_health("relations", relations)
-        print(f"count of 1.0 in relations: {(relations == 1.0).sum().item()}")
 
         # InfoNCE loss with Matryoshka Representation Learning (MRL).
         if self.config.use_in_batch_negatives:
@@ -310,21 +260,6 @@ class BiencoderTrainer(Trainer):
             truncated_dimension=self.config.mrl_dim,
             temperature=self.config.loss_temperature,
         )
-
-        loss_value = loss.detach().float()
-        base_value = loss_base.detach().float()
-        truncated_value = loss_truncated.detach().float() if loss_truncated is not None else None
-        truncated_str = "None" if truncated_value is None else f"{truncated_value.item():.6f}"
-        if torch.isnan(loss_value) or torch.isinf(loss_value):
-            logger.error(
-                f"[train.loss_debug] rank={self.global_rank} step={self.global_step} "
-                f"loss={loss_value.item()} loss_base={base_value.item()} loss_truncated={truncated_str}"
-            )
-        else:
-            logger.info(
-                f"[train.loss_debug] rank={self.global_rank} step={self.global_step} "
-                f"loss={loss_value.item():.6f} loss_base={base_value.item():.6f} loss_truncated={truncated_str}"
-            )
 
         # Weights and Biases logging.
         # NOTE: We log more than is feasible to do in a callback, so we do it here
