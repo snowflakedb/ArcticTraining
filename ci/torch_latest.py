@@ -25,7 +25,7 @@ image = (
     .from_registry("pytorch/pytorch:2.9.0-cuda13.0-cudnn9-devel", add_python="3.12")
     # XXX: add a freeze requirements to get the caching working
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
-    .run_commands("uv pip install /root[testing]")
+    .run_commands("uv pip install --system /root[testing]")
 )
 # fmt: on
 
