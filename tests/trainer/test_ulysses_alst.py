@@ -20,6 +20,7 @@ from arctic_training.testing_utils import CaptureStd
 from arctic_training.testing_utils import TestCasePlus
 from arctic_training.testing_utils import execute_subprocess_async
 from arctic_training.testing_utils import get_unique_port_number
+from arctic_training.testing_utils import is_flash_attn_2_available
 from arctic_training.testing_utils import require_torch_multi_gpu
 from arctic_training.testing_utils import torch_assert_close
 from arctic_training.testing_utils import write_file
@@ -44,6 +45,9 @@ class TestTrainerWithLauncher(TestCasePlus):
         2. runs 2 iterations for a baseline+ulysses alst features enabled on 2 gpus sp=2, dp=2, gas=2 (4 sub-iterations in total)
         3. compares that the loss is the same as both trainings have seen the exact same data once. The grads match is checked via loss, because the 2nd iteration will already have grads modified.
         """
+        if not is_flash_attn_2_available():
+            pytest.skip("test requires Flash Attention 2")
+
         world_size = 2
         # later add support for pytest-xdist for unique ports
         master_port = get_unique_port_number()
