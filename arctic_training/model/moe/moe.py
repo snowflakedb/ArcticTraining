@@ -39,6 +39,7 @@ class MoEConfig:
     return_router_scores: bool
     top_k: int
     use_triton: bool = True
+    use_shared_expert: bool = False
 
 
 def torch_group_gemm_fn(A, B, rows_cumsum):
@@ -97,6 +98,21 @@ class ArcticMoE(nn.Module):
         self.expert_down = nn.Parameter(
             torch.empty((self.num_local_experts, self.intermediate_dim, self.model_dim), dtype=self.input_dtype)
         )
+
+        if config.use_shared_expert:
+            self.shared_expert_gate_up = nn.Parameter(
+                torch.empty(
+                    (
+                        self.model_dim,
+                        (2 * self.intermediate_dim) if config.is_gated else self.intermediate_dim,
+                    ),
+                    dtype=self.input_dtype,
+                )
+            )
+            self.shared_expert_down = nn.Parameter(
+                torch.empty((self.intermediate_dim, self.model_dim), dtype=self.input_dtype)
+            )
+            self.shared_expert_output_gate = nn.Parameter(torch.empty(self.model_dim, 1, dtype=self.input_dtype))
 
         # self.comm_stream = torch.cuda.Stream()
         if config.use_triton:
@@ -166,6 +182,15 @@ class ArcticMoE(nn.Module):
         else:
             expert_token_count_cumsum = expert_token_count.cumsum(0)
         moe_output = self.GroupGeMM(moe_input, expert_token_count_cumsum)
+
+        if self._config.use_shared_expert:
+            s_intermediate = torch.matmul(hidden_states, self.shared_expert_gate_up)
+            if self._config.is_gated:
+                s_gate, s_up = s_intermediate[..., 0::2], s_intermediate[..., 1::2]
+                s_intermediate = s_up * self.act_fn(s_gate)
+            s_out = torch.matmul(s_intermediate, self.shared_expert_down)
+            s_out_gate = torch.matmul(hidden_states, self.shared_expert_output_gate)
+            moe_output = moe_output + s_out * F.sigmoid(s_out_gate)
 
         if self.ep_size >= 1:
             moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)

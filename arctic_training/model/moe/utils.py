@@ -167,6 +167,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     arctic_moe_config.use_triton = False
     # at the moment the models we support are all gated
     arctic_moe_config.is_gated = True
+    arctic_moe_config.use_shared_expert = False
 
     ep_group_name = f"ep_size_{ep_size}"
     ep_rank = groups._get_expert_parallel_rank(ep_group_name)
