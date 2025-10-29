@@ -34,10 +34,10 @@ def pytest_configure(config):
     # TODO: Make it so that cpu and gpu tests can be run with a single command.
     # This requires some work with tearing down/setting up dist environments
     # that have not been worked out yet.
-    if "not gpu" in config.option.markexpr:
-        _setup_cpu_dist()
-    else:
-        _setup_gpu_dist()
+    # if "not gpu" in config.option.markexpr:
+    #     _setup_cpu_dist()
+    # else:
+    #     _setup_gpu_dist()
 
 
 def _setup_cpu_dist():
@@ -59,7 +59,7 @@ def _setup_gpu_dist():
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
     os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "29500"
+    os.environ["MASTER_PORT"] = "295003"
     os.environ["WORLD_SIZE"] = "1"
     os.environ["LOCAL_SIZE"] = "1"
 
