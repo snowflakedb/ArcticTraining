@@ -13,26 +13,33 @@ name: GPU CI (Modal)
 # Required status for PRs to pass.
 #
 
-
 on:
-  workflow_dispatch:
-
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
 
-  pull_request_target:
-    # XXX: re-enable later when workflow is working
-    # paths:
-    #   - '**.py'
-    paths-ignore:
-      - 'docs/**'
-      - 'projects/**'
-      - 'scripts/**'
-      - 'tutorial/**'
-    types: [review_requested, ready_for_review, synchronize]
-    branches:
-      - main
+# on:
+#   workflow_dispatch:
+
+#   push:
+#     branches:
+#       - main
+
+#   pull_request_target:
+#     # XXX: re-enable later when workflow is working
+#     # paths:
+#     #   - '**.py'
+#     paths-ignore:
+#       - 'docs/**'
+#       - 'projects/**'
+#       - 'scripts/**'
+#       - 'tutorial/**'
+#     types: [review_requested, ready_for_review, synchronize]
+#     branches:
+#       - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
