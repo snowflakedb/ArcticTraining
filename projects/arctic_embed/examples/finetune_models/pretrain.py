@@ -54,7 +54,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         eval_max_seq_length_query=cfg.get("MAX_SEQ_LENGTH_QUERY", 32),
         eval_max_seq_length_doc=cfg.get("MAX_SEQ_LENGTH_DOC", 256),
         pad_value=cfg["PAD_VALUE"],
-        left_pad=cfg.get("LEFT_PADDING", False),
+        left_pad=cfg.get("LEFT_PADDING", True),
     )
 
     # Sched/optim/logging
@@ -71,8 +71,8 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
     # W&B
     wconf = WandBConfig(
         enable=cfg.get("ENABLE_WANDB", True),
-        project=cfg.get("WANDB_PROJECT", "arctic-training-arctic-embed-testbed"),
-        name=cfg.get("WANDB_RUN_NAME", f"arctic-embed-{now_timestamp_str()}"),
+        project=cfg.get("WANDB_PROJECT", "arctic-embed"),
+        name=cfg.get("WANDB_RUN_NAME", f"arctic-embed-pretraining-qwen3-0point6-{now_timestamp_str()}"),
     )
 
     # DeepSpeed
