@@ -19,11 +19,11 @@ import modal
 
 ROOT_PATH = Path(__file__).parents[1]
 
-# XXX: add a freeze requirements to get the caching working
 # fmt: off
 image = (
     modal.Image
     .from_registry("pytorch/pytorch:pytorch/pytorch:2.9.0-cuda12.9-cudnn9-devel", add_python="3.12")
+    # XXX: add a freeze requirements to get the caching working
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
     .run_commands("pip install /root")
 )
@@ -40,7 +40,7 @@ def pytest():
     import subprocess
 
     subprocess.run(
-        "pytest -n 1 --verbose tests".split(),
+        "pytest --disable-warnings --instafail -m gpu --verbose tests".split(),
         check=True,
         cwd=ROOT_PATH / ".",
     )
