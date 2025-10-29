@@ -658,7 +658,6 @@ class TestCasePlus(unittest.TestCase):
         """
         env = os.environ.copy()
         paths = [self.src_dir_str]
-        paths.append(self.tests_dir_str)
         paths.append(env.get("PYTHONPATH", ""))
 
         env["PYTHONPATH"] = ":".join(paths)
