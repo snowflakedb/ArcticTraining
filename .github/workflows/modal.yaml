@@ -1,4 +1,4 @@
-name: modal
+name: GPU CI (Modal)
 
 # This CI is running on modal.com's GPUs.
 #
@@ -32,7 +32,7 @@ on:
       - 'tutorial/**'
     types: [review_requested, ready_for_review, synchronize]
     branches:
-      - master
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
