@@ -105,6 +105,10 @@ jobs:
         run: |
           pip install uv # much faster than pip
           uv pip install --system modal
+          # this helps to cache the packages w/o rebuilding the modal image on each run
+          uv pip compile pyproject.toml --extra testing -o ci-requirements.txt
+          # add any soft deps not listed in pyproject.toml here
+          echo 'flash_attn' >> ci-requirements.txt
 
       - name: Run tests
         run: |

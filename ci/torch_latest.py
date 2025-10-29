@@ -25,7 +25,9 @@ image = (
     .from_registry("pytorch/pytorch:2.9.0-cuda13.0-cudnn9-devel", add_python="3.12")
     # XXX: add a freeze requirements to get the caching working
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
-    .run_commands("uv pip install --system /root[testing]")
+    # ci-requirements.txt is generated in the github workflow job which allows us to skip image rebuilding if the requirements haven't changed since the last CI job was run
+    .pip_install_from_requirements(ROOT_PATH / "ci-requirements.txt", gpu="any")
+    # .run_commands("uv pip install --system /root[testing]")
 )
 # fmt: on
 

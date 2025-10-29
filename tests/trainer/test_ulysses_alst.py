@@ -45,7 +45,7 @@ class TestTrainerWithLauncher(TestCasePlus):
         2. runs 2 iterations for a baseline+ulysses alst features enabled on 2 gpus sp=2, dp=2, gas=2 (4 sub-iterations in total)
         3. compares that the loss is the same as both trainings have seen the exact same data once. The grads match is checked via loss, because the 2nd iteration will already have grads modified.
         """
-        if not is_flash_attn_2_available():
+        if attn_implementation == "flash_attention_2" and not is_flash_attn_2_available():
             pytest.skip("test requires Flash Attention 2")
 
         world_size = 2
