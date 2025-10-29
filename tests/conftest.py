@@ -34,10 +34,30 @@ def pytest_configure(config):
     # TODO: Make it so that cpu and gpu tests can be run with a single command.
     # This requires some work with tearing down/setting up dist environments
     # that have not been worked out yet.
-    # if "not gpu" in config.option.markexpr:
-    #     _setup_cpu_dist()
-    # else:
-    #     _setup_gpu_dist()
+    if "not gpu" in config.option.markexpr:
+        _setup_cpu_dist()
+    else:
+        _setup_gpu_dist()
+
+
+def get_xdist_worker_id():
+    """
+    when run under pytest-xdist returns the worker id (int), otherwise returns 0
+    """
+    worker_id_string = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    return int(worker_id_string[2:])  # strip "gw"
+
+
+DEFAULT_MASTER_PORT = 10999
+
+
+def get_unique_port_number():
+    """
+    When the test suite runs under pytest-xdist we need to make sure that concurrent tests won't use
+    the same port number. We can accomplish that by using the same base and always adding the xdist
+    worker id to it, or 0 if not running under pytest-xdist
+    """
+    return DEFAULT_MASTER_PORT + get_xdist_worker_id()
 
 
 def _setup_cpu_dist():
@@ -45,7 +65,7 @@ def _setup_cpu_dist():
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
     os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "29500"
+    os.environ["MASTER_PORT"] = get_unique_port_number()
     os.environ["WORLD_SIZE"] = "1"
     os.environ["LOCAL_SIZE"] = "1"
 
@@ -59,7 +79,7 @@ def _setup_gpu_dist():
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
     os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "295003"
+    os.environ["MASTER_PORT"] = get_unique_port_number()
     os.environ["WORLD_SIZE"] = "1"
     os.environ["LOCAL_SIZE"] = "1"
 
