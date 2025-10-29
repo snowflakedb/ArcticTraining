@@ -108,7 +108,7 @@ jobs:
           # this helps to cache the packages w/o rebuilding the modal image on each run
           uv pip compile pyproject.toml --extra testing -o ci-requirements.txt
           # add any soft deps not listed in pyproject.toml here
-          echo 'flash_attn' >> ci-requirements2.txt
+          #echo 'flash_attn' >> ci-requirements2.txt
 
       - name: Run tests
         run: |
