@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 from parameterized import parameterized
 
 from arctic_training.testing_utils import CaptureStd
@@ -29,6 +30,7 @@ train_dataset = "HuggingFaceH4/ultrachat_200k:train[:50]"
 model_name_or_path = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 
 
+@pytest.mark.gpu
 @require_torch_multi_gpu
 class TestTrainerWithLauncher(TestCasePlus):
     # def setUp(self):

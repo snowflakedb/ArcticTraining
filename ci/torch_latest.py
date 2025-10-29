@@ -40,7 +40,7 @@ def pytest():
     import subprocess
 
     subprocess.run(
-        "pytest --disable-warnings --instafail -m gpu --verbose tests".split(),
+        "pytest -n 4 --disable-warnings --instafail -m gpu --verbose tests".split(),
         check=True,
         cwd=ROOT_PATH / ".",
     )
