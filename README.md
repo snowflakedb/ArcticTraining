@@ -110,3 +110,8 @@ data:
  sources:
    - HuggingFaceH4/ultrachat_200k
 ```
+
+
+# CI funding
+
+Modal is kindly supporting our GPU CI runs by funding the hardware for us. Modal is an AI infrastructure platform for inference, fine-tuning, batch jobs and more. Get started with $30/mo in free credits today at https://modal.com. We have been getting an amazing support from Modal's team and will surely recommend them to your business.
