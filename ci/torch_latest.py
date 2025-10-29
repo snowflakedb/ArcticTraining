@@ -27,7 +27,7 @@ image = (
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
     # ci-requirements.txt is generated in the github workflow job which allows us to skip image rebuilding if the requirements haven't changed since the last CI job was run
     .pip_install_from_requirements(ROOT_PATH / "ci-requirements.txt", gpu="any")
-    .pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any")
+    .pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any", extra_options="--no-build-isolation")
     # .run_commands("uv pip install --system /root[testing]")
 )
 # fmt: on

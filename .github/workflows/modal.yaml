@@ -74,7 +74,7 @@ jobs:
               - 'tests/**'
 
   deploy:
-    name: ArcticTraining CI
+    name: GPU Unit Tests
     runs-on: ubuntu-latest
     needs: collect-tests
     env:
