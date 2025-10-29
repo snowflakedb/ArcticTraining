@@ -22,7 +22,7 @@ ROOT_PATH = Path(__file__).parents[1]
 # fmt: off
 image = (
     modal.Image
-    .from_registry("pytorch/pytorch:pytorch/pytorch:2.9.0-cuda12.9-cudnn9-devel", add_python="3.12")
+    .from_registry("pytorch/pytorch:2.9.0-cuda12.9-cudnn9-devel", add_python="3.12")
     # XXX: add a freeze requirements to get the caching working
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
     .run_commands("pip install /root")
