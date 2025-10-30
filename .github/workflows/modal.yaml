@@ -58,9 +58,9 @@ jobs:
           filters: |
             arctictraining:
               - 'arctictraining/**'
-              - '.github/workflows/modal*.yaml'
-              - 'ci/**'
-              - 'tests/**'
+              # - '.github/workflows/modal*.yaml'
+              # - 'ci/**'
+              # - 'tests/**'
               # - '!docs/**'
               # - '!projects/**'
               # - '!scripts/**'
