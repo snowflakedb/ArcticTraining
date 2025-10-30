@@ -16,6 +16,7 @@ test-cpu: ## run cpu-only tests
 test-gpu: ## run gpu-only tests
 	pytest --disable-warnings --instafail -m gpu ./tests/
 
+# pre-commit here runs on all modified files of the current branch, even if already pushed
 format: ## fix formatting
 	@if [ ! -d "venv" ]; then \
 		sudo apt update; \
@@ -28,7 +29,7 @@ format: ## fix formatting
 		pre-commit install; \
 		deactivate; \
 	fi
-	. venv/bin/activate && pre-commit run --all-files && deactivate
+	. venv/bin/activate && pre-commit run --files $$(git diff --name-only $$(git merge-base main HEAD)...) && deactivate
 
 # this tool is optional not to be run automatically as it could have unexpected side-effects, but is useful when
 # needing to remove a bulk of unused imports

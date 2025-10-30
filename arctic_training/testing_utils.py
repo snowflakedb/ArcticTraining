@@ -52,6 +52,8 @@ from typing import Union
 from unittest import mock
 
 import numpy as np
+from transformers.utils import is_flash_attn_2_available
+from transformers.utils import is_flash_attn_3_available
 
 try:
     import torch
@@ -196,6 +198,25 @@ def require_deepspeed(test_case):
         return unittest.skip("test requires deepspeed")(test_case)
     else:
         return test_case
+
+
+def require_flash_attn(test_case):
+    """
+    Decorator marking a test that requires Flash Attention.
+
+    These tests are skipped when Flash Attention isn't installed.
+
+    """
+    return unittest.skipUnless(is_flash_attn_2_available(), "test requires Flash Attention")(test_case)
+
+
+def require_flash_attn_3(test_case):
+    """
+    Decorator marking a test that requires Flash Attention 3.
+
+    These tests are skipped when Flash Attention 3 isn't installed.
+    """
+    return unittest.skipUnless(is_flash_attn_3_available(), "test requires Flash Attention 3")(test_case)
 
 
 def set_seed(seed: int = 42):
@@ -493,7 +514,7 @@ class TestCasePlus(unittest.TestCase):
        - ``tests_dir`` - the directory of the ``tests`` test suite
        - ``data_dir`` - the directory of the ``tests/data`` test suite
        - ``repo_root_dir`` - the directory of the repository
-       - ``src_dir`` - the directory where the ``m4`` sub-dir resides (same as repo_root_dir in this case)
+       - ``src_dir`` - the directory where the ``arctic_training`` sub-dir resides (same as repo_root_dir in this case)
 
     * stringified paths---same as above but these return paths as strings, rather than ``pathlib`` objects:
 
@@ -568,15 +589,15 @@ class TestCasePlus(unittest.TestCase):
         self._test_file_dir = path.parents[0]
         for up in [1, 2, 3]:
             tmp_dir = path.parents[up]
-            if (tmp_dir / "m4").is_dir() and (tmp_dir / "tests").is_dir():
+            if (tmp_dir / "arctic_training").is_dir() and (tmp_dir / "tests").is_dir():
                 break
         if tmp_dir:
             self._repo_root_dir = tmp_dir
         else:
             raise ValueError(f"can't figure out the root of the repo from {self._test_file_path}")
         self._tests_dir = self._repo_root_dir / "tests"
-        self._data_dir = self._repo_root_dir / "tests" / "test_data"
-        self._src_dir = self._repo_root_dir  # m4 doesn't use "src/" prefix in the repo
+        self._data_dir = self._repo_root_dir / "tests" / "data"
+        self._src_dir = self._repo_root_dir
 
     @property
     def test_file_path(self):
@@ -637,7 +658,6 @@ class TestCasePlus(unittest.TestCase):
         """
         env = os.environ.copy()
         paths = [self.src_dir_str]
-        paths.append(self.tests_dir_str)
         paths.append(env.get("PYTHONPATH", ""))
 
         env["PYTHONPATH"] = ":".join(paths)
