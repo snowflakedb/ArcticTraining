@@ -27,7 +27,8 @@ ROOT_PATH = Path(__file__).parents[1]
 # fmt: off
 image = (
     modal.Image
-    .from_registry("pytorch/pytorch:2.9.0-cuda13.0-cudnn9-devel", add_python="3.12")
+    # .from_registry("pytorch/pytorch:2.9.0-cuda13.0-cudnn9-devel", add_python="3.12")
+    .from_registry("pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel", add_python="3.12")
     # XXX: add a freeze requirements to get the caching working
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
     # ci-requirements.txt is generated in the github workflow job which allows us to skip image rebuilding if the requirements haven't changed since the last CI job was run
@@ -44,7 +45,7 @@ app = modal.App("arctictraining-torch-latest-ci", image=image)
 
 @app.function(
     gpu="l40s:2",
-    timeout=300,
+    timeout=500,
     # timeout=1800,
 )
 def pytest():
