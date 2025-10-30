@@ -21,9 +21,8 @@ on:
       - main
 
   pull_request_target:
-    # XXX: re-enable later when workflow is working
-    # paths:
-    #   - '**.py'
+    paths:
+      - '**.py'
     paths-ignore:
       - 'docs/**'
       - 'projects/**'
