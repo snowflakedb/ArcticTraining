@@ -20,7 +20,7 @@ on:
     branches:
       - main
 
-  pull_request_target:
+  pull_request:
     paths:
       - '**.py'
     paths-ignore:
@@ -28,7 +28,6 @@ on:
       - 'projects/**'
       - 'scripts/**'
       - 'tutorial/**'
-    types: [review_requested, ready_for_review, synchronize]
     branches:
       - main
 
