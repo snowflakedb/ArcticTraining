@@ -3,33 +3,29 @@ name: Unit Tests on GPU (Modal)
 # This CI is running on modal.com's GPUs.
 #
 # It's set up here on github actions and then the cloned repo is sent to modal and everything
-# happens on their hw - see ci/torch_latest.py  for where the actual vm is loaded, updated and the tests are
+# happens on their hw - see ci/gpu_unit_tests.py for where the actual vm is loaded, updated and the tests are
 # run.
 #
 # Both files are annotated to what's important and how one might change or update things if needed.
-#
-# Note that since this is a Required job we can't use `on.push.path` file filter - we are using
-# collect-tests job to do the filtering for us so that the job can be skipped and satisfy the
-# Required status for PRs to pass.
-#
 
 on:
-  workflow_dispatch:
-
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
 
-  pull_request:
-    # paths and paths-ignore can't be used together, so have to use '!foo/**' with paths instead
-    paths:
-      - '**.py'
-      - '!docs/**'
-      - '!projects/**'
-      - '!scripts/**'
-      - '!tutorial/**'
-    branches:
-      - main
+  # pull_request:
+  #   # paths and paths-ignore can't be used together, so have to use '!foo/**' with paths instead
+  #   paths:
+  #     - '**.py'
+  #     - '!docs/**'
+  #     - '!projects/**'
+  #     - '!scripts/**'
+  #     - '!tutorial/**'
+  #   branches:
+  #     - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -58,12 +54,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           filters: |
             arctictraining:
-              - 'arctictraining/**'
+              - '**.py'
               - '.github/workflows/modal*.yml'
               - 'ci/**'
               - 'tests/**'
-
-  deploy:
+              - '!docs/**'
+              - '!projects/**'
+              - '!scripts/**'
+              - '!tutorial/**'
+deploy:
     name: GPU Unit Tests
     runs-on: ubuntu-latest
     needs: collect-tests
