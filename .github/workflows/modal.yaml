@@ -21,13 +21,13 @@ on:
       - main
 
   pull_request:
-    # paths and paths-ignore can't be used together, so have to use !'foo/**' with paths instead
+    # paths and paths-ignore can't be used together, so have to use '!foo/**' with paths instead
     paths:
       - '**.py'
-      # - !'docs/**'
-      # - !'projects/**'
-      # - !'scripts/**'
-      # - !'tutorial/**'
+      - '!docs/**'
+      - '!projects/**'
+      - '!scripts/**'
+      - '!tutorial/**'
     branches:
       - main
 
