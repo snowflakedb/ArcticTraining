@@ -105,12 +105,13 @@ jobs:
         run: |
           pip install uv # much faster than pip
           uv pip install --system modal
-          # this helps to cache the packages w/o rebuilding the modal image on each run
-          # uv pip compile pyproject.toml --extra testing -o ci-requirements.txt
+          # next we build requirements files since these help to cache the packages w/o rebuilding the modal image on each run
+          # 1. general packages
           uv pip compile pyproject.toml --extra testing -o requirements-general.txt
-          echo "--index-url https://download.pytorch.org/whl/cu129"  > requirements-torch.txt
+          # 2. install a specific torch/cuda combo in case deps compilation got it wrong
+          echo "--index-url https://download.pytorch.org/whl/cu129"   > requirements-torch.txt
           echo "torch==2.8.0"                                        >> requirements-torch.txt
-          # add any soft deps not listed in pyproject.toml here
+          # 3. flash_attn needs special care
           echo 'flash_attn' > requirements-flash_attn.txt
 
       - name: Run tests

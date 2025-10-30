@@ -34,10 +34,11 @@ image = (
     # ci-requirements.txt is generated in the github workflow job which allows us to skip image rebuilding if the requirements haven't changed since the last CI job was run
     .pip_install_from_requirements(ROOT_PATH / "requirements-general.txt", gpu="any")
     .pip_install_from_requirements(ROOT_PATH / "requirements-torch.txt", gpu="any")
-
+    .pip_install_from_requirements(ROOT_PATH / "requirements-flash_attn.txt", gpu="any", extra_options="--no-build-isolation")
     # .run_commands("uv pip install flash_attn --system --no-build-isolation")
     # .uv_pip_install("flash_attn", gpu="any", extra_options="--system --no-build-isolation")
     # .uv_pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any", extra_options="--no-build-isolation")
+    # this installs the actual project
     .run_commands("uv pip install --system /root")
 )
 # fmt: on
