@@ -39,7 +39,7 @@ image = (
     # .uv_pip_install("flash_attn", gpu="any", extra_options="--system --no-build-isolation")
     # .uv_pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any", extra_options="--no-build-isolation")
     # this installs the actual project
-    .run_commands("uv pip install --system /root")
+    .run_commands("uv pip install --system .")
 )
 # fmt: on
 
@@ -52,7 +52,19 @@ app = modal.App("arctictraining-torch-latest-ci", image=image)
     # timeout=1800,
 )
 def pytest():
+    import os
     import subprocess
+
+    # some debug helpers if needed to diagnose things
+    # print(f"{os.environ.get('HF_TOKEN', 'NONE')=}")
+    subprocess.run(["find", str(ROOT_PATH)])
+    # subprocess.run(["nvidia-smi"])
+
+    # this overcomes mkl multi-process breakage (that is when using xdist)
+    os.environ["MKL_THREADING_LAYER"] = "GNU"
+
+    # overcome CI log buffering to see tests reported in real time
+    os.environ["PYTHONUNBUFFERED"] = "1"
 
     # XXX: need to re-add `-n 4` when hardwired deepspeed dist init is removed from conftest.py - it conflicts with concurrent test runs as it assigns the same port to all tests
     cmd = "pytest --disable-warnings --instafail -m gpu --verbose tests/trainer/test_ulysses_alst.py"
