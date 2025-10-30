@@ -38,7 +38,7 @@ image = (
     # .uv_pip_install("flash_attn", gpu="any", extra_options="--system --no-build-isolation")
     # .uv_pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any", extra_options="--no-build-isolation")
     # this installs the actual project
-    .run_commands("uv pip install --system /root")
+    .run_commands("uv pip install --system .")
     .add_local_dir(ROOT_PATH, remote_path="/root/")
 )
 # fmt: on
