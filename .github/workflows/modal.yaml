@@ -24,7 +24,7 @@ on:
     # paths and paths-ignore can't be used together, so have to use '!foo/**' with paths instead
     paths:
       - '**.py'
-      # - '!docs/**'
+      - '!docs/**'
       # - '!projects/**'
       # - '!scripts/**'
       # - '!tutorial/**'
