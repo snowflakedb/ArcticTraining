@@ -44,11 +44,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - name: Filter changed files
-        uses: dorny/paths-filter@v2
+        uses: dorny/paths-filter@v3
         id: filter
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -62,6 +60,7 @@ jobs:
               - '!projects/**'
               - '!scripts/**'
               - '!tutorial/**'
+
 deploy:
     name: GPU Unit Tests
     runs-on: ubuntu-latest
