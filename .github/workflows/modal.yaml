@@ -3,14 +3,14 @@ name: Unit Tests on GPU (Modal)
 # This CI is running on modal.com's GPUs.
 #
 # It's set up here on github actions and then the cloned repo is sent to modal and everything
-# happens on their hw - see ci/gpu_unit_tests.py for where the actual vm is loaded, updated and the tests are
-# run.
+# happens on their hw - see ci/gpu_unit_tests.py for where the actual vm is loaded, updated and the
+# tests are run.
 #
 # Both files are annotated to what's important and how one might change or update things if needed.
 #
-# Note that since this is a Required job we can't use `on.push.path` file filter - we are using
-# collect-tests job to do the filtering for us so that the job can be skipped and satisfy the
-# Required status for PRs to pass.
+# Note that since this is a Required job we can't use `on.push.path` file filter - we are using a
+# special quick collect-tests job to do the filtering for us so that the job can be skipped and
+# satisfy the Required status for PRs to pass.
 
 on:
   pull_request:
@@ -20,17 +20,6 @@ on:
     branches:
       - main
     # do not use path filters here since it's a required job and if skipped it'd report failed (a known mis-feature in github), do it in the work around `collect-tests` job instead.
-
-  # pull_request:
-  #   # paths and paths-ignore can't be used together, so have to use '!foo/**' with paths instead
-  #   paths:
-  #     - '**.py'
-  #     - '!docs/**'
-  #     - '!projects/**'
-  #     - '!scripts/**'
-  #     - '!tutorial/**'
-  #   branches:
-  #     - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
