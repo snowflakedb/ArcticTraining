@@ -34,8 +34,8 @@ model_name_or_path = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 @pytest.mark.gpu
 @require_torch_multi_gpu
 class TestTrainerWithLauncher(TestCasePlus):
-    def setUp(self):
-        super().setUp()
+    # def setUp(self):
+    #     super().setUp()
 
     @parameterized.expand(["flash_attention_2", "sdpa"])
     def test_ulysses_alst_e2e(self, attn_implementation):
