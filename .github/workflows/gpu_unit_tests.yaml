@@ -19,7 +19,8 @@ on:
   push:
     branches:
       - main
-    # do not use path filters here since it's a required job and if skipped it'd report failed (a known mis-feature in github), do it in the work around `collect-tests` job instead.
+    # do not use path filters here since it's a required job and if skipped it'd report failed (a
+    # known mis-feature in github), do it in the work around `collect-tests` job instead.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +48,7 @@ jobs:
           filters: |
             arctictraining:
               - '**.py'
-              - '.github/workflows/modal*.yaml'
+              - '.github/workflows/gpu_unit_tests.yaml'
               - 'ci/**'
               - 'tests/**'
               - '!docs/**'
