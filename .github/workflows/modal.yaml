@@ -57,7 +57,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           filters: |
             arctictraining:
-              - 'arctictraining/**'
+              - '**'
               # - '.github/workflows/modal*.yaml'
               # - 'ci/**'
               # - 'tests/**'
