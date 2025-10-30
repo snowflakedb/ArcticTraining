@@ -66,7 +66,7 @@ jobs:
               # - '!scripts/**'
               # - '!tutorial/**'
 
-deploy:
+  deploy:
     name: GPU Unit Tests
     runs-on: ubuntu-latest
     needs: collect-tests
