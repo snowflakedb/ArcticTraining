@@ -109,7 +109,7 @@ jobs:
           # uv pip compile pyproject.toml --extra testing -o ci-requirements.txt
           uv pip compile pyproject.toml --extra testing -o requirements-general.txt
           echo "--index-url https://download.pytorch.org/whl/cu129"  > requirements-torch.txt
-          echo "torch.2.8.0"                                        >> requirements-torch.txt
+          echo "torch==2.8.0"                                        >> requirements-torch.txt
           # add any soft deps not listed in pyproject.toml here
           echo 'flash_attn' > requirements-flash_attn.txt
 
