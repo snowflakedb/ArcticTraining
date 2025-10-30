@@ -1,4 +1,4 @@
-name: GPU CI (Modal)
+name: Unit Tests on GPU (Modal)
 
 # This CI is running on modal.com's GPUs.
 #
