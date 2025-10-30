@@ -59,15 +59,15 @@ def pytest():
 
     # some debug helpers if needed to diagnose things
     # print(f"{os.environ.get('HF_TOKEN', 'NONE')=}")
-    subprocess.run(["find", str(ROOT_PATH)])
+    # subprocess.run(["find", str(ROOT_PATH)])
     # subprocess.run(["nvidia-smi"])
-
     # this overcomes mkl multi-process breakage (that is when using xdist)
     os.environ["MKL_THREADING_LAYER"] = "GNU"
 
     # overcome CI log buffering to see tests reported in real time
     os.environ["PYTHONUNBUFFERED"] = "1"
 
+    # another way to install the repo if not done via modal.Image - same efficiency since it'll have to be reinstalled every time CI runs anyway (dependencies will not be reinstalled as they have been cached in modal.Image)
     # cmd = "uv pip install --system ."
     # print(f"Running: {cmd}")
     # subprocess.run(
