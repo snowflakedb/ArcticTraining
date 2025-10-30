@@ -1,0 +1,60 @@
+name: Unit Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        id: setup_python
+        with:
+          python-version: '3.10'
+      - name: Get latest dependency versions
+        id: get_latest_versions
+        run: |
+          torch_version=$(python -m pip index versions torch --index-url https://download.pytorch.org/whl/cpu | perl -ne 'm|Available versions: ([\d\.]+)| && print $1')
+          deepspeed_version=$(python -m pip index versions deepspeed | perl -ne 'm|Available versions: ([\d\.]+)| && print $1')
+          versions="torch-$torch_version-deepspeed-$deepspeed_version"
+          echo "versions=$versions" >> $GITHUB_OUTPUT
+      - name: Restore cached virtualenv
+        uses: actions/cache@v4
+        with:
+          key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}-${{ hashFiles('pyproject.toml') }}
+          path: .venv
+      - name: Restore cached torch extensions
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch_extensions
+          key: torch-extensions-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}
+      - name: Restore huggingface cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: huggingface-cache-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}
+      - name: Setup environment
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install ".[testing]"
+      - name: Environment print
+        run: |
+          pip list
+      - name: Unit Tests
+        run: |
+          cd tests
+          python -m pytest . -m "not gpu" -s -v

@@ -55,7 +55,7 @@ def pytest():
     import subprocess
 
     # XXX: need to re-add `-n 4` when hardwired deepspeed dist init is removed from conftest.py - it conflicts with concurrent test runs as it assigns the same port to all tests
-    cmd = "pytest --disable-warnings --instafail -m gpu -sv tests/trainer/test_ulysses_alst.py"
+    cmd = "pytest --disable-warnings --instafail -m gpu --verbose tests/trainer/test_ulysses_alst.py"
     # cmd = "pytest --disable-warnings --instafail -m gpu --verbose tests"
 
     print(f"Running: {cmd}")
