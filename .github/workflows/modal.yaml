@@ -14,35 +14,27 @@ name: Unit Tests on GPU (Modal)
 #
 
 on:
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
+
   push:
     branches:
       - main
 
-# on:
-#   workflow_dispatch:
-
-#   push:
-#     branches:
-#       - main
-
-#   pull_request_target:
-#     # XXX: re-enable later when workflow is working
-#     # paths:
-#     #   - '**.py'
-#     paths-ignore:
-#       - 'docs/**'
-#       - 'projects/**'
-#       - 'scripts/**'
-#       - 'tutorial/**'
-#     types: [review_requested, ready_for_review, synchronize]
-#     branches:
-#       - main
+  pull_request_target:
+    # XXX: re-enable later when workflow is working
+    # paths:
+    #   - '**.py'
+    paths-ignore:
+      - 'docs/**'
+      - 'projects/**'
+      - 'scripts/**'
+      - 'tutorial/**'
+    types: [review_requested, ready_for_review, synchronize]
+    branches:
+      - main
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -79,13 +71,13 @@ jobs:
     needs: collect-tests
     env:
       # note: we are sharing the same account with deepspeedai
-      # XXX: none of the below is still set up
       # these are created at https://modal.com/settings/deepspeedai/tokens
       # they are then added to the repo's secrets at https://github.com/snowflakedb/ArcticTraining/settings/secrets/actions
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       # this one comes from https://huggingface.co/settings/profile of the bot user
       # and it too is then updated at https://github.com/snowflakedb/ArcticTraining/settings/secrets/actions
+      # XXX: this is a placeholder - we haven't needed this one yet
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
     if: needs.collect-tests.outputs.arctictraining == 'true'
@@ -116,4 +108,4 @@ jobs:
 
       - name: Run tests
         run: |
-          modal run -m ci.torch_latest
+          modal run -m ci.gpu_unit_tests

@@ -19,27 +19,21 @@ import modal
 
 ROOT_PATH = Path(__file__).parents[1]
 
-# flash_attn_release = (
-#     "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3"
-#     "flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp313-cp313-linux_x86_64.whl"
-# )
-
 # fmt: off
 image = (
     modal.Image
+    # later when things stability switch to a newer image and update torch/cuda versions in the yaml file
     # .from_registry("pytorch/pytorch:2.9.0-cuda13.0-cudnn9-devel", add_python="3.12")
     .from_registry("pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel", add_python="3.12")
     # XXX: add a freeze requirements to get the caching working
-    # ci-requirements.txt is generated in the github workflow job which allows us to skip image rebuilding if the requirements haven't changed since the last CI job was run
+    # ci-requirements.txt is generated in the github workflow job which allows us to skip image
+    # rebuilding if the requirements haven't changed since the last CI job was run
     .pip_install_from_requirements(ROOT_PATH / "requirements-general.txt", gpu="any")
     .pip_install_from_requirements(ROOT_PATH / "requirements-torch.txt", gpu="any")
     .pip_install_from_requirements(ROOT_PATH / "requirements-flash_attn.txt", gpu="any", extra_options="--no-build-isolation")
-    # .run_commands("uv pip install flash_attn --system --no-build-isolation")
-    # .uv_pip_install("flash_attn", gpu="any", extra_options="--system --no-build-isolation")
-    # .uv_pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any", extra_options="--no-build-isolation")
-    # this installs the actual project
-    # .run_commands("uv pip install --system .")
-    # add_local_dir copies the repo over - since we use copy=True, it has to be run as late as possible to allow caching of the previous stages - so run it before installing the main repo itself.
+    # add_local_dir copies the repo over - since we use copy=True (because we need always the
+    # latest files), it has to be run as late as possible to allow caching of the previous stages -
+    # so run it before installing the main repo itself.
     .add_local_dir(ROOT_PATH, remote_path="/root/", copy=True)
     .run_commands("uv pip install --system /root")
 )
@@ -50,8 +44,7 @@ app = modal.App("arctictraining-torch-latest-ci", image=image)
 
 @app.function(
     gpu="l40s:2",
-    timeout=500,
-    # timeout=1800,
+    timeout=1800,  # 1800sec=30min
 )
 def pytest():
     import os
