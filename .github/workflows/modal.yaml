@@ -25,9 +25,9 @@ on:
     paths:
       - '**.py'
       - '!docs/**'
-      # - '!projects/**'
-      # - '!scripts/**'
-      # - '!tutorial/**'
+      - '!projects/**'
+      - '!scripts/**'
+      - '!tutorial/**'
     branches:
       - main
 
