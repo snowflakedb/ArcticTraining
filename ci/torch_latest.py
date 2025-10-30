@@ -38,7 +38,7 @@ image = (
     # .uv_pip_install("flash_attn", gpu="any", extra_options="--system --no-build-isolation")
     # .uv_pip_install_from_requirements(ROOT_PATH / "ci-requirements2.txt", gpu="any", extra_options="--no-build-isolation")
     # this installs the actual project
-    .run_commands("uv pip install --system .")
+    # .run_commands("uv pip install --system .")
     .add_local_dir(ROOT_PATH, remote_path="/root/")
 )
 # fmt: on
@@ -65,6 +65,14 @@ def pytest():
 
     # overcome CI log buffering to see tests reported in real time
     os.environ["PYTHONUNBUFFERED"] = "1"
+
+    cmd = "uv pip install --system ."
+    print(f"Running: {cmd}")
+    subprocess.run(
+        cmd.split(),
+        check=True,
+        cwd=ROOT_PATH / ".",
+    )
 
     # XXX: need to re-add `-n 4` when hardwired deepspeed dist init is removed from conftest.py - it conflicts with concurrent test runs as it assigns the same port to all tests
     cmd = "pytest --disable-warnings --instafail -m gpu --verbose tests/trainer/test_ulysses_alst.py"
