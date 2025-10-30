@@ -181,8 +181,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             model_name_or_path=self.config.model.name_or_path,
             core_attn_implementation=self.config.model.attn_implementation,
             sequence_parallel_size=self.config.sequence_parallel_size,
-            max_length=self.config.data.max_length,
             micro_batch_size=self.config.micro_batch_size,
+            seq_length=self.config.data.max_length,
             seq_length_is_variable=True,
         )
 

@@ -53,7 +53,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>=0.18.0",  # TiledMLP for MoE
+    "deepspeed>=0.18.2",  # UlyssesSPAttentionHF.register_with_transformers api change
     "devtools",
     "jsonlines",
     "loguru",
