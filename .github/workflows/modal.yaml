@@ -7,6 +7,10 @@ name: Unit Tests on GPU (Modal)
 # run.
 #
 # Both files are annotated to what's important and how one might change or update things if needed.
+#
+# Note that since this is a Required job we can't use `on.push.path` file filter - we are using
+# collect-tests job to do the filtering for us so that the job can be skipped and satisfy the
+# Required status for PRs to pass.
 
 on:
   pull_request:
@@ -15,6 +19,7 @@ on:
   push:
     branches:
       - main
+    # do not use path filters here since it's a required job and if skipped it'd report failed (a known mis-feature in github), do it in the work around `collect-tests` job instead.
 
   # pull_request:
   #   # paths and paths-ignore can't be used together, so have to use '!foo/**' with paths instead
@@ -56,10 +61,10 @@ jobs:
               - '.github/workflows/modal*.yml'
               - 'ci/**'
               - 'tests/**'
-              - '!docs/**'
-              - '!projects/**'
-              - '!scripts/**'
-              - '!tutorial/**'
+              # - '!docs/**'
+              # - '!projects/**'
+              # - '!scripts/**'
+              # - '!tutorial/**'
 
 deploy:
     name: GPU Unit Tests
