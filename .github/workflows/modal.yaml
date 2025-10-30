@@ -57,14 +57,14 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           filters: |
             arctictraining:
-              - '**'
-              # - '.github/workflows/modal*.yaml'
-              # - 'ci/**'
-              # - 'tests/**'
-              # - '!docs/**'
-              # - '!projects/**'
-              # - '!scripts/**'
-              # - '!tutorial/**'
+              - '**.py'
+              - '.github/workflows/modal*.yaml'
+              - 'ci/**'
+              - 'tests/**'
+              - '!docs/**'
+              - '!projects/**'
+              - '!scripts/**'
+              - '!tutorial/**'
 
   deploy:
     name: GPU Unit Tests
