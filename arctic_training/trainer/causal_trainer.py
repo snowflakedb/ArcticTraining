@@ -29,7 +29,7 @@ from arctic_training.trainer.sft_trainer import SFTTrainer
 from arctic_training.trainer.trainer import Trainer
 
 
-# at the moment CausalTrainer and SFTTrainer are almost the same, so just aliasing its `loss`
+# at the moment CausalTrainer and SFTTrainer are almost the same, except `data_factory`` so just aliasing its `loss`
 class CausalTrainer(Trainer):
     name = "causal"
     data_factory: CausalDataFactory
