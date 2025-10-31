@@ -48,8 +48,6 @@ class DataCollatorForCausalLM:
             "packed_sample_seqlens": packed_sample_seqlens,
         }
 
-        # print(sample)
-
         return sample
 
 
@@ -65,10 +63,6 @@ def slice_and_pack_causal_batch(
     keys = ("input_ids", "position_ids", "packed_sample_seqlens")
     packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
 
-    # for i, example in enumerate(batch["input_ids"]):
-    #     print(f"pack {i} {len(example)=}")
-    # exit()
-
     def build_sample(input_ids_group):
         """
         pass a list of input_ids
@@ -80,20 +74,13 @@ def slice_and_pack_causal_batch(
         )
 
     def add_sample_to_batch(sample):
-        print("new full sample added")
         for k in keys:
             packed_batch[k].append(sample[k])
 
     def add_to_overflow_buffer(input_ids):
-        print(f"add {len(input_ids)} to overflow")
         overflow_buffer.append(input_ids)
-        print(f"overflow_buffer has: { [len(x) for x in overflow_buffer] }")
-
-    print(f"input_ids in: { [len(x) for x in batch['input_ids']] }")
-    print(f"overflow_buffer in: { [len(x) for x in overflow_buffer] }")
 
     for input_ids in batch["input_ids"]:
-
         if len(input_ids) >= max_length:
             # 1. slice the incoming full text sample into max_length shards
             # 2. add shards of max_length to the batch
@@ -108,33 +95,24 @@ def slice_and_pack_causal_batch(
             # if input_ids < max_length add it to overflow_buffer
             add_to_overflow_buffer(input_ids)
 
-        # print(f"overflow_buffer mid: { [len(x) for x in overflow_buffer] }")
-
         # at this point overflow_buffer may contain enough data for at most one more max_length sample
         if sum(len(x) for x in overflow_buffer) >= max_length:
             chunked_sample = []
             chunked_sample_len = 0
             for i in range(len(overflow_buffer)):
-                print(f"{i} overflow_buffer being consumed: { [len(x) for x in overflow_buffer] }")
                 chunk = overflow_buffer.pop(0)
-                print(f"{i} new oveflow chunk {len(chunk)=}")
                 current_sample_len = chunked_sample_len + len(chunk)
                 if current_sample_len <= max_length:
                     chunked_sample.append(chunk)
                     chunked_sample_len = current_sample_len
                 else:
-                    print(f"{current_sample_len=}, {chunked_sample_len=}")
                     split_point = len(chunk) - (current_sample_len - max_length)
-                    print(f"{split_point=}, {len(chunk[:split_point])=}, {len(chunk[split_point:])=},")
                     chunk_use, chunk_overflow = chunk[:split_point], chunk[split_point:]
                     chunked_sample.append(chunk_use)
                     overflow_buffer.insert(0, chunk_overflow)
-                    print(f"overflow_buffer has: { [len(x) for x in overflow_buffer] }")
 
                     break
             add_sample_to_batch(build_sample(chunked_sample))
-
-    print(f"overflow_buffer out: {[len(x) for x in overflow_buffer] }")
 
     return packed_batch
 
