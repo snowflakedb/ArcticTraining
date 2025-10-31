@@ -26,20 +26,25 @@ model_config = dict(
 )
 
 data_config_training = dict(
-                max_length=2048,
-                sources=[dict(
-                    type="CausalDataset",
-                    name_or_path=dataset,
-                )],
+    max_length=2048,
+    sources=[
+        dict(
+            type="CausalDataset",
+            name_or_path=dataset,
+        )
+    ],
 )
 data_config_evaluation = dict(
-                max_length=2048,
-                sources=[dict(
-                    type="CausalDataset",
-                    name_or_path=dataset,
-                )],
-                train_eval_split=[0.8, 0.2],
+    max_length=2048,
+    sources=[
+        dict(
+            type="CausalDataset",
+            name_or_path=dataset,
+        )
+    ],
+    train_eval_split=[0.8, 0.2],
 )
+
 
 @pytest.mark.parametrize(
     "run_on_cpu",
