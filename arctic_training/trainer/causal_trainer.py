@@ -14,8 +14,6 @@
 # limitations under the License.
 from typing import Union
 
-import torch
-
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.causal_factory import CausalDataFactory
@@ -39,8 +37,4 @@ class CausalTrainer(Trainer):
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 
-    def loss(self, batch) -> torch.Tensor:
-        pass
-
-
-CausalTrainer.loss = SFTTrainer.loss
+    loss = SFTTrainer.loss  # type: ignore
