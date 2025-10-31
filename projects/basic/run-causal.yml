@@ -1,0 +1,50 @@
+type: causal
+micro_batch_size: 1
+exit_iteration: 10
+min_iterations: 10
+
+deepspeed:
+  zero_optimization:
+    stage: 3
+
+optimizer:
+  learning_rate: 1e-5
+
+model:
+  type: "liger"
+  name_or_path: hf-internal-testing/tiny-random-LlamaForCausalLM
+  #name_or_path: TinyLlama/TinyLlama_v1.1
+  #name_or_path: meta-llama/Llama-3.1-8B
+
+  attn_implementation: flash_attention_2
+  #attn_implementation: sdpa
+
+  dtype: bf16
+
+data:
+  sources:
+    - type: CausalDataset
+      name_or_path: manu/project_gutenberg:en[:100]
+      #split: en
+      #sample_count: 100_000
+
+  cache_dir: /data-fast/data-cache/stas
+  num_proc: 16
+  dl_num_workers: 1
+
+  max_length: 2048
+
+logger:
+  level: WARNING
+#  level: INFO
+
+  output_dir: "logs"
+  #file_output_ranks: [0,1]
+  print_output_ranks: [0,1,2,3,4,5,6,7]
+
+checkpoint:
+  - type: huggingface
+    save_every_n_steps: 300
+    #save_end_of_training: true
+    output_dir: /tmp/ft-model
+
