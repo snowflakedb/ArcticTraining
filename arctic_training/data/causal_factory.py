@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import itertools
-from typing import Any
 from typing import Dict
 from typing import List
 
@@ -187,11 +186,11 @@ class CausalDataFactory(DataFactory):
         # - return_attention_mask=False: we only want input_ids, as we rely on position_ids and not the attention_mask
         # - add_special_tokens=False: True value doesn't guarantee bos/eos tokens are added, and there is no control over what tokens are added besides those two - so we ask not to add any and then add bos/eos tokens if they are defined.
         # - verbose=False because we potentially tokenize much longer sequences than the model can handle because later we slice the outcome into something that a model can handle, therefore tokenizer warnings like "Token indices sequence length is longer than the specified maximum sequence length" are irrelevant.
-        kwargs: Dict[Any, Any] = dict(return_attention_mask=False, add_special_tokens=False, verbose=False)
+        kwargs = dict(return_attention_mask=False, add_special_tokens=False, verbose=False)
 
         # user config can override these defaults at will
         if (user_kwargs := tokenizer_config_at.tokenize_kwargs) is not None:
-            kwargs += dict(**user_kwargs)
+            kwargs.update(user_kwargs)
 
             # there is a potential conflict here if user sets `add_special_tokens=True` and the tokenizer actually returns bos and/or eos tokens - we don't want to end up with one or both tokens inserted twice.
             if user_kwargs.get("add_special_tokens", False):
