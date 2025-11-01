@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import itertools
+from typing import Any
 from typing import Dict
 from typing import List
 
@@ -24,9 +25,10 @@ from transformers import BatchEncoding
 from transformers import PreTrainedTokenizerBase
 
 from arctic_training.config.data import DataConfig
+from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import DatasetType
-from arctic_training.config.tokenizer import TokenizerConfig
+
 
 class DataCollatorForCausalLM:
     def __init__(self, tokenizer, config):
@@ -177,24 +179,28 @@ class CausalDataFactory(DataFactory):
         clt,
         text: List[Dict[str, str]],
         tokenizer: PreTrainedTokenizerBase,
-        tokenizer_config_at: TokenizerConfig, # _at=AT: to disambiguate from HF's tokenizer.config
+        tokenizer_config_at: TokenizerConfig,  # _at=AT: to disambiguate from HF's tokenizer.config
     ) -> BatchEncoding:
-
-        input_ids = []
+        input_ids: list[int] = []
 
         # tokenizer kwargs choice explanation:
         # - return_attention_mask=False: we only want input_ids, as we rely on position_ids and not the attention_mask
         # - add_special_tokens=False: True value doesn't guarantee bos/eos tokens are added, and there is no control over what tokens are added besides those two - so we ask not to add any and then add bos/eos tokens if they are defined.
         # - verbose=False because we potentially tokenize much longer sequences than the model can handle because later we slice the outcome into something that a model can handle, therefore tokenizer warnings like "Token indices sequence length is longer than the specified maximum sequence length" are irrelevant.
-        kwargs = dict(return_attention_mask=False, add_special_tokens=False, verbose=False)
+        kwargs: Dict[Any, Any] = dict(return_attention_mask=False, add_special_tokens=False, verbose=False)
 
         # user config can override these defaults at will
-        if user_kwargs := tokenizer_config_at.tokenize_kwargs is not None:
-            kwargs.update(user_kwargs)
+        if (user_kwargs := tokenizer_config_at.tokenize_kwargs) is not None:
+            kwargs += dict(**user_kwargs)
 
             # there is a potential conflict here if user sets `add_special_tokens=True` and the tokenizer actually returns bos and/or eos tokens - we don't want to end up with one or both tokens inserted twice.
             if user_kwargs.get("add_special_tokens", False):
-                raise ValueError("The CausalDataFactory code path adds BOS/EOS tokens manually, to ensure they are always there - so if you set `tokenizer.tokenize_kwargs.add_special_tokens: true` the tokens could be added twice, breaking the contract. If there is a problem and you need other special chars please file an issue.")
+                raise ValueError(
+                    "The CausalDataFactory code path adds BOS/EOS tokens manually, to ensure they are always there -"
+                    " so if you set `tokenizer.tokenize_kwargs.add_special_tokens: true` the tokens could be added"
+                    " twice, breaking the contract. If there is a problem and you need other special chars please file"
+                    " an issue."
+                )
 
         # XXX: The auto-forcing of BOS/EOS is experimental - we might have to make it configurable
         # This is done because for some models even if you call `tokenize(..., add_special_tokens=True)` it still won't add BOS/EOS tokens and we need to make sure they are there when defined. Example: Qwen/Qwen3-1.7B doesn't add EOS, even though it's defined in its HF tokenizer's config.

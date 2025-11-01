@@ -15,10 +15,10 @@
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import Dict
 from typing import Optional
 from typing import Type
 from typing import Union
-from typing import Dict
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.registry import get_registered_tokenizer_factory
