@@ -209,7 +209,7 @@ class CausalDataFactory(DataFactory):
             input_ids + [tokenizer.bos_token_id]
 
         # 2. string: tokenizer() returns a dict - we just want the `input_ids` entry
-        input_ids += tokenizer(text, kwargs)["input_ids"]
+        input_ids += tokenizer(text, **kwargs)["input_ids"]
 
         # 3. EOS
         if tokenizer.eos_token_id is not None:
