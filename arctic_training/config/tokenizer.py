@@ -15,6 +15,7 @@
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import Dict
 from typing import Optional
 from typing import Type
 from typing import Union
@@ -32,6 +33,9 @@ class TokenizerConfig(BaseConfig):
 
     name_or_path: Optional[Union[str, Path]] = ""
     """ Tokenizer name (as described in Hugging Face model hub) or local path directory containing tokenizer. """
+
+    tokenize_kwargs: Optional[Dict] = None
+    """ kwargs to be passed to tokenizer.tokenize """
 
     @property
     def factory(self) -> Type["TokenizerFactory"]:
