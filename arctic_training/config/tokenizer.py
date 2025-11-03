@@ -20,6 +20,8 @@ from typing import Optional
 from typing import Type
 from typing import Union
 
+from pydantic import Field
+
 from arctic_training.config.base import BaseConfig
 from arctic_training.registry import get_registered_tokenizer_factory
 
@@ -34,7 +36,7 @@ class TokenizerConfig(BaseConfig):
     name_or_path: Optional[Union[str, Path]] = ""
     """ Tokenizer name (as described in Hugging Face model hub) or local path directory containing tokenizer. """
 
-    tokenize_kwargs: Optional[Dict] = None
+    tokenize_kwargs: Dict = Field(default_factory=dict)
     """ kwargs to be passed to tokenizer.tokenize """
 
     @property
