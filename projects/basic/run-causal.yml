@@ -24,9 +24,12 @@ model:
 data:
   sources:
     - type: CausalDataset
-      name_or_path: manu/project_gutenberg:en[:100]
-      #split: en
-      #sample_count: 100_000
+      # the first dataset is tiny but fast to download to try it out
+      name_or_path: stas/gutenberg-100:train[:100]
+      # this is 14GB-large
+      # name_or_path: manu/project_gutenberg:en[:100]
+      # split: en
+      # sample_count: 100_000
 
   cache_dir: /tmp/data-cache
   num_proc: 16
