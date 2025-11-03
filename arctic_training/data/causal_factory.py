@@ -175,7 +175,7 @@ class CausalDataFactory(DataFactory):
 
     @classmethod
     def tokenize_text(
-        clt,
+        cls,
         text: List[Dict[str, str]],
         tokenizer: PreTrainedTokenizerBase,
         tokenizer_config_at: TokenizerConfig,  # _at=AT: to disambiguate from HF's tokenizer.config
@@ -189,8 +189,7 @@ class CausalDataFactory(DataFactory):
         kwargs = dict(return_attention_mask=False, add_special_tokens=False, verbose=False)
 
         # user config can override these defaults at will
-        if (user_kwargs := tokenizer_config_at.tokenize_kwargs) is not None:
-            kwargs.update(user_kwargs)
+        kwargs.update(user_kwargs)
 
             # there is a potential conflict here if user sets `add_special_tokens=True` and the tokenizer actually returns bos and/or eos tokens - we don't want to end up with one or both tokens inserted twice.
             if user_kwargs.get("add_special_tokens", False):
@@ -206,7 +205,7 @@ class CausalDataFactory(DataFactory):
 
         # 1. BOS
         if tokenizer.bos_token_id is not None:
-            input_ids + [tokenizer.bos_token_id]
+            input_ids += [tokenizer.bos_token_id]
 
         # 2. string: tokenizer() returns a dict - we just want the `input_ids` entry
         input_ids += tokenizer(text, **kwargs)["input_ids"]
