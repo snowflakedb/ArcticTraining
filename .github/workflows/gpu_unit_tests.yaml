@@ -91,6 +91,8 @@ jobs:
           # next we build requirements files since these help to cache the packages w/o rebuilding the modal image on each run
           # 1. general packages
           uv pip compile pyproject.toml --extra testing -o requirements-general.txt
+          # uv is not required but we rely on it in the CI later
+          echo "uv" >> requirements-general.txt
           # 2. install a specific torch/cuda combo in case deps compilation got it wrong
           echo "--index-url https://download.pytorch.org/whl/cu129"   > requirements-torch.txt
           echo "torch==2.8.0"                                        >> requirements-torch.txt
