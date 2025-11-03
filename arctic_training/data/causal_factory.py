@@ -189,23 +189,23 @@ class CausalDataFactory(DataFactory):
         kwargs = dict(return_attention_mask=False, add_special_tokens=False, verbose=False)
 
         # user config can override these defaults at will
-        kwargs.update(user_kwargs)
+        kwargs.update(tokenizer_config_at.tokenize_kwargs)
 
-            # there is a potential conflict here if user sets `add_special_tokens=True` and the tokenizer actually returns bos and/or eos tokens - we don't want to end up with one or both tokens inserted twice.
-            if user_kwargs.get("add_special_tokens", False):
-                raise ValueError(
-                    "The CausalDataFactory code path adds BOS/EOS tokens manually, to ensure they are always there -"
-                    " so if you set `tokenizer.tokenize_kwargs.add_special_tokens: true` the tokens could be added"
-                    " twice, breaking the contract. If there is a problem and you need other special chars please file"
-                    " an issue."
-                )
+        # there is a potential conflict here if user sets `add_special_tokens=True` and the tokenizer actually returns bos and/or eos tokens - we don't want to end up with one or both tokens inserted twice.
+        if tokenizer_config_at.tokenize_kwargs.get("add_special_tokens", False):
+            raise ValueError(
+                "The CausalDataFactory code path adds BOS/EOS tokens manually, to ensure they are always there -"
+                " so if you set `tokenizer.tokenize_kwargs.add_special_tokens: true` the tokens could be added"
+                " twice, breaking the contract. If there is a problem and you need other special chars please file"
+                " an issue."
+            )
 
         # XXX: The auto-forcing of BOS/EOS is experimental - we might have to make it configurable
         # This is done because for some models even if you call `tokenize(..., add_special_tokens=True)` it still won't add BOS/EOS tokens and we need to make sure they are there when defined. Example: Qwen/Qwen3-1.7B doesn't add EOS, even though it's defined in its HF tokenizer's config.
 
         # 1. BOS
         if tokenizer.bos_token_id is not None:
-            input_ids += [tokenizer.bos_token_id]
+            input_ids = [tokenizer.bos_token_id]
 
         # 2. string: tokenizer() returns a dict - we just want the `input_ids` entry
         input_ids += tokenizer(text, **kwargs)["input_ids"]
