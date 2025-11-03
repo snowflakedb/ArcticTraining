@@ -17,7 +17,7 @@ import pytest
 
 from tests.utils import run_dummy_training
 
-dataset = "manu/project_gutenberg:en[:3]"
+dataset = "stas/gutenberg-100:train[:3]"
 model_name = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 
 model_config = dict(
