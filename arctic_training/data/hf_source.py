@@ -123,20 +123,6 @@ class HFDataSource(DataSource):
         return dataset
 
 
-class AceMath(HFDataSource):
-    name = "nvidia/AceMath-Instruct-Training-Data"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        def process_example(example):
-            return {"messages": example["messages"] + [{"role": "assistant", "content": example["answer"]}]}
-
-        return dataset.map(
-            process_example,
-            num_proc=self.data_factory.config.num_proc,
-            desc=f"Loading {self.name}",
-        )
-
-
 class ProjectGutenbergSFT(HFDataSource):
     """
     Simple SFT wrapper around the Project Gutenberg dataset. Each example only
