@@ -37,7 +37,7 @@ class TokenizerConfig(BaseConfig):
     """ Tokenizer name (as described in Hugging Face model hub) or local path directory containing tokenizer. """
 
     tokenize_kwargs: Dict = Field(default_factory=dict)
-    """ kwargs to be passed to tokenizer.tokenize """
+    """ Optional kwargs to be passed to tokenizer.tokenize in addition or to override the default values passed in the corresponding data factory's process function"""
 
     @property
     def factory(self) -> Type["TokenizerFactory"]:
