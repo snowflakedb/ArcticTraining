@@ -99,7 +99,7 @@ class ArcticMoE(nn.Module):
             torch.empty((self.num_local_experts, self.intermediate_dim, self.model_dim), dtype=self.input_dtype)
         )
 
-        if config.use_shared_expert:
+        if self._config.use_shared_expert:
             self.shared_expert_gate_up = nn.Parameter(
                 torch.empty(
                     (
@@ -115,12 +115,30 @@ class ArcticMoE(nn.Module):
             self.shared_expert_output_gate = nn.Parameter(torch.empty(self.model_dim, 1, dtype=self.input_dtype))
 
         # self.comm_stream = torch.cuda.Stream()
-        if config.use_triton:
+        if self._config.use_triton:
             from arctic_training.model.moe.moe_gemm import group_gemm_fn
 
             self.moegemm = group_gemm_fn
         else:
             self.moegemm = torch_group_gemm_fn
+
+    def extra_repr(self):
+        """Since we are. using nn.Parameter we need to write out our own repr that nn.Module __repr__ will call automatically when printing the model representation"""
+
+        main_str = ""
+        main_str += f"(router_gate): Parameter({tuple(self.router_gate.shape)}\n"
+        main_str += f"(expert_gate_up): Parameter({tuple(self.expert_gate_up.shape)}\n"
+        main_str += f"(expert_down): Parameter({tuple(self.expert_down.shape)}\n"
+
+        if self._config.use_shared_expert:
+            main_str += f"(shared_expert_gate_up): Parameter({tuple(self.shared_expert_gate_up.shape)}\n"
+            main_str += f"(shared_expert_down): Parameter({tuple(self.shared_expert_down.shape)}\n"
+            main_str += f"(shared_expert_output_gate): Parameter({tuple(self.shared_expert_output_gate.shape)}\n"
+
+        # remove the last "\n" to fit into nn.Module.__repr__ expectated formatting
+        main_str = main_str.strip("\n")
+
+        return main_str
 
     def GroupGeMM(self, x, expert_token_count_cumsum):
         """Grouped GEMM for MoE experts.
