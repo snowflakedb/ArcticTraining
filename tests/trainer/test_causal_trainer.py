@@ -29,7 +29,7 @@ data_config_training = dict(
     max_length=2048,
     sources=[
         dict(
-            type="CausalDataset",
+            type="huggingface_causal",
             name_or_path=dataset,
         )
     ],
@@ -38,7 +38,7 @@ data_config_evaluation = dict(
     max_length=2048,
     sources=[
         dict(
-            type="CausalDataset",
+            type="huggingface_causal",
             name_or_path=dataset,
         )
     ],

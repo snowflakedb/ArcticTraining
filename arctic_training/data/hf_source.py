@@ -137,33 +137,6 @@ class AceMath(HFDataSource):
         )
 
 
-class CausalDataset(HFDataSource):
-    name = "CausalDataset"
-
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-
-        if "text" in dataset.column_names:
-            return dataset
-        else:
-            # if it's just one column that isn't called `text` we can just rename it
-            if len(dataset.column_names) == 1:
-                return dataset.rename_column(dataset.column_names[0], "text")
-            else:
-                # XXX: add functionality for the user to specify a column mapping in the yaml file
-                raise ValueError(f"Can't tell which column is text column in column names: {dataset.column_names}")
-
-        # # XXX: need to deal with situations where the dataset column isn't called `text`
-        # def process_example(example):
-        #     # XXX: splice if too long
-        #     return dict(text=[example["text"]])
-
-        # return dataset.map(
-        #     process_example,
-        #     num_proc=self.data_factory.config.num_proc,
-        #     desc=f"Loading causal dataset {self.config.name_or_path}",
-        # )
-
-
 class ProjectGutenbergSFT(HFDataSource):
     """
     Simple SFT wrapper around the Project Gutenberg dataset. Each example only

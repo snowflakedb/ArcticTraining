@@ -23,7 +23,7 @@ model:
 
 data:
   sources:
-    - type: CausalDataset
+    - type: huggingface_causal
       # the first dataset is tiny but fast to download to try it out
       name_or_path: stas/gutenberg-100:train[:100]
       # this is 14GB-large
