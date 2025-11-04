@@ -201,6 +201,12 @@ class ArcticMoE(nn.Module):
             expert_token_count_cumsum = expert_token_count.cumsum(0)
         moe_output = self.GroupGeMM(moe_input, expert_token_count_cumsum)
 
+        if self.ep_size > 1:
+            moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)
+            moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
+
+        output = self.MoECombine(moe_output, token_mapped_slots, scores)
+
         if self._config.use_shared_expert:
             s_intermediate = torch.matmul(hidden_states, self.shared_expert_gate_up)
             if self._config.is_gated:
@@ -208,13 +214,8 @@ class ArcticMoE(nn.Module):
                 s_intermediate = s_up * self.act_fn(s_gate)
             s_out = torch.matmul(s_intermediate, self.shared_expert_down)
             s_out_gate = torch.matmul(hidden_states, self.shared_expert_output_gate)
-            moe_output = moe_output + s_out * F.sigmoid(s_out_gate)
+            output = output + s_out * F.sigmoid(s_out_gate)
 
-        if self.ep_size > 1:
-            moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)
-            moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
-
-        output = self.MoECombine(moe_output, token_mapped_slots, scores)
         output = output.reshape(orig_shape)
 
         return (output, scores) if self._config.return_router_scores else output
