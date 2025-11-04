@@ -31,12 +31,14 @@ train_dataset = "HuggingFaceH4/ultrachat_200k:train[:50]"
 model_qwen = "snake7gun/tiny-random-qwen3moe"
 # model_qwen = "DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder"
 
+model_qwen_next = "yujiepan/qwen3-next-moe-tiny-random"
+
 # gpt-oss models: tiny random and smallish non-random
 model_gpt_oss = "tiny-random/gpt-oss-bf16"
 # model_gpt_oss = "AmanPriyanshu/gpt-oss-6.0b-specialized-all-pruned-moe-only-7-experts"
 # model_gpt_oss = "TroyDoesAI/gpt-oss-4B"
 
-models = [model_gpt_oss, model_qwen]
+models = [model_gpt_oss, model_qwen, model_qwen_next]
 
 
 @require_torch_multi_gpu

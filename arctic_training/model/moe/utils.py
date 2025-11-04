@@ -160,6 +160,10 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             f" {config.__dict__.keys()}"
         )
 
+    # XXX: this is the only signal I found so far in the qwen3-next model config - could probably check the model for presense of mlp.shared_expert
+    if hasattr(config, "shared_expert_intermediate_size"):
+        arctic_moe_config.use_shared_expert = True
+
     archs_with_router_scores = ["GptOssForCausalLM"]
     arctic_moe_config.return_router_scores = True if config.architectures[0] in archs_with_router_scores else False
 
@@ -167,7 +171,6 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     arctic_moe_config.use_triton = False
     # at the moment the models we support are all gated
     arctic_moe_config.is_gated = True
-    arctic_moe_config.use_shared_expert = False
 
     ep_group_name = f"ep_size_{ep_size}"
     ep_rank = groups._get_expert_parallel_rank(ep_group_name)
@@ -177,6 +180,8 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     arctic_moe_config.ep_size = ep_size
     arctic_moe_config.ep_group = ep_group
+
+    pr0(f"Original model: {model}", force=True)
 
     for layer_num, layer_module in enumerate(model.model.layers):
         # some models don't have moe in every layer
@@ -200,6 +205,10 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         # qwen
         # XXX
         orig_experts = layer_module.mlp.experts
+        if arctic_moe_config.use_shared_expert:
+            orig_shared_expert = layer_module.mlp.shared_expert
+            orig_shared_expert_gate = layer_module.mlp.shared_expert_gate
+
         # qwen is a ModuleList
         experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
         pr0(f"{experts_is_a_list=}", force=True)
@@ -222,7 +231,8 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
                 # 1. mlp.gate => router_gate
                 arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
 
-                # 2. gate_proj + up_proj => expert_gate_up
+                # 2. normal experts
+                # 2a. gate_proj + up_proj => expert_gate_up
                 # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
                 # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
                 gate_stacked = torch.stack(
@@ -242,8 +252,31 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
                 # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
                 arctic_moe.expert_gate_up.copy_(gate_up)
 
-                # 3. down_proj -> expert_down
+                # 2b. down_proj -> expert_down
                 copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+
+                # 3. shared expert
+                if arctic_moe_config.use_shared_expert:
+                    pr0("shared expert detected", force=True)
+
+                    # gate_proj + up_proj -> shared_expert_gate_up
+                    shared_expert_gate = orig_shared_expert.gate_proj.weight.T
+                    shared_expert_up = orig_shared_expert.up_proj.weight.T
+                    shared_expert_gate_up = (
+                        torch.stack((shared_expert_gate, shared_expert_up), dim=-1)
+                        .view(*shared_expert_up.shape[:-1], -1)
+                        .contiguous()
+                    )
+                    arctic_moe.shared_expert_gate_up.copy_(shared_expert_gate_up)
+                    pr0(f"{arctic_moe.shared_expert_gate_up.shape=}", force=True)
+
+                    # down_proj -> shared_expert_down
+                    shared_expert_down = orig_shared_expert.down_proj.weight.T
+                    arctic_moe.shared_expert_down.copy_(shared_expert_down)
+
+                    # shared_expert_gate -> shared_expert_output_gate
+                    shared_expert_gate = orig_shared_expert_gate.weight.T
+                    arctic_moe.shared_expert_output_gate.copy_(shared_expert_gate)
 
             else:  # gpt-oss
 
@@ -339,7 +372,7 @@ def identify_expert_params(model, ep_size):
     expert_group_name = f"ep_size_{ep_size}"
 
     # router_gate isn't part of moe params
-    expert_param_names = ["expert_gate_up", "expert_down"]
+    expert_param_names = ["expert_gate_up", "expert_down", "shared_expert_gate_up", "shared_expert_down"]
     expert_param_data_ptrs = []
     for n, m in model.named_modules():
         # print(n)
