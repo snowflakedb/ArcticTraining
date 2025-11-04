@@ -174,7 +174,7 @@ class ArcticMoE(nn.Module):
             hidden_states, logits
         )
 
-        if self.ep_size >= 1:
+        if self.ep_size > 1:
             moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
             moe_input, expert_token_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
                 moe_input, expert_token_rcv_count
@@ -192,7 +192,7 @@ class ArcticMoE(nn.Module):
             s_out_gate = torch.matmul(hidden_states, self.shared_expert_output_gate)
             moe_output = moe_output + s_out * F.sigmoid(s_out_gate)
 
-        if self.ep_size >= 1:
+        if self.ep_size > 1:
             moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)
             moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
 
