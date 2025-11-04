@@ -371,8 +371,8 @@ def identify_expert_params(model, ep_size):
 
     expert_group_name = f"ep_size_{ep_size}"
 
-    # router_gate isn't part of moe params
-    expert_param_names = ["expert_gate_up", "expert_down", "shared_expert_gate_up", "shared_expert_down"]
+    # router_gate + shared expert params aren't part of moe params for EP
+    expert_param_names = ["expert_gate_up", "expert_down"]
     expert_param_data_ptrs = []
     for n, m in model.named_modules():
         # print(n)
