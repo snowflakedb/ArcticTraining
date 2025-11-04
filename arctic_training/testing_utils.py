@@ -52,6 +52,8 @@ from typing import Union
 from unittest import mock
 
 import numpy as np
+from transformers.utils import is_flash_attn_2_available
+from transformers.utils import is_flash_attn_3_available
 
 try:
     import torch
@@ -196,6 +198,25 @@ def require_deepspeed(test_case):
         return unittest.skip("test requires deepspeed")(test_case)
     else:
         return test_case
+
+
+def require_flash_attn(test_case):
+    """
+    Decorator marking a test that requires Flash Attention.
+
+    These tests are skipped when Flash Attention isn't installed.
+
+    """
+    return unittest.skipUnless(is_flash_attn_2_available(), "test requires Flash Attention")(test_case)
+
+
+def require_flash_attn_3(test_case):
+    """
+    Decorator marking a test that requires Flash Attention 3.
+
+    These tests are skipped when Flash Attention 3 isn't installed.
+    """
+    return unittest.skipUnless(is_flash_attn_3_available(), "test requires Flash Attention 3")(test_case)
 
 
 def set_seed(seed: int = 42):
@@ -637,7 +658,6 @@ class TestCasePlus(unittest.TestCase):
         """
         env = os.environ.copy()
         paths = [self.src_dir_str]
-        paths.append(self.tests_dir_str)
         paths.append(env.get("PYTHONPATH", ""))
 
         env["PYTHONPATH"] = ":".join(paths)
