@@ -168,6 +168,8 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     # XXX: this is the only signal I found so far in the qwen3-next model config - could probably check the model for presense of mlp.shared_expert
     if hasattr(config, "shared_expert_intermediate_size"):
         arctic_moe_config.use_shared_expert = True
+    else:
+        arctic_moe_config.use_shared_expert = False
 
     archs_with_router_scores = ["GptOssForCausalLM"]
     arctic_moe_config.return_router_scores = True if config.architectures[0] in archs_with_router_scores else False
