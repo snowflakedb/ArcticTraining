@@ -126,14 +126,14 @@ class ArcticMoE(nn.Module):
         """Since we are. using nn.Parameter we need to write out our own repr that nn.Module __repr__ will call automatically when printing the model representation"""
 
         main_str = ""
-        main_str += f"(router_gate): Parameter({tuple(self.router_gate.shape)}\n"
-        main_str += f"(expert_gate_up): Parameter({tuple(self.expert_gate_up.shape)}\n"
-        main_str += f"(expert_down): Parameter({tuple(self.expert_down.shape)}\n"
+        main_str += f"(router_gate): Parameter({tuple(self.router_gate.shape)})\n"
+        main_str += f"(expert_gate_up): Parameter({tuple(self.expert_gate_up.shape)})\n"
+        main_str += f"(expert_down): Parameter({tuple(self.expert_down.shape)})\n"
 
         if self._config.use_shared_expert:
-            main_str += f"(shared_expert_gate_up): Parameter({tuple(self.shared_expert_gate_up.shape)}\n"
-            main_str += f"(shared_expert_down): Parameter({tuple(self.shared_expert_down.shape)}\n"
-            main_str += f"(shared_expert_output_gate): Parameter({tuple(self.shared_expert_output_gate.shape)}\n"
+            main_str += f"(shared_expert_gate_up): Parameter({tuple(self.shared_expert_gate_up.shape)})\n"
+            main_str += f"(shared_expert_down): Parameter({tuple(self.shared_expert_down.shape)})\n"
+            main_str += f"(shared_expert_output_gate): Parameter({tuple(self.shared_expert_output_gate.shape)})\n"
 
         # remove the last "\n" to fit into nn.Module.__repr__ expectated formatting
         main_str = main_str.strip("\n")
