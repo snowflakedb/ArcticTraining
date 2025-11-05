@@ -128,7 +128,6 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     arctic_moe_config = SimpleNamespace(
         **dict(
             model_dim=config.hidden_size,
-            intermediate_dim=config.intermediate_size,
             input_dtype=model.dtype,
             # activation=config.hidden_act,
             top_k=config.num_experts_per_tok,
@@ -147,6 +146,12 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         arctic_moe_config.act_fn = getattr(F, config.hidden_act)
     else:
         raise ValueError(f"Unsupported activation {config.hidden_act}")
+
+    # some models have a different intermediate size for experts than normal mlp
+    if hasattr(config, "moe_intermediate_size"):  # qwen-next
+        arctic_moe_config.intermediate_dim = config.moe_intermediate_size
+    else:
+        arctic_moe_config.intermediate_dim = config.intermediate_size
 
     # pr0(f"{arctic_moe_config}", force=True)
     # remap config entries which use different names for the same concept
@@ -248,7 +253,6 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
                 gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
                 # pr0(f"{gate_up.shape=}", force=True)
-
                 # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
                 arctic_moe.expert_gate_up.copy_(gate_up)
 
