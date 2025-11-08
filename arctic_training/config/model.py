@@ -21,6 +21,7 @@ from typing import Type
 from typing import Union
 
 import peft
+from pydantic import Field
 from pydantic import field_validator
 
 from arctic_training.config.base import BaseConfig
@@ -52,6 +53,9 @@ class ModelConfig(BaseConfig):
 
     peft_config: Optional[Dict] = None
     """ Configuration for Parameter Efficient Fine Tuning. """
+
+    hf_config_kwargs: Dict = Field(default_factory=dict)
+    """ Optional kwargs to override in the HF model config object created by `AutoConfig.from_pretrained(model.name_or_path)` """
 
     @property
     def factory(self) -> Type["ModelFactory"]:
