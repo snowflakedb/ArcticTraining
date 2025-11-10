@@ -42,6 +42,10 @@ class LigerModelFactory(HFModelFactory):
         swiglu = False if self.trainer.config.tiled_mlp_compute else True
         # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
 
+        # override hf model config if we have some custom config
+        for k, v in self.config.hf_config_kwargs.items():
+            setattr(model_config, k, v)
+
         try:
             return AutoLigerKernelForCausalLM.from_pretrained(
                 self.config.name_or_path,
