@@ -26,14 +26,15 @@ class HFModelFactory(ModelFactory):
     name = "huggingface"
 
     def create_config(self):
-        return AutoConfig.from_pretrained(self.config.name_or_path)
-
-    def create_model(self, model_config) -> PreTrainedModel:
+        config = AutoConfig.from_pretrained(self.config.name_or_path)
 
         # override hf model config if we have some custom config
         for k, v in self.config.hf_config_kwargs.items():
-            setattr(model_config, k, v)
+            setattr(config, k, v)
 
+        return config
+
+    def create_model(self, model_config) -> PreTrainedModel:
         return AutoModelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,
