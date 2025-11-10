@@ -25,6 +25,7 @@ image = (
     # later when things stability switch to a newer image and update torch/cuda versions in the yaml file
     # .from_registry("pytorch/pytorch:2.9.0-cuda13.0-cudnn9-devel", add_python="3.12")
     .from_registry("pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel", add_python="3.12")
+    .apt_install("git")
     # requirements*.txt file are generated in .github/workflows/gpu_unit_tests.yaml workflow job which allows us to skip image
     # rebuilding if the requirements haven't changed since the last CI job was run
     .pip_install_from_requirements(ROOT_PATH / "requirements-general.txt", gpu="any")
