@@ -31,7 +31,7 @@ from arctic_training.optimizer.factory import OptimizerFactory
 
 
 class FusedAdamOptimizerFactory(OptimizerFactory):
-    name = "fusedadam"
+    name = "fused_adam"
 
     @staticmethod
     def get_optimizer_grouped_params(
