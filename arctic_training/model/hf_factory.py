@@ -40,10 +40,6 @@ class HFModelFactory(ModelFactory):
         # XXX: temp - using a local copy of the HF modeling code
         config = self.create_config()
 
-        # override hf model config if we have some custom config
-        for k, v in self.config.hf_config_kwargs.items():
-            setattr(model_config, k, v)
-
         if config.architectures[0] == "Qwen3MoeForCausalLM":
             pr0("Using custom Qwen3MoeForCausalLM", force=True)
             from arctic_training.model.qwen3_moe import Qwen3MoeForCausalLM
