@@ -65,7 +65,8 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers @ git+https://github.com/huggingface/transformers",
+#    "transformers @ git+https://github.com/huggingface/transformers",
+    "transformers==4.57.1", # lock for now because of v5 release is unstable
     "wandb",
     "yq",
 ]
