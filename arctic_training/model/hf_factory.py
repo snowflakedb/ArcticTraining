@@ -18,6 +18,7 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import PreTrainedModel
 
+from arctic_training.debug.utils import pr0
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 
@@ -32,9 +33,84 @@ class HFModelFactory(ModelFactory):
         for k, v in self.config.hf_config_kwargs.items():
             setattr(config, k, v)
 
+        # XXX: probably need to find a better place for this if we decide to keep it.
+        #
+        # config.arch_variant == "moe-dense-equivalent" need is:
+        # - qwen-30b: replace moe with dense mlp whose      intermediate_size = moe_intermediate_size*num_experts_per_tok
+        # - qwen-next-80b: replace moe with dense mlp whose intermediate_size = moe_intermediate_size*num_experts_per_tok + 1
+
+        if self.config.arch_variant == "moe-dense-equivalent":
+            pr0(
+                f"!!! hacking to replace MoE layers in {self.config.name_or_path} with dense equivalent - expect a"
+                " bunch of warnings from HF that some weights have been ignored and of course the loss will be"
+                " invalid. !!!",
+                force=True,
+            )
+            if "Qwen3MoeForCausalLM" in config.architectures:
+                # this has an automatic effect of replacing MoE layers in qwen3_moe with a dense equivalent of intermediate_size = moe_intermediate_size*num_experts_per_tok
+                # important: this is only for performance testing - the newly added dense mlp weights will be random
+                # we don't need to monkey patch transformers.models.qwen3_moe.modeling_qwen3_moe.Qwen3MoeDecoderLayer since its logic will use only dense MLP if num_experts == 0
+                config.num_experts = 0
+            else:
+                raise ValueError(
+                    f"We don't yet support `arch_variant: moe-dense-equivalent` for {config.architectures}"
+                )
+
         return config
 
     def create_model(self, model_config) -> PreTrainedModel:
+
+        # XXX: temp - using a local copy of the HF modeling code
+        config = self.create_config()
+
+        if config.architectures[0] == "Qwen3MoeForCausalLM":
+            pr0("Using custom Qwen3MoeForCausalLM", force=True)
+            from arctic_training.model.qwen3_moe import Qwen3MoeForCausalLM
+
+            return Qwen3MoeForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+            )
+        elif config.architectures[0] == "GptOssForCausalLM" and not str(self.config.name_or_path).startswith(
+            "openai/gpt-oss-"
+        ):
+            # for some reason if we are using a copy of GptOssForCausalLM the official gpt-oss models with Mxfp4 weights leave the model on a meta device, but it works fine if we use transformers.models.gpt_oss.modeling_gpt_oss.GptOssForCausalLM which is identical.
+            # it fails then when trying to copy the weights: NotImplementedError: Cannot copy out of meta tensor; no data!
+            # if we use for example unsloth/gpt-oss-20b-BF16 the local copy works fine.
+            # so for now we will use a local copy only for non-openai/gpt-oss-* models.
+
+            pr0("Using custom GptOssForCausalLM", force=True)
+
+            from arctic_training.model.gpt_oss import GptOssForCausalLM
+
+            # a failed attempt to make the local modeling code copy work with official mxfp4 models
+            # # https://cookbook.openai.com/articles/gpt-oss/fine-tune-transfomers
+            # import transformers.models.gpt_oss.modeling_gpt_oss
+            # transformers.models.gpt_oss.modeling_gpt_oss.GptOssForCausalLM = GptOssForCausalLM
+            # import torch
+            # from transformers import Mxfp4Config
+            # quantization_config = Mxfp4Config(**config.quantization_config)
+            # print(quantization_config)
+            # quantization_config = Mxfp4Config(dequantize=True)
+            # model_kwargs = dict(
+            #     # attn_implementation="eager",
+            #     dtype=torch.bfloat16,
+            #     quantization_config=quantization_config,
+            #     use_cache=False,
+            #     #device_map="auto",
+            # )
+            # model = AutoModelForCausalLM.from_pretrained("openai/gpt-oss-20b", **model_kwargs)
+            # return model
+
+            return GptOssForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+            )
+
         return AutoModelForCausalLM.from_pretrained(
             self.config.name_or_path,
             config=model_config,

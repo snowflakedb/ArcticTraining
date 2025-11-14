@@ -31,6 +31,8 @@
 
 from transformers import PretrainedConfig
 
+from arctic_training.debug.utils import print_rank
+
 VALID_CONFIG_TYPE = {
     "llama",
     "qwen2",
@@ -134,13 +136,11 @@ class FlopsCounter:
         delta_time = 1  # noqa not used
 
         def _inner(config, model_size, seq_len):
-            return (
-                self._dense_flops_multiplier(forward_only) * model_size * seq_len
-                + self._attn_flops_multiplier(forward_only)
-                * config.num_hidden_layers
-                * config.hidden_size
-                * seq_len**2
-            ) / 1e12
+            dense = self._dense_flops_multiplier(forward_only) * model_size * seq_len
+            attn = (
+                self._attn_flops_multiplier(forward_only) * config.num_hidden_layers * config.hidden_size * seq_len**2
+            )
+            return (dense + attn) / 1e12
 
         tflos = sum(_inner(self.config, self.model_size, seqlen) for seqlen in batch_seqlens)
 
@@ -241,6 +241,9 @@ class FlopsCounter:
         return flops_achieved
 
     def _estimate_qwen2_moe_flops(self, tokens_sum, batch_seqlens, delta_time, forward_only):
+
+        # print_rank(f"{tokens_sum=} {batch_seqlens=} {delta_time=}", force=True)
+
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers
@@ -256,7 +259,8 @@ class FlopsCounter:
         v_size = num_key_value_heads * head_dim
 
         # non-attn per layer parm
-        # gate + moe export
+        # moe experts + gate
+        # note this also deals correctly with a fake dense version where we manualy hack in num_experts>0 - the then dense mlp equivalent still gets computed correctly
         moe_mlp_N = hidden_size * moe_topk * moe_intermediate_size * 3 + hidden_size * num_experts
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
         emd_and_lm_head_N = vocab_size * hidden_size * 2
@@ -266,9 +270,7 @@ class FlopsCounter:
         dense_N_flops = self._dense_flops_multiplier(forward_only) * dense_N * tokens_sum
 
         # attn all_layer & all_token fwd & bwd flops
-        seqlen_square_sum = 0
-        for seqlen in batch_seqlens:
-            seqlen_square_sum += seqlen * seqlen
+        seqlen_square_sum = sum(seqlen**2 for seqlen in batch_seqlens)
         attn_qkv_flops = (
             self._attn_flops_multiplier(forward_only)
             * seqlen_square_sum
@@ -279,7 +281,38 @@ class FlopsCounter:
 
         # all_layer & all_token fwd & bwd flops
         flops_all_token = dense_N_flops + attn_qkv_flops
+
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+
+        # Do not delete - useful for quick debug when model arch changes
+        if 0:
+            moe_mlp_N_M = round(moe_mlp_N / 1e9, 2)
+            attn_linear_N_M = round(attn_linear_N / 1e9, 2)
+            emd_and_lm_head_N_M = round(emd_and_lm_head_N / 1e9, 2)
+            dense_N_M = round(dense_N / 1e9, 2)
+            dense_N_flops_M = round(dense_N_flops / 1e9, 2)
+            attn_qkv_flops_M = round(attn_qkv_flops / 1e9, 2)
+            flops_achieved_B = round(flops_achieved, 2)
+
+            print_rank(
+                f"""
+fwd constant per token:
+- {emd_and_lm_head_N_M=}M
+fwd constant per layer per token:
+- {moe_mlp_N_M=}M
+- {attn_linear_N_M=}M
+fwd all layers:
+- {dense_N_M=}M
+flos:
+- {dense_N_flops_M=}M
+- {attn_qkv_flops_M=}M
+Total flos:
+- {flops_achieved_B=}B
+""",
+                force=True,
+            )
+
+        # exit()
         return flops_achieved
 
     def estimate_tflos(self, batch_seqlens, delta_time=1, forward_only=False):

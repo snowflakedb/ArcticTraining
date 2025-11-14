@@ -39,6 +39,9 @@ class ModelConfig(BaseConfig):
     name_or_path: Union[str, Path]
     """ Model name (as described in Hugging Face model hub) or local path to model checkpoint. """
 
+    arch_variant: str = ""
+    """ Triggering architecture variants for models arch we support: at the moment just `moe-dense-equivalent` """
+
     dtype: DType = DType.BF16
     """ Data type for model weights. """
 

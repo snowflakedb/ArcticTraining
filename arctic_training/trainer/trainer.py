@@ -18,6 +18,7 @@ import math
 import random
 from abc import ABC
 from abc import abstractmethod
+from collections import defaultdict
 from functools import cached_property
 from typing import Callable
 from typing import Dict
@@ -47,6 +48,8 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
+from arctic_training.debug.utils import pr0
+from arctic_training.debug.utils import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -209,6 +212,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
 
+        self.count_model_params_in_original_model()
+
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
         if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [
@@ -219,11 +224,67 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
+        # Arctic MoE model remapping has to be called before optimizer is created
+        from arctic_training.model.moe.utils import detect_if_moe_model
+        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_arctic_moe
+
+        if self.config.arctic_moe == "auto":
+            use_arctic_moe = detect_if_moe_model(self.model)
+        else:
+            use_arctic_moe = self.config.arctic_moe
+        if use_arctic_moe:
+            pr0("Activating ArcticMoE", force=True)
+            import deepspeed.comm as dist
+
+            if not dist.is_initialized():
+                dist.init_distributed(dist_backend="nccl", dist_init_required=True)
+
+            # DeepspeedMoE is only integrated with ZeRO-2
+            zero_stage = self.config.deepspeed.get("zero_optimization", {}).get("stage", 0)
+            if zero_stage != 2:
+                raise ValueError(
+                    "at the moment Deepspeed supports only ZeRO stage 2 with MoE, but the configuration asks for ZeRO"
+                    f" stage={zero_stage}"
+                )
+
+            from deepspeed.utils import groups
+
+            # this config comes from use_data_before_expert_parallelism ds config which defaults to False
+            # engine._config.use_data_before_expert_parallel_)
+            # but we don't have the engine yet to get the ds config values - perhaps could extract this via AT-config?
+            use_data_before_expert_parallel_ = False
+            # the ep group has to be created before remap_moe_mlp_params_to_arctic_moe as ep rank info is needed to remap pre-trained experts
+            groups._create_expert_data_and_model_parallel(
+                self.config.expert_parallel_size,
+                mpu=None,
+                use_data_before_expert_parallel_=use_data_before_expert_parallel_,
+            )
+
+            # self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
+            remap_moe_mlp_params_to_arctic_moe(self.model, ep_size=self.config.expert_parallel_size)
+            # self.groups)
+            # XXX: check we can remap back
+            # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
+            # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
+
+        see_memory_usage("after moe remap", force=False)
+        #
+
+        # inspectors are important to call after all model tweaks are done (e.g. after AMoE)
+        #
+        # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
+        # debug_overflow = DebugUnderflowOverflow(self.model, max_frames_to_save=100)  # noqa
+        #
+        # from arctic_training.debug.underflow_overflow import DebugGradients
+        # debug_grads = DebugGradients(self.model, trace_batch_nums=[1], max_frames_to_save=100)  # noqa
+
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
 
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
+
+        see_memory_usage("before deepspeed.initialize", force=False)
 
         self.model, *_ = deepspeed.initialize(
             model=self.model,
@@ -233,6 +294,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+        see_memory_usage("after deepspeed.initialize", force=False)
+
+        # # XXX: future MoE support
+        # if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
+        #     for m in self.model_unwrapped.modules():
+        #         if "SparseMoeBlock" in m.__class__.__name__:
+        #             deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
+        #             pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
+        #             break
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first
@@ -377,19 +447,47 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         this method.
         """
 
+        see_memory_usage("before global fwd", force=False)
         self.model.train()
-
         loss = self.loss(batch)
+        see_memory_usage("after global fwd", force=False)
 
         self.backward(loss)
+        see_memory_usage("after global bwd", force=False)
 
         def maybe_item(v):
             return v.item() if torch.is_tensor(v) else v
 
         self.metrics.record("loss", maybe_item(loss))
 
-        self.model.step()
+        # if neededing to debug AMoE-EP grads
+        # from deepspeed.utils import safe_get_full_grad
+        #
+        # if hasattr(self.model_unwrapped.model.layers[1].mlp, "router_gate"):
+        #     pr0("------------------------->8------------- grads ------------->8----------",
+        #         force=True)
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.router_gate))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_gate_up))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_down))=}",
+        #         force=True,
+        #     )
+        #     pr0(
+        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].post_attention_layernorm.weight))=}",
+        #         force=True,
+        #     )
+        #     pr0("------------------------->8------------- grads end --------->8----------",
+        #         force=True)
+        # exit()
 
+        self.model.step()
+        see_memory_usage("after global step", force=False)
         # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
         if self.global_step >= self.training_horizon:
@@ -488,6 +586,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         Main training loop. Calls the epoch method for each epoch of training.
         """
+
+        self.print_model_parameters_header()
+
         try:
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
@@ -525,3 +626,75 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.do_checkpoint:
                 logger.info(f"Saving Checkpoint at global step: {self.global_step}.")
                 engine.save(self.model)
+
+    def count_model_parameters(self):
+        """Returns a dictionary containing "total" and "trainable" parameters."""
+        sizes = defaultdict(int)
+
+        def numel_fn(p):
+            return p.ds_numel if hasattr(p, "ds_numel") else p.numel()
+
+        for param in self.model.parameters():
+            numel = numel_fn(param)
+            sizes["total"] += numel
+            if param.requires_grad:
+                sizes["trainable"] += numel
+
+        # Converting defaultdict --> dict for nicer printing.
+        return dict(sizes)
+
+    def count_model_params_in_original_model(self):
+        """This counts total params in the model before it got sliced into MoE EP slices"""
+        # XXX: perhaps add a new class for various stats? or may be add to metrics class?
+        if torch.distributed.get_rank() == 0:
+            self.original_hf_model_params = self.count_model_parameters()
+
+    def print_model_parameters_header(self):
+        """Always print stats about the model we are about to train on rank 0"""
+        if torch.distributed.get_rank() != 0:
+            return
+
+        orig_model_params = self.original_hf_model_params
+        curr_model_params = self.count_model_parameters()
+
+        world_size = self.world_size
+        gas = self.config.gradient_accumulation_steps
+        mbs = self.config.micro_batch_size
+        gbs = mbs * gas * world_size
+
+        header = f"""
+-------------------------------------
+Original model: {self.config.model.name_or_path}
+    - Total params    : {orig_model_params["total"]:,} ({orig_model_params["total"]/1e9:0.2f}B)
+    - Trainable params: {orig_model_params["trainable"]:,} ({orig_model_params["trainable"]/1e9:.2f}B)
+"""
+
+        # XXX: if possible add MoE passive/activate params breakdown if AMoE is used?
+        if self.config.expert_parallel_size > 1:
+            # EP>1 spreads the experts across ranks
+            header += f"""
+Rank 0 model with EP={self.config.expert_parallel_size}:
+    - Total params    : {curr_model_params["total"]:,} ({curr_model_params["total"]/1e9:0.2f}B)
+    - Trainable params: {curr_model_params["trainable"]:,} ({curr_model_params["trainable"]/1e9:.2f}B)
+"""
+
+        # DP is world size w/ EP>1 and SP>1 (but this might change with other parallelism)
+        header += f"""
+Parallelism:
+    - EP: {self.config.expert_parallel_size}
+    - SP: {self.config.sequence_parallel_size}
+    - DP: {world_size}
+    """
+
+        header += f"""
+Maximum number of optimizer steps: {self.config.exit_iteration}
+Maximum number of epochs: {self.config.epochs}
+Number of gradient accumulation steps: {gas}
+Number of processes: {world_size}
+Batch sizes:
+    - Micro  batch size: {mbs}
+    - Global batch size: {gbs}
+-------------------------------------
+"""
+
+        print(header)
