@@ -2,9 +2,6 @@ type: sft
 micro_batch_size: 1
 min_iterations: 12
 exit_iteration: 12
-#activation_checkpoint_cpu_offload: true
-#tiled_mlp_compute: true
-sequence_parallel_size: 1
 
 arctic_moe: true
 expert_parallel_size: 8
@@ -14,11 +11,6 @@ deepspeed:
     stage: 2
     # offload_optimizer:
     #   device: cpu
-    # offload_param:
-    #   device: cpu
-    #overlap_comm: false
-    #reduce_bucket_size: 5e10
-  #seq_parallel_communication_data_type: bf16
 
 optimizer:
   type: fused_adam_moe
@@ -56,12 +48,7 @@ data:
 # equivalent_moe_seqlen = 32_000
 
 # see the math above when choosing max_length
-#  max_length: 8_000
   max_length: 32_000 # 16k in the dense equivalent because of the num of experts mapping
-#  max_length: 128_000
-#  max_length: 1024
-#  max_length: 132_000
-#  max_length: 400_000
 
 wandb:
   enable: true
