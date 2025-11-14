@@ -20,6 +20,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
+from arctic_training.debug.utils import see_memory_usage
 from arctic_training.model.moe.alltoall import AlltoAllV
 
 
@@ -184,6 +185,12 @@ class ArcticMoE(nn.Module):
         return x
 
     def forward(self, hidden_states):
+
+        # return hidden_states
+
+        see_memory_usage("enter fwd", force=False)
+
+        see_memory_usage("before router", force=False)
         # Forward pass through the MoE layer
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
@@ -191,6 +198,7 @@ class ArcticMoE(nn.Module):
         moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots = self.MoERouter(
             hidden_states, logits
         )
+        see_memory_usage("after router", force=False)
 
         if self.ep_size > 1:
             moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
@@ -200,13 +208,15 @@ class ArcticMoE(nn.Module):
         else:
             expert_token_count_cumsum = expert_token_count.cumsum(0)
         moe_output = self.GroupGeMM(moe_input, expert_token_count_cumsum)
+        see_memory_usage("after GroupGeMM", force=False)
 
         if self.ep_size > 1:
             moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)
             moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
+        see_memory_usage("after alltoall_V", force=False)
 
         output = self.MoECombine(moe_output, token_mapped_slots, scores)
-
+        see_memory_usage("after MoECombine", force=False)
         if self._config.use_shared_expert:
             s_intermediate = torch.matmul(hidden_states, self.shared_expert_gate_up)
             if self._config.is_gated:
@@ -215,8 +225,11 @@ class ArcticMoE(nn.Module):
             s_out = torch.matmul(s_intermediate, self.shared_expert_down)
             s_out_gate = torch.matmul(hidden_states, self.shared_expert_output_gate)
             output = output + s_out * F.sigmoid(s_out_gate)
+        see_memory_usage("after shared_expert", force=False)
 
         output = output.reshape(orig_shape)
+
+        see_memory_usage("exit fwd", force=False)
 
         return (output, scores) if self._config.return_router_scores else output
 

@@ -29,6 +29,7 @@
 # limitations under the License.
 
 import re
+import time
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
@@ -45,6 +46,7 @@ from deepspeed.utils import groups
 from torch import nn
 
 from arctic_training.debug.utils import pr0
+from arctic_training.debug.utils import see_memory_usage
 
 # from arctic_training.debug.utils import tensor_has_nan
 from arctic_training.model.moe.moe import ArcticMoE
@@ -121,7 +123,12 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     # https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/runtime/engine.py#L1323
     deepspeed.runtime.engine.MoE = ArcticMoE
 
-    device = model.device
+    import os
+
+    local_rank = int(os.getenv("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}")
+    # model.to(device)
+    # device = model.device
     meta_device = torch.device("meta")
     config = model.config
 
@@ -190,11 +197,16 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     pr0(f"Original model: {model}", force=True)
 
+    layer = 0
     for layer_num, layer_module in enumerate(model.model.layers):
         # some models don't have moe in every layer
         if not hasattr(layer_module.mlp, "experts"):
             # pr0(f"{layer_num} is not an MoE layer", force=True)
             continue
+
+        start = time.time()
+        layer += 1
+        see_memory_usage(f"{layer} start new moe layer", force=False)
 
         # pr0(f"{layer_num} is an MoE layer, force=True")
         # XXX: is there a point of using meta-device - it won't preallocate structures
@@ -202,6 +214,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
             arctic_moe = ArcticMoE(arctic_moe_config)
         # move onto cuda
         arctic_moe.to_empty(device=device)
+        see_memory_usage(f"{layer} after amoe layer created", force=False)
 
         # [n for n, _ in arctic_moe.named_parameters()]
         # ['expert_intermediate_weights', 'expert_output_weights', '_gate_proj.weight']
@@ -211,14 +224,28 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         # ['gate_up_proj', 'gate_up_proj_bias', 'down_proj', 'down_proj_bias']
         # qwen
         # XXX
-        orig_experts = layer_module.mlp.experts
-        if arctic_moe_config.use_shared_expert:
-            orig_shared_expert = layer_module.mlp.shared_expert
-            orig_shared_expert_gate = layer_module.mlp.shared_expert_gate
 
         # qwen is a ModuleList
-        experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
-        pr0(f"{experts_is_a_list=}", force=True)
+        experts_is_a_list = (
+            True if isinstance(layer_module.mlp.experts, torch.nn.modules.container.ModuleList) else False
+        )
+        # pr0(f"{experts_is_a_list=}", force=False)
+
+        # performance: move specific params to cuda - so that all the tensor manipulation are done
+        # on cuda - much much faster than on cpu
+        #
+        # move to cuda only the experts slice we will use on this rank
+        orig_experts = layer_module.mlp.experts
+        if experts_is_a_list:
+            for i in local_expert_indices:
+                getattr(orig_experts[i], "gate_proj").to(device)
+                getattr(orig_experts[i], "up_proj").to(device)
+                getattr(orig_experts[i], "down_proj").to(device)
+        if arctic_moe_config.use_shared_expert:
+            orig_shared_expert = layer_module.mlp.shared_expert.to(device)
+            orig_shared_expert_gate = layer_module.mlp.shared_expert_gate.to(device)
+
+        see_memory_usage(f"{layer} after orig mlp to device", force=False)
 
         def copy_weights(from_name, to_param, local_expert_indices):
             if experts_is_a_list:  # ModuleList models like qwen
@@ -242,6 +269,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
                 # 2a. gate_proj + up_proj => expert_gate_up
                 # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
                 # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
+
                 gate_stacked = torch.stack(
                     [getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices]
                 )
@@ -296,13 +324,23 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         # pr0(f"util 3 {tensor_has_nan(arctic_moe.expert_gate_up)}", force=True)
         # pr0(f"util 4 {tensor_has_nan(arctic_moe.expert_down)}", force=True)
 
+        see_memory_usage(f"{layer} before release", force=False)
+        # layer_module.mlp.experts.to(meta_device)
+        # layer_module.mlp.shared_expert.to(meta_device)
+        # layer_module.mlp.shared_expert_gate.to(meta_device)
+        layer_module.mlp.to(meta_device)
+        see_memory_usage(f"{layer} after release", force=False)
+
         # override the original with unified representation
         # 1. store the original structure for later restoration
         # layer_module.mlp_orig = layer_module.mlp.to(meta_device)
         # 2. now hijack it with our structure
         layer_module.mlp = arctic_moe
 
-        pr0(f"{layer_module.mlp}", force=True)
+        duration = time.time() - start
+        pr0(f"{layer_num}: duration {duration:.3f}secs", force=True)
+
+        # pr0(f"{layer_module.mlp}", force=True)
 
     pr0(f"Rewritten model: {model}", force=True)
 

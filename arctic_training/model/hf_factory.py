@@ -33,6 +33,29 @@ class HFModelFactory(ModelFactory):
         for k, v in self.config.hf_config_kwargs.items():
             setattr(config, k, v)
 
+        # XXX: probably need to find a better place for this if we decide to keep it.
+        #
+        # config.arch_variant == "moe-dense-equivalent" need is:
+        # - qwen-30b: replace moe with dense mlp whose      intermediate_size = moe_intermediate_size*num_experts_per_tok
+        # - qwen-next-80b: replace moe with dense mlp whose intermediate_size = moe_intermediate_size*num_experts_per_tok + 1
+
+        if self.config.arch_variant == "moe-dense-equivalent":
+            pr0(
+                f"!!! hacking to replace MoE layers in {self.config.name_or_path} with dense equivalent - expect a"
+                " bunch of warnings from HF that some weights have been ignored and of course the loss will be"
+                " invalid. !!!",
+                force=True,
+            )
+            if "Qwen3MoeForCausalLM" in config.architectures:
+                # this has an automatic effect of replacing MoE layers in qwen3_moe with a dense equivalent of intermediate_size = moe_intermediate_size*num_experts_per_tok
+                # important: this is only for performance testing - the newly added dense mlp weights will be random
+                # we don't need to monkey patch transformers.models.qwen3_moe.modeling_qwen3_moe.Qwen3MoeDecoderLayer since its logic will use only dense MLP if num_experts == 0
+                config.num_experts = 0
+            else:
+                raise ValueError(
+                    f"We don't yet support `arch_variant: moe-dense-equivalent` for {config.architectures}"
+                )
+
         return config
 
     def create_model(self, model_config) -> PreTrainedModel:

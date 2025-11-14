@@ -38,10 +38,13 @@ except Exception:
 # mess with this module and commit wrong things by mistake
 DISABLE_DEBUG = True
 
+DISABLE_SEE_MEM_USAGE = False
+
 torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved
 
 pynvml_handle = None
+psutil_process = psutil.Process()
 
 
 def get_device_id():
@@ -97,7 +100,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
         - `force`: allows you to leave see_memory_usage in the code w/o running the code, force=True to activate
         - `ranks`: by default prints only on rank 0 but sometimes we need to debug other ranks, so pass the list like ranks=[1,3]
     """
-    if not force:
+    if DISABLE_SEE_MEM_USAGE or not force:
         return
     rank = dist.get_rank() if dist.is_initialized() else 0
     if rank not in ranks:
@@ -115,7 +118,7 @@ def see_memory_usage(message, force=False, ranks=[0]):
     nv_mem = get_nvml_mem()
 
     vm_stats = psutil.virtual_memory()
-    used_GB = round(((vm_stats.total - vm_stats.available) / (1024**3)), 2)
+    used_GB = round(((vm_stats.total - vm_stats.available) / 2**30), 2)
 
     accelerator_mem_str = " | ".join(
         [
@@ -143,11 +146,18 @@ def get_mem_metrics():
 
     nv_mem = get_nvml_mem()
 
+    vm_stats = psutil.virtual_memory()
+    node_used_GB = round(((vm_stats.total - vm_stats.available) / 2**30), 2)
+
     summary = " | ".join(
         [
             f"MA {round(get_accelerator().memory_allocated() / 2**30, 2):0.2f} GB",
             f"Max_MA {round(get_accelerator().max_memory_allocated() / 2**30, 2):0.2f} GB",
             f"NV {round(nv_mem / 2**30, 2):0.2f} GB",
+            (
+                f"CPU mem: proc {psutil_process.memory_info().rss / 2**30:0.2f} GB / node {node_used_GB:0.2f} GB"
+                f" ({vm_stats.percent}%)"
+            ),
         ]
     )
 
@@ -212,14 +222,21 @@ def print_rank(*msg, force=False, ranks=None):
     """print something on all global ranks with [rank] prefix.
     if `ranks` is passed then only those ranks will be printed
 
-    e.g. to print just on ranks 0 and 3:
-    print_rank(*msg, ranks=[0,3]):
+    Examples:
+    - to print on all ranks:
+    print_rank(*msg, force=True):
+    - to print just on ranks 0 and 3::
+    print_rank(*msg, force=True, ranks=[0,3]):
 
     """
-    if DISABLE_DEBUG or not force or ranks is None:
+    if DISABLE_DEBUG or not force:
         return
     global_rank = dist.get_rank()
-    if global_rank not in ranks:
+
+    if ranks is not None and not isinstance(ranks, list):
+        raise ValueError(f"`ranks` can be None or a list but got {type(ranks)}")
+
+    if ranks is not None and global_rank not in ranks:
         return
     print(f"[{global_rank}]", *msg)
 
@@ -234,6 +251,7 @@ def print_rank0(*msg, force=False):
 
 
 pr0 = print_rank0
+pr = print_rank
 
 
 def debug_gathered_tensor(tensor, group, name=None, dim=0):
