@@ -18,6 +18,7 @@ from typing import Any
 from typing import Literal
 
 import ray.train
+import yaml
 from ray.train import Checkpoint
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
@@ -31,15 +32,12 @@ def arctic_train_func(train_config: dict[str, Any]) -> None:
     """
     Expected config schema:
     {
-        "config_file": Path,  # Path to ArticTraining config file
+        "config_dict": dict,  # In-memory ArcticTraining config dictionary
         "mode": str,         # "train" or "process-data"
         "python_profile": str # "tottime", "cumtime", or "disable" (optional)
     }
     """
-    if not train_config["config_file"].exists():
-        raise FileNotFoundError(f"Config file {train_config['config_file']} not found.")
-
-    config = get_config(train_config["config_file"])
+    config = get_config(train_config["config_dict"])
     trainer_cls = get_registered_trainer(name=config.type)  # type: ignore[attr-defined]
 
     # Define Ray Train callbacks
@@ -96,8 +94,12 @@ def launch(
     mode: Literal["train", "process-data"],
     python_profile: Literal["tottime", "cumtime", "disable"] = "disable",
 ):
+    # Load config from file and pass the in-memory dict to workers
+    with open(config_file, "r") as f:
+        config_dict = yaml.safe_load(f)
+
     train_config = {
-        "config_file": Path(config_file).absolute(),
+        "config_dict": config_dict,
         "mode": mode,
         "python_profile": python_profile,
     }
