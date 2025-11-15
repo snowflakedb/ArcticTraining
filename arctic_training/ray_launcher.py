@@ -111,10 +111,57 @@ def launch(
     )
 
     result = trainer.fit()
-
-    # TODO: Do something more interesting with the results
-    print(result)
+    return result
 
 
 if __name__ == "__main__":
-    launch("run-causal.yml", mode="train")
+    import argparse
+    import textwrap
+
+    parser = argparse.ArgumentParser(
+        prog="arctic_training",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """
+            DeepSpeed Args:
+                ArcticTraining uses the DeepSpeed launcher to create a
+                distributed training environment. Any additional args after the
+                config file path will be passed directly to the DeepSpeed
+                launcher.
+
+                For example, `arctic_training my_config.yaml --num_gpus 2`.
+
+                To see a full list of DeepSpeed launcher args, run `deepspeed --help`.
+            """
+        ),
+    )
+    parser.add_argument(
+        "mode",
+        type=str,
+        nargs="?",
+        choices=["train", "process-data"],
+        default="train",
+        help="Operation mode, 'process-data' will run the data processing pipeline.",
+    )
+    parser.add_argument("config", type=Path, help="ArticTraining config yaml file.")
+    parser.add_argument(
+        "--python_profile",
+        type=str,
+        choices=["tottime", "cumtime", "disable"],
+        default="disable",
+        help=(
+            "Train under Python profile. Sort results by tottime or cumtime. This is an experimental feature and the"
+            " API is likely to change"
+        ),
+    )
+    args = parser.parse_args()
+
+    if not args.config.exists():
+        raise FileNotFoundError(f"Config file {args.config} not found.")
+
+    result = launch(
+        config_file=str(args.config),
+        mode=args.mode,
+        python_profile=args.python_profile,
+    )
+    print(result)
