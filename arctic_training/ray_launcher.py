@@ -18,6 +18,7 @@ from typing import Any
 from typing import Literal
 
 import ray.train
+from ray.train import Checkpoint
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
 from snowflake.ml.runtime_cluster.cluster_manager import get_available_gpu
@@ -39,8 +40,37 @@ def arctic_train_func(train_config: dict[str, Any]) -> None:
         raise FileNotFoundError(f"Config file {train_config['config_file']} not found.")
 
     config = get_config(train_config["config_file"])
-    trainer_cls = get_registered_trainer(name=config.type)
-    trainer = trainer_cls(config, mode=train_config["mode"])
+    trainer_cls = get_registered_trainer(name=config.type)  # type: ignore[attr-defined]
+
+    # Define Ray Train callbacks
+    def post_step_ray_report(self):
+        """Report metrics to Ray Train after each step."""
+        if self.gas_boundary and self.global_step % self.config.train_log_iter_interval == 0:
+            metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+            ray.train.report(metrics=metrics)
+
+    def post_checkpoint_ray_save(self):
+        """Report checkpoint to Ray Train."""
+        for engine in self.checkpoint_engines:
+            if engine.do_checkpoint:
+                checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
+                ray.train.report(checkpoint=checkpoint)
+
+    # Create a dynamic subclass with Ray callbacks injected
+    # Dynamically name the class to reflect the base trainer (e.g., CausalTrainer -> RayCausalTrainer)
+    ray_trainer_cls = type(
+        f"Ray{trainer_cls.__name__}",
+        (trainer_cls,),
+        {
+            "name": trainer_cls.name + "_ray",
+            "callbacks": [
+                ("post-step", post_step_ray_report),
+                ("post-checkpoint", post_checkpoint_ray_save),
+            ],
+        },
+    )
+
+    trainer = ray_trainer_cls(config, mode=train_config["mode"])
     if train_config["mode"] == "train":
 
         def train():
@@ -58,7 +88,7 @@ def arctic_train_func(train_config: dict[str, Any]) -> None:
             sort_key = (
                 SortKey.TIME if train_config.get("python_profile", "disable") == "tottime" else SortKey.CUMULATIVE
             )
-            cProfile.runctx("train()", None, locals(), sort=sort_key)
+            cProfile.runctx("train()", {}, locals(), sort=sort_key)
 
 
 def launch(
