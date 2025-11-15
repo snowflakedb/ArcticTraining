@@ -35,61 +35,6 @@ from arctic_training.trainer.trainer import Trainer
 TrainConfig = dict[str, Any]
 
 
-def _build_ray_trainer_cls(base_trainer_cls: Type[Trainer]) -> Type[Trainer]:
-    """
-    Create a dynamic trainer subclass with Ray-specific callbacks attached.
-
-    The returned class:
-    - Extends the provided ``base_trainer_cls``
-    - Appends Ray reporting callbacks for post-step and post-checkpoint events
-    """
-
-    def post_step_ray_report(self):
-        """Report metrics to Ray Train after each step."""
-        if self.gas_boundary and self.global_step % self.config.train_log_iter_interval == 0:
-            metrics = {k: v for k, v in self.metrics.summary_dict.items()}
-            ray.train.report(metrics=metrics)
-
-    def post_checkpoint_ray_save(self):
-        """Report checkpoint to Ray Train."""
-        for engine in self.checkpoint_engines:
-            if engine.do_checkpoint:
-                checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
-                ray.train.report(checkpoint=checkpoint)
-
-    # Dynamically name the class to reflect the base trainer (e.g., CausalTrainer -> RayCausalTrainer)
-    return type(
-        f"Ray{base_trainer_cls.__name__}",
-        (base_trainer_cls,),
-        {
-            "name": base_trainer_cls.name + "_ray",
-            "callbacks": [
-                ("post-step", post_step_ray_report),
-                ("post-checkpoint", post_checkpoint_ray_save),
-            ],
-        },
-    )
-
-
-def _maybe_profile(train_fn: Callable[[], None], python_profile: str) -> None:
-    """
-    Optionally run ``train_fn`` under a Python profiler for local rank 0.
-    TODO: Dedupe with entrypoint.py
-    """
-    local_rank = ray.train.get_context().get_local_rank()
-    if python_profile == "disable" or local_rank != 0:
-        train_fn()
-        return
-
-    # Run profiler on rank 0 only
-    # XXX: how do we prevent it from running on other nodes?
-    import cProfile
-    from pstats import SortKey
-
-    sort_key = SortKey.TIME if python_profile == "tottime" else SortKey.CUMULATIVE
-    cProfile.runctx("train_fn()", {}, locals(), sort=sort_key)
-
-
 def make_arctic_train_func() -> Callable[[TrainConfig], None]:
     """
     Build a Ray Train-compatible training loop function.
@@ -104,6 +49,59 @@ def make_arctic_train_func() -> Callable[[TrainConfig], None]:
         "python_profile": str, # "tottime", "cumtime", or "disable" (optional)
     }
     """
+
+    def _build_ray_trainer_cls(base_trainer_cls: Type[Trainer]) -> Type[Trainer]:
+        """
+        Create a dynamic trainer subclass with Ray-specific callbacks attached.
+
+        The returned class:
+        - Extends the provided ``base_trainer_cls``
+        - Appends Ray reporting callbacks for post-step and post-checkpoint events
+        """
+
+        def post_step_ray_report(self):
+            """Report metrics to Ray Train after each step."""
+            if self.gas_boundary and self.global_step % self.config.train_log_iter_interval == 0:
+                metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+                ray.train.report(metrics=metrics)
+
+        def post_checkpoint_ray_save(self):
+            """Report checkpoint to Ray Train."""
+            for engine in self.checkpoint_engines:
+                if engine.do_checkpoint:
+                    checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
+                    ray.train.report(checkpoint=checkpoint)
+
+        # Dynamically name the class to reflect the base trainer (e.g., CausalTrainer -> RayCausalTrainer)
+        return type(
+            f"Ray{base_trainer_cls.__name__}",
+            (base_trainer_cls,),
+            {
+                "name": base_trainer_cls.name + "_ray",
+                "callbacks": [
+                    ("post-step", post_step_ray_report),
+                    ("post-checkpoint", post_checkpoint_ray_save),
+                ],
+            },
+        )
+
+    def _maybe_profile(train_fn: Callable[[], None], python_profile: str) -> None:
+        """
+        Optionally run ``train_fn`` under a Python profiler for local rank 0.
+        TODO: Dedupe with entrypoint.py
+        """
+        local_rank = ray.train.get_context().get_local_rank()
+        if python_profile == "disable" or local_rank != 0:
+            train_fn()
+            return
+
+        # Run profiler on rank 0 only
+        # XXX: how do we prevent it from running on other nodes?
+        import cProfile
+        from pstats import SortKey
+
+        sort_key = SortKey.TIME if python_profile == "tottime" else SortKey.CUMULATIVE
+        cProfile.runctx("train_fn()", {}, locals(), sort=sort_key)
 
     def arctic_train_func(train_config: TrainConfig) -> None:
         config = cast(TrainerConfig, get_config(train_config["arctic_config"]))
