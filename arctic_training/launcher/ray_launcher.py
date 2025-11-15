@@ -20,12 +20,12 @@ from typing import Literal
 from typing import Type
 from typing import cast
 
+import ray
 import ray.train
 import yaml
 from ray.train import Checkpoint
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
-from snowflake.ml.runtime_cluster.cluster_manager import get_available_gpu
 
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
@@ -33,6 +33,18 @@ from arctic_training.registry import get_registered_trainer
 from arctic_training.trainer.trainer import Trainer
 
 TrainConfig = dict[str, Any]
+
+
+def get_available_gpu() -> int:
+    """
+    Get the number of available GPUs for current ray cluster.
+
+    Returns:
+        int: number of available GPUs.
+    """
+    if not ray.is_initialized():
+        ray.init(address="auto", ignore_reinit_error=True)
+    return int(ray.available_resources().get("GPU", 0))
 
 
 def make_arctic_train_func() -> Callable[[TrainConfig], None]:
@@ -144,7 +156,7 @@ def launch(
     }
 
     # TODO: Add fallback handling for when GPUs aren't available
-    num_gpus = int(get_available_gpu())
+    num_gpus = get_available_gpu()
     assert num_gpus > 0, "No GPUs available"
     arctic_train_func = make_arctic_train_func()
 
