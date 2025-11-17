@@ -1,17 +1,48 @@
 # Weekly benchmarks
 
-## qwen3-moe
+## Qwen3Moe
 
 ```
 ./run-dp8-ep1-qwen3-30b-dense.sh
 ./run-dp8-ep8-qwen3-30b.sh
 ```
 
-## config diff sanity check
-
+Config diff sanity check:
 ```
 diff -u run-dp8-ep8-qwen3-30b.yml run-dp8-ep1-qwen3-30b-dense.yml
 ```
+
+
+## Qwen3Next
+
+
+```
+./run-dp8-ep1-qwen3-next-80b-dense.sh
+./run-dp8-ep8-qwen3-next-80b.sh
+```
+
+Config diff sanity check:
+```
+diff -u run-dp8-ep8-qwen3-next-80b.yml run-dp8-ep1-qwen3-next-80b-dense.yml
+```
+
+- Sequence equivalent:
+`Qwen3-Next-80B` on 8 gpus
+
+```
+num_experts=512
+num_experts_per_tok=10
+dense_seqlen=16_000
+n_gpus=8
+```
+thus deriving:
+```
+equivalent_moe_seqlen = 102_400
+```
+
+So we need to 6.4x seqlen for the AMoE to match the dense equivalent seqlen (edited)
+
+
 
 ## Calculating the seqlen equivalent
 

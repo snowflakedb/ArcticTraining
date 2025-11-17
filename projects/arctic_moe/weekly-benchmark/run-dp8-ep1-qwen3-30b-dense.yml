@@ -18,14 +18,14 @@ optimizer:
 
 model:
   type: "liger"
-  arch_variant: moe-dense-equivalent
   name_or_path: Qwen/Qwen3-30B-A3B-Instruct-2507
   #name_or_path: snake7gun/tiny-random-qwen3moe
   #name_or_path: DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder
   #name_or_path: DavidAU/Qwen3-MOE-6x1.7B-10.2B-Shining-Madness-Uncensored
-  # hf_config_kwargs:
+  hf_config_kwargs:
   #   #num_hidden_layers: 48 #
   #   num_hidden_layers: 24 #
+    num_experts: 0 # creates a dense equivalent model
 
   attn_implementation: flash_attention_2
   #attn_implementation: sdpa
@@ -38,7 +38,7 @@ data:
   # num_proc: 16
   dl_num_workers: 1
 
-  max_length: 16_000 # 32k in the moe equivalent because of the num of experts mapping
+  max_length: 16_000 # => 32k in the moe equivalent because of the num of experts mapping
 
 wandb:
   enable: true
