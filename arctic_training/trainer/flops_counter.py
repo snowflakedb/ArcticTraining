@@ -255,45 +255,90 @@ class FlopsCounter:
         moe_topk = self.config.num_experts_per_tok
         num_experts = self.config.num_experts
 
+        total_seqlen = sum(batch_seqlens)
+
         head_dim = getattr(self.config, "head_dim", self.config.hidden_size // self.config.num_attention_heads)
         q_size = num_attention_heads * head_dim
         k_size = num_key_value_heads * head_dim
         v_size = num_key_value_heads * head_dim
 
-        # non-attn per layer parm
+        # recent model may include either or both attention types: linear and full attention
+        full_attention_interval = getattr(self.config, "full_attention_interval", 1)
+        num_full_attention_layers = num_hidden_layers // full_attention_interval
+        num_linear_attention_layers = num_hidden_layers - num_full_attention_layers
+
+        # non-attn per layer params
         # moe experts + gate
         # note this also deals correctly with a fake dense version where we manualy hack in num_experts>0 - the then dense mlp equivalent still gets computed correctly
         moe_mlp_N = hidden_size * moe_topk * moe_intermediate_size * 3 + hidden_size * num_experts
-        attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
         emd_and_lm_head_N = vocab_size * hidden_size * 2
-        # non-attn all_layer parm
-        dense_N = (moe_mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
+        dense_N = moe_mlp_N * num_hidden_layers + emd_and_lm_head_N
         # non-attn all_layer & all_token fwd & bwd flops
         dense_N_flops = self._dense_flops_multiplier(forward_only) * dense_N * tokens_sum
 
-        # attn all_layer & all_token fwd & bwd flops
+        # full attention: attn all_layer & all_token fwd & bwd flops
+        # full attention qkv flops
         seqlen_square_sum = sum(seqlen**2 for seqlen in batch_seqlens)
-        attn_qkv_flops = (
+        full_attn_qkv_flops = (
             self._attn_flops_multiplier(forward_only)
             * seqlen_square_sum
             * head_dim
             * num_attention_heads
-            * num_hidden_layers
+            * num_full_attention_layers
         )
+        # full attention linear layers flops
+        full_attn_linear_fwd_per_layer = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
+        full_attn_linear_flops = (
+            self._dense_flops_multiplier(forward_only)
+            * total_seqlen
+            * full_attn_linear_fwd_per_layer
+            * num_full_attention_layers
+        )
+        full_attn_flops = full_attn_qkv_flops + full_attn_linear_flops
+
+        # linear attention
+        linear_attn_flops = 0
+        if num_linear_attention_layers > 0:
+            # Calculate the FLOPs for the gated delta net attention.
+            linear_key_head_dim = self.config.linear_key_head_dim
+            linear_value_head_dim = self.config.linear_value_head_dim
+            linear_num_key_heads = self.config.linear_num_key_heads
+            linear_num_value_heads = self.config.linear_num_value_heads
+            linear_conv_kernel_dim = self.config.linear_conv_kernel_dim
+            qk_dim = linear_key_head_dim * linear_num_key_heads
+            v_dim = linear_value_head_dim * linear_num_value_heads
+
+            linear_attn_flops_fwd_per_layer = (
+                ## in proj
+                hidden_size * (2 * qk_dim + 2 * v_dim + 2 * linear_num_value_heads)
+                ## conv1d
+                + linear_conv_kernel_dim * (2 * qk_dim + v_dim)
+                ## gated delta rule: KK^T, VK^T, S(a(I-bKK^T)), and SQ
+                + linear_num_value_heads * (linear_value_head_dim**2) * 4
+                ## out proj
+                + hidden_size * v_dim
+            )
+
+            linear_attn_flops = (
+                self._dense_flops_multiplier(forward_only)
+                * total_seqlen
+                * linear_attn_flops_fwd_per_layer
+                * num_linear_attention_layers
+            )
 
         # all_layer & all_token fwd & bwd flops
-        flops_all_token = dense_N_flops + attn_qkv_flops
+        flops_all_token = dense_N_flops + full_attn_flops + linear_attn_flops
 
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
 
         # Do not delete - useful for quick debug when model arch changes
         if 0:
             moe_mlp_N_M = round(moe_mlp_N / 1e9, 2)
-            attn_linear_N_M = round(attn_linear_N / 1e9, 2)
             emd_and_lm_head_N_M = round(emd_and_lm_head_N / 1e9, 2)
             dense_N_M = round(dense_N / 1e9, 2)
             dense_N_flops_M = round(dense_N_flops / 1e9, 2)
-            attn_qkv_flops_M = round(attn_qkv_flops / 1e9, 2)
+            full_attn_flops_M = round(full_attn_flops / 1e9, 2)
+            linear_attn_flops_M = round(linear_attn_flops / 1e9, 2)
             flops_achieved_B = round(flops_achieved, 2)
 
             print_rank(
@@ -302,12 +347,12 @@ fwd constant per token:
 - {emd_and_lm_head_N_M=}M
 fwd constant per layer per token:
 - {moe_mlp_N_M=}M
-- {attn_linear_N_M=}M
 fwd all layers:
 - {dense_N_M=}M
 flos:
 - {dense_N_flops_M=}M
-- {attn_qkv_flops_M=}M
+- {full_attn_flops_M=}M
+- {linear_attn_flops_M=}M
 Total flos:
 - {flops_achieved_B=}B
 """,
