@@ -165,7 +165,7 @@ class FlopsCounter:
         # Qwen2/LLama use SwiGelu, gate, having up and down linear layer in mlp
         mlp_N = hidden_size * intermediate_size * 3
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
-        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        emd_and_lm_head_N = vocab_size * hidden_size * 2  # embedding flops is 0
         # non-attn all_layer parm
         dense_N = (mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
         # non-attn all_layer & all_token fwd & bwd flops
@@ -255,8 +255,6 @@ class FlopsCounter:
         moe_topk = self.config.num_experts_per_tok
         num_experts = self.config.num_experts
 
-        total_seqlen = sum(batch_seqlens)
-
         head_dim = getattr(self.config, "head_dim", self.config.hidden_size // self.config.num_attention_heads)
         q_size = num_attention_heads * head_dim
         k_size = num_key_value_heads * head_dim
@@ -271,7 +269,7 @@ class FlopsCounter:
         # moe experts + gate
         # note this also deals correctly with a fake dense version where we manualy hack in num_experts>0 - the then dense mlp equivalent still gets computed correctly
         moe_mlp_N = hidden_size * moe_topk * moe_intermediate_size * 3 + hidden_size * num_experts
-        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        emd_and_lm_head_N = vocab_size * hidden_size  # embedding flops is 0
         dense_N = moe_mlp_N * num_hidden_layers + emd_and_lm_head_N
         # non-attn all_layer & all_token fwd & bwd flops
         dense_N_flops = self._dense_flops_multiplier(forward_only) * dense_N * tokens_sum
@@ -290,7 +288,7 @@ class FlopsCounter:
         full_attn_linear_fwd_per_layer = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
         full_attn_linear_flops = (
             self._dense_flops_multiplier(forward_only)
-            * total_seqlen
+            * tokens_sum
             * full_attn_linear_fwd_per_layer
             * num_full_attention_layers
         )
@@ -321,7 +319,7 @@ class FlopsCounter:
 
             linear_attn_flops = (
                 self._dense_flops_multiplier(forward_only)
-                * total_seqlen
+                * tokens_sum
                 * linear_attn_flops_fwd_per_layer
                 * num_linear_attention_layers
             )
