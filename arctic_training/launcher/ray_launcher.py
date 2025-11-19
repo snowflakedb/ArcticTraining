@@ -148,15 +148,15 @@ def launch(
         "python_profile": python_profile,
     }
 
-    # TODO: Add fallback handling for when GPUs aren't available
     num_gpus = get_available_gpu()
-    assert num_gpus > 0, "No GPUs available"
+    use_gpu = num_gpus > 0
+    num_workers = num_gpus if use_gpu else 1
     arctic_train_func = make_arctic_train_func()
 
     trainer = TorchTrainer(
         arctic_train_func,
         train_loop_config=train_config,
-        scaling_config=ScalingConfig(num_workers=num_gpus, use_gpu=True),
+        scaling_config=ScalingConfig(num_workers=num_workers, use_gpu=use_gpu),
     )
 
     return trainer.fit()
