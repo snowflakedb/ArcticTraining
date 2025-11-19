@@ -13,15 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
+from deepspeed.utils.logging import print_dist
 
+from arctic_training.debug.utils import pr0  # noqa, currently using it on/off a lot
 from arctic_training.debug.utils import see_memory_usage
 from arctic_training.model.moe.alltoall import AlltoAllV
+from arctic_training.model.moe.timers import SynchronizedWallClockTimerSimple
 
 
 # from arctic_training.debug.utils import pr0
@@ -70,6 +74,11 @@ class ArcticMoE(nn.Module):
         self.model_dim = config.model_dim
         self.num_experts = config.num_experts
         self.top_k = config.top_k
+
+        # profiler
+        self.timers = SynchronizedWallClockTimerSimple()
+        self.wall_clock_breakdown = False
+        self.gate_time = 0.0
 
         self.num_local_experts = self.num_experts // self.ep_size
 
@@ -123,8 +132,13 @@ class ArcticMoE(nn.Module):
         else:
             self.moegemm = torch_group_gemm_fn
 
+    def enable_wall_clock_breakdown(self):
+        """activate timers and signal we are in a profiler mode"""
+        self.wall_clock_breakdown = True
+        self.timers.wall_clock_breakdown = True
+
     def extra_repr(self):
-        """Since we are. using nn.Parameter we need to write out our own repr that nn.Module __repr__ will call automatically when printing the model representation"""
+        """Since we are using nn.Parameter we need to write out our own `extra_repr` that nn.Module __repr__ will call automatically when printing the model representation"""
 
         main_str = ""
         main_str += f"(router_gate): Parameter({tuple(self.router_gate.shape)})\n"
@@ -185,12 +199,13 @@ class ArcticMoE(nn.Module):
         return x
 
     def forward(self, hidden_states):
-
         # return hidden_states
 
+        self.timers.start("amoe e2e")
         see_memory_usage("enter fwd", force=False)
 
         see_memory_usage("before router", force=False)
+        self.timers.start("router")
         # Forward pass through the MoE layer
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
@@ -198,26 +213,54 @@ class ArcticMoE(nn.Module):
         moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots = self.MoERouter(
             hidden_states, logits
         )
+        self.timers.stop("router")
         see_memory_usage("after router", force=False)
 
         if self.ep_size > 1:
+            self.timers.start("a2a-v1")
             moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
+            self.timers.stop("a2a-v1")
+
+            self.timers.start("a2a-v1 transpose")
             moe_input, expert_token_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
                 moe_input, expert_token_rcv_count
             )
+            self.timers.stop("a2a-v1 transpose")
         else:
             expert_token_count_cumsum = expert_token_count.cumsum(0)
+
+        self.timers.start("groupGeMM")
         moe_output = self.GroupGeMM(moe_input, expert_token_count_cumsum)
+        self.timers.stop("groupGeMM")
+
         see_memory_usage("after GroupGeMM", force=False)
 
         if self.ep_size > 1:
+            self.timers.start("a2a-v2 permute")
+
+            if self.wall_clock_breakdown:
+                tmp_expert_token_rcv_count = expert_token_rcv_count.reshape(self.ep_size, -1).sum(dim=-1)
+                tmp_expert_token_snd_count = expert_token_count.reshape(self.ep_size, -1).sum(dim=-1)
+                # take note of the largest total count per rank
+                self.timers.token_counts["max_rcv_count_per_rank"] = max(tmp_expert_token_rcv_count)
+                self.timers.token_counts["max_snd_count_per_rank"] = max(tmp_expert_token_snd_count)
+                self.timers.token_counts["min_rcv_count_per_rank"] = min(tmp_expert_token_rcv_count)
+                self.timers.token_counts["min_snd_count_per_rank"] = min(tmp_expert_token_snd_count)
+
             moe_output = self.local_ep_depermute(moe_output, expert_token_count_transposed)
+            self.timers.stop("a2a-v2 permute")
+
+            self.timers.start("a2a-v2")
             moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
+            self.timers.stop("a2a-v2")
         see_memory_usage("after alltoall_V", force=False)
 
+        self.timers.start("moe-combine")
         output = self.MoECombine(moe_output, token_mapped_slots, scores)
+        self.timers.stop("moe-combine")
         see_memory_usage("after MoECombine", force=False)
         if self._config.use_shared_expert:
+            self.timers.start("shared-expert")
             s_intermediate = torch.matmul(hidden_states, self.shared_expert_gate_up)
             if self._config.is_gated:
                 s_gate, s_up = s_intermediate[..., 0::2], s_intermediate[..., 1::2]
@@ -225,11 +268,14 @@ class ArcticMoE(nn.Module):
             s_out = torch.matmul(s_intermediate, self.shared_expert_down)
             s_out_gate = torch.matmul(hidden_states, self.shared_expert_output_gate)
             output = output + s_out * F.sigmoid(s_out_gate)
+            self.timers.stop("shared-expert")
         see_memory_usage("after shared_expert", force=False)
 
         output = output.reshape(orig_shape)
 
         see_memory_usage("exit fwd", force=False)
+
+        self.timers.stop("amoe e2e")
 
         return (output, scores) if self._config.return_router_scores else output
 
@@ -326,3 +372,51 @@ class ArcticMoE(nn.Module):
         )
         output.index_add_(0, token_mapped_slots, moe_output * scores[:, None])
         return output
+
+
+# will be monkey patching deepspeed.runtime.engine.print_forward_breakdown
+def print_forward_breakdown(self, fwd_time):
+    """
+    Prints the execution times of different AMoE components and token count stats gathered in self.timers as part of the deepspeed profiler feature.
+    """
+
+    # perhaps stash this somewhere?
+    # also depending on the model, some layers may skip the MoE block and do dense MLP
+    amoe_modules = [m for m in self.modules() if isinstance(m, ArcticMoE)]
+    # print(f"{amoe_modules}")
+
+    if len(amoe_modules) == 0:
+        return
+
+    # this controls per-layer printout - disable if too noisy - there is always the accumulated print at the end
+    profile_per_layer = True
+
+    # formatting aids
+    time_keys = amoe_modules[0].timers.times.keys()
+    max_time_key_len = max(len(k) for k in time_keys)
+
+    token_stats = defaultdict(int)
+    time_stats = defaultdict(float)
+    for i, m in enumerate(amoe_modules):
+        times = m.timers.times
+        for k, v in times.items():
+            # XXX: the layer idx can be wrong if not all layers contain AMoE
+            time_stats[k] += v
+            if profile_per_layer:
+                print_dist(f"layer={i} time  : {k:{max_time_key_len+1}}: {v:5.2f}ms", ranks=[0])
+
+        token_counts = m.timers.token_counts
+        for k, v in token_counts.items():
+            # XXX: the layer idx can be wrong if not all layers contain AMoE
+            token_stats[k] += v
+            if profile_per_layer:
+                print_dist(f"layer={i} tokens: {k}: {v/1e3:6.2f}K", ranks=[0])
+
+        if profile_per_layer:
+            print_dist("", ranks=[0])
+
+    report_time = " | ".join(f"{k}: {v:.2f}" for k, v in time_stats.items())
+    print_dist(f"all layers aggregate time (ms): {report_time}", ranks=[0])
+
+    report_tokens = " | ".join(f"{k}: {v/1e3:.2f}" for k, v in token_stats.items())
+    print_dist(f"all layers aggregate token counts (K): {report_tokens}", ranks=[0])
