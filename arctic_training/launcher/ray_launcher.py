@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Literal
-from typing import Type
 from typing import cast
 
 import ray
@@ -27,13 +26,43 @@ from ray.train import Checkpoint
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
 
+from arctic_training.callback.callback import Callback
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
-from arctic_training.exceptions import RegistryValidationError
 from arctic_training.registry import get_registered_trainer
 from arctic_training.trainer.trainer import Trainer
 
 TrainConfig = dict[str, Any]
+
+
+def _post_step_ray_report(trainer: Trainer) -> None:
+    """Report metrics to Ray Train after each training step."""
+    if trainer.gas_boundary and trainer.global_step % trainer.config.train_log_iter_interval == 0:
+        metrics = {k: v for k, v in trainer.metrics.summary_dict.items()}
+        ray.train.report(metrics=metrics)
+
+
+def _post_checkpoint_ray_save(trainer: Trainer) -> None:
+    """Upload checkpoints produced by the trainer to Ray Train."""
+    for engine in trainer.checkpoint_engines:
+        if engine.do_checkpoint:
+            checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
+            ray.train.report(checkpoint=checkpoint)
+
+
+def _attach_ray_callbacks(trainer: Trainer) -> None:
+    """Append Ray reporting callbacks to an instantiated trainer without creating a new subclass."""
+    event_methods = trainer._get_all_callback_event_methods()
+    callbacks_to_add = []
+
+    if "post-step" in event_methods:
+        callbacks_to_add.append(Callback("post-step", _post_step_ray_report, event_methods["post-step"]))
+    if "post-checkpoint" in event_methods:
+        callbacks_to_add.append(
+            Callback("post-checkpoint", _post_checkpoint_ray_save, event_methods["post-checkpoint"])
+        )
+
+    trainer._initialized_callbacks.extend(callbacks_to_add)
 
 
 def get_available_gpu() -> int:
@@ -63,50 +92,6 @@ def make_arctic_train_func() -> Callable[[TrainConfig], None]:
     }
     """
 
-    def _build_ray_trainer_cls(base_trainer_cls: Type[Trainer]) -> Type[Trainer]:
-        """
-        Create a dynamic trainer subclass with Ray-specific callbacks attached.
-
-        The returned class:
-        - Extends the provided ``base_trainer_cls``
-        - Appends Ray reporting callbacks for post-step and post-checkpoint events
-        """
-
-        def post_step_ray_report(self):
-            """Report metrics to Ray Train after each step."""
-            if self.gas_boundary and self.global_step % self.config.train_log_iter_interval == 0:
-                metrics = {k: v for k, v in self.metrics.summary_dict.items()}
-                ray.train.report(metrics=metrics)
-
-        def post_checkpoint_ray_save(self):
-            """Report checkpoint to Ray Train."""
-            for engine in self.checkpoint_engines:
-                if engine.do_checkpoint:
-                    checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
-                    ray.train.report(checkpoint=checkpoint)
-
-        # Dynamically name the class to reflect the base trainer (e.g., CausalTrainer -> RayCausalTrainer)
-        trainer_name = base_trainer_cls.name + "_ray"
-        try:
-            return type(
-                f"Ray{base_trainer_cls.__name__}",
-                (base_trainer_cls,),
-                {
-                    "name": trainer_name,
-                    "callbacks": [
-                        ("post-step", post_step_ray_report),
-                        ("post-checkpoint", post_checkpoint_ray_save),
-                    ],
-                },
-            )
-        except RegistryValidationError as exc:
-            try:
-                # Try to load the trainer from the registry if it's already been registered.
-                return get_registered_trainer(name=trainer_name)
-            except Exception:
-                # Re-raise the original RegistryValidationError.
-                raise exc from None
-
     def _maybe_profile(train_fn: Callable[[], None], python_profile: str) -> None:
         """
         Optionally run ``train_fn`` under a Python profiler for local rank 0.
@@ -128,10 +113,8 @@ def make_arctic_train_func() -> Callable[[TrainConfig], None]:
     def arctic_train_func(train_config: TrainConfig) -> None:
         config = cast(TrainerConfig, get_config(train_config["arctic_config"]))
         trainer_cls = get_registered_trainer(name=config.type)
-
-        # Inject Ray-specific behavior via a dynamic subclass.
-        ray_trainer_cls = _build_ray_trainer_cls(trainer_cls)
-        trainer = ray_trainer_cls(config, mode=train_config["mode"])
+        trainer = trainer_cls(config, mode=train_config["mode"])
+        _attach_ray_callbacks(trainer)
 
         if train_config["mode"] != "train":
             # For "process-data" mode (or any non-train mode) we simply construct the trainer.
