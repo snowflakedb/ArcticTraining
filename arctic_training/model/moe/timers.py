@@ -44,9 +44,11 @@ class SynchronizedWallClockTimerSimple(SynchronizedWallClockTimer):
     def __init__(self, wall_clock_breakdown=False):
         self.wall_clock_breakdown = wall_clock_breakdown
         super().__init__()  # creates self.timers
+
+        # elapsed time storage
         self.times = defaultdict(float)
 
-        # to allow additional token count stats
+        # optional token count stats storage
         self.token_counts = defaultdict(int)
 
     def start(self, name):
@@ -58,25 +60,15 @@ class SynchronizedWallClockTimerSimple(SynchronizedWallClockTimer):
 
     def stop(self, name):
         """stops the clock and immediately stores the elapsed time"""
-        # pr0(f"read: {self.wall_clock_breakdown} {name=} {self.times[name]=}")
         if not self.wall_clock_breakdown:
             self.times[name] = 0
             return
         self(name).stop()
-        # if self.times[name] == 0:
         self.times[name] = self(name).elapsed(reset=False)
-        # pr0(f"stored: {name=} {self.times[name]=}")
 
     def elapsed(self, name):
         """returns times stored by stop()"""
         return self.times[name]
-        # if not self.wall_clock_breakdown:
-        #     self.times[name] = 0
-        # else:
-        #     if self.times[name] == 0:
-        #         # call only the first time, return cached value afterwards
-        #         self.times[name] = super().elapsed(name, *args, **kwargs)
-        # return self.times[name]
 
     def times(self):
         return self.times
