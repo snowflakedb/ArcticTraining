@@ -29,6 +29,13 @@ class HFModelFactory(ModelFactory):
     def create_config(self):
         config = AutoConfig.from_pretrained(self.config.name_or_path)
 
+        # will be using this flag to switch from from_pretrained to from_config to init the model if we aren't loading the full model
+        num_hidden_layers_override = self.config.hf_config_kwargs.get("num_hidden_layers", None)
+        if num_hidden_layers_override is not None and num_hidden_layers_override != config.num_hidden_layers:
+            self.using_random_model = True
+        else:
+            self.using_random_model = False
+
         # override hf model config if we have some custom config
         for k, v in self.config.hf_config_kwargs.items():
             setattr(config, k, v)
@@ -40,7 +47,7 @@ class HFModelFactory(ModelFactory):
         # XXX: temp - using a local copy of the HF modeling code
         config = self.create_config()
 
-        if config.architectures[0] == "Qwen3MoeForCausalLM":
+        if config.architectures[0] == "Qwen3MoeForCausalLM1":
             pr0("Using custom Qwen3MoeForCausalLM", force=True)
             from arctic_training.model.qwen3_moe import Qwen3MoeForCausalLM
 
@@ -50,7 +57,7 @@ class HFModelFactory(ModelFactory):
                 attn_implementation=self.config.attn_implementation,
                 dtype=self.config.dtype.value,
             )
-        elif config.architectures[0] == "GptOssForCausalLM" and not str(self.config.name_or_path).startswith(
+        elif config.architectures[0] == "GptOssForCausalLM1" and not str(self.config.name_or_path).startswith(
             "openai/gpt-oss-"
         ):
             # for some reason if we are using a copy of GptOssForCausalLM the official gpt-oss models with Mxfp4 weights leave the model on a meta device, but it works fine if we use transformers.models.gpt_oss.modeling_gpt_oss.GptOssForCausalLM which is identical.
@@ -88,12 +95,20 @@ class HFModelFactory(ModelFactory):
                 dtype=self.config.dtype.value,
             )
 
-        return AutoModelForCausalLM.from_pretrained(
-            self.config.name_or_path,
-            config=model_config,
-            attn_implementation=self.config.attn_implementation,
-            dtype=self.config.dtype.value,
-        )
+        if self.using_random_model:
+            # skip the weight loading for a faster startup if we are in a random model configuration mode
+            return AutoModelForCausalLM.from_config(
+                model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+            )
+        else:
+            return AutoModelForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+            )
 
     @staticmethod
     def make_model_gradient_checkpointing_compatible(
