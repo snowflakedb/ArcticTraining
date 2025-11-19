@@ -165,7 +165,7 @@ class FlopsCounter:
         # Qwen2/LLama use SwiGelu, gate, having up and down linear layer in mlp
         mlp_N = hidden_size * intermediate_size * 3
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
-        emd_and_lm_head_N = vocab_size * hidden_size * 2  # embedding flops is 0
+        emd_and_lm_head_N = vocab_size * hidden_size  # embedding flops is 0
         # non-attn all_layer parm
         dense_N = (mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
         # non-attn all_layer & all_token fwd & bwd flops
@@ -220,7 +220,7 @@ class FlopsCounter:
             * self.config.kv_lora_rank
         )
         attn_linear_N += num_query_heads * self.config.v_head_dim * hidden_size
-        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        emd_and_lm_head_N = vocab_size * hidden_size
         # non-attn all_layer parm
         moe_N = (
             (moe_gata_N + moe_expertmlp_N + attn_linear_N) * (num_hidden_layers - first_k_dense_replace)
@@ -294,7 +294,7 @@ class FlopsCounter:
         )
         full_attn_flops = full_attn_qkv_flops + full_attn_linear_flops
 
-        # linear attention
+        # linear attention (adapted from Megatron-LM)
         linear_attn_flops = 0
         if num_linear_attention_layers > 0:
             # Calculate the FLOPs for the gated delta net attention.
