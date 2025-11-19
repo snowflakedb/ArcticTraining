@@ -37,7 +37,7 @@ class SynchronizedWallClockTimerSimple(SynchronizedWallClockTimer):
         .... some place later ...
         timer.wall_clock_breakdown = True
 
-        the self.extra field allows for additional storage of
+        The self.token_counts optional dict allows for additional storage of tokens, so that time can be correlated with the amount of work being done - e.g. this is important for network collectives.
 
     """
 
