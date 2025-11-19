@@ -105,9 +105,10 @@ def main():
     if args.launcher == "ray":
         if len(deepspeed_args) > 0:
             raise ValueError("DeepSpeed arguments are not supported when using Ray launcher.")
-        return ray_launch(config_file=str(args.config), mode=args.mode, python_profile=args.python_profile)
+        ray_launch(config_file=str(args.config), mode=args.mode, python_profile=args.python_profile)
+        return
 
-    return deepspeed_launch(
+    deepspeed_launch(
         config_file=str(args.config), mode=args.mode, python_profile=args.python_profile, deepspeed_args=deepspeed_args
     )
 
