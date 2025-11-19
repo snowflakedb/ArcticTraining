@@ -55,7 +55,7 @@ class SynchronizedWallClockTimerSimple(SynchronizedWallClockTimer):
         """starts the clock if timing is enabled"""
         if not self.wall_clock_breakdown:
             return
-        # pr0(f"{self(name)=}", force=True)
+
         self(name).start()
 
     def stop(self, name):
@@ -63,6 +63,7 @@ class SynchronizedWallClockTimerSimple(SynchronizedWallClockTimer):
         if not self.wall_clock_breakdown:
             self.times[name] = 0
             return
+
         self(name).stop()
         self.times[name] = self(name).elapsed(reset=False)
 
