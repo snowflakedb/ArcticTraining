@@ -53,19 +53,16 @@ class SynchronizedWallClockTimerSimple(SynchronizedWallClockTimer):
 
     def start(self, name):
         """starts the clock if timing is enabled"""
-        if not self.wall_clock_breakdown:
-            return
-
-        self(name).start()
+        if self.wall_clock_breakdown:
+            self(name).start()
 
     def stop(self, name):
         """stops the clock and immediately stores the elapsed time"""
-        if not self.wall_clock_breakdown:
+        if self.wall_clock_breakdown:
+            self(name).stop()
+            self.times[name] = self(name).elapsed(reset=False)
+        else:
             self.times[name] = 0
-            return
-
-        self(name).stop()
-        self.times[name] = self(name).elapsed(reset=False)
 
     def elapsed(self, name):
         """returns times stored by stop()"""
