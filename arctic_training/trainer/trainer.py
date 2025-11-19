@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import math
 import random
 from abc import ABC
@@ -26,6 +25,7 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
+import deepspeed
 import numpy as np
 import torch
 import torch.cuda
@@ -239,12 +239,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 dist.init_distributed(dist_backend="nccl", dist_init_required=True)
 
             # override the original Meg-DS profiler print util
-            import deepspeed.runtime.engine
+            # import deepspeed.runtime.engine
+            from deepspeed.runtime.engine import DeepSpeedEngine
 
             from arctic_training.model.moe.moe import print_forward_breakdown
 
-            deepspeed.runtime.engine.DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
+            DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
 
+            # deepspeed.runtime.engine.DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
             # DeepspeedMoE is only integrated with ZeRO-2
             zero_stage = self.config.deepspeed.get("zero_optimization", {}).get("stage", 0)
             if zero_stage != 2:
@@ -305,7 +307,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if use_arctic_moe:
             # instrument deepspeed profiler - XXX: probably abstract into a helper function to remove noise from here
             from arctic_training.model.moe.moe import ArcticMoE
-            from arctic_training.model.moe.moe import print_forward_breakdown
 
             for module in self.model_unwrapped.modules():
                 if isinstance(module, ArcticMoE):
