@@ -442,6 +442,12 @@ class TrainerConfig(BaseConfig):
             self.mem_profiler_dir.mkdir(parents=True, exist_ok=True)
         return self
 
+    @model_validator(mode="after")
+    def validate_sample_packing_batch_size(self) -> Self:
+        if hasattr(self.data, "pack_samples") and self.data.pack_samples:
+            assert self.micro_batch_size == 1, "`micro_batch_size` must be 1 if `pack_samples` is enabled."
+        return self
+
 
 def load_user_module_from_path(script_path: Path) -> None:
     # Symlink the entire directory containing the script to avoid issues with relative imports
