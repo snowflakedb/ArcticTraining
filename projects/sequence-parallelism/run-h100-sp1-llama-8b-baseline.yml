@@ -39,6 +39,7 @@ data:
   dl_num_workers: 1
 
 #  max_length: 32_000 # w/ param offload: NV 71.91 GB
+  pack_samples: true
   max_length: 36_000 # w/ param offload close to oom
 
 logger:

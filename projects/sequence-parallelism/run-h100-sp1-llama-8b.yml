@@ -40,6 +40,7 @@ data:
   cache_dir: data-cache
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 500000 # ok with pt=2.8.0.dev20250507+cu126
 #  max_length: 555000 # Triton Error [CUDA]: an illegal memory access was encountered
 

@@ -37,6 +37,7 @@ data:
   cache_dir: data-cache
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 15_000_000 # NV 71.00 GB
 
 

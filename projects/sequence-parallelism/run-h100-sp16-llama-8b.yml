@@ -38,6 +38,7 @@ data:
 
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 8_000_000 # close to oom
 
 logger:

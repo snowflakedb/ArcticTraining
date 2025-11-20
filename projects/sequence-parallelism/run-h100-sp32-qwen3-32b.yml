@@ -38,6 +38,7 @@ data:
 
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 7_000_000 # ok  NV 71.55 GB w/ pt-2.4
 
 

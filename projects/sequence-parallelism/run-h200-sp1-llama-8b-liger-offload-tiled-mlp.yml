@@ -40,6 +40,7 @@ data:
   cache_dir: data-cache
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 1_200_000 # ok 136.15 GB
 
 logger:

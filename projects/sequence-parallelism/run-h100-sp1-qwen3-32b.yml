@@ -45,6 +45,7 @@ data:
 
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 230000 # ok
 
 logger:

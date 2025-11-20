@@ -38,6 +38,7 @@ data:
 
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 4_000_000 # NV 47.70 GB - but at the brink of cpu-oom!
 
 
