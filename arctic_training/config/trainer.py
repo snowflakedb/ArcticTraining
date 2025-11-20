@@ -445,6 +445,9 @@ class TrainerConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_sft_sample_packing(self) -> Self:
         if hasattr(self.data, "pack_samples") and self.data.pack_samples:
+            assert (
+                self.model.attn_implementation != "sdpa"
+            ), "`pack_samples` is not supported if `attn_implementation` is `sdpa`."
             assert self.micro_batch_size == 1, "`micro_batch_size` must be 1 if `pack_samples` is enabled."
         return self
 
