@@ -443,7 +443,7 @@ class TrainerConfig(BaseConfig):
         return self
 
     @model_validator(mode="after")
-    def validate_sample_packing_batch_size(self) -> Self:
+    def validate_sft_sample_packing(self) -> Self:
         if hasattr(self.data, "pack_samples") and self.data.pack_samples:
             assert self.micro_batch_size == 1, "`micro_batch_size` must be 1 if `pack_samples` is enabled."
         return self
