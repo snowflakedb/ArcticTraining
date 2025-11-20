@@ -38,6 +38,7 @@ data:
   # num_proc: 16
   dl_num_workers: 1
 
+  pack_samples: true
   max_length: 16_000 # => 32k in the moe equivalent because of the num of experts mapping
 
 wandb:

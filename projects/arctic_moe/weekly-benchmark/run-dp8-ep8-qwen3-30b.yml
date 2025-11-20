@@ -48,6 +48,7 @@ data:
 # equivalent_moe_seqlen = 32_000
 
 # see the math above when choosing max_length
+  pack_samples: true
   max_length: 32_000 # => 16k in the dense equivalent because of the num of experts mapping
 
 wandb:
