@@ -248,6 +248,9 @@ class SFTDataConfig(DataConfig):
     pack_samples: bool = False
     """ Whether to pack multiple samples into samples up to size `max_length`. """
 
+    pack_samples_max_pool_size: int = 1e6
+    """ The maximum size of the pool to pack samples. We will chunk the dataset into smaller chunks of this size and pack them."""
+
     drop_last: bool = False
     """ Whether to drop the last packed sample, which might be shorter than `max_length`. """
 
@@ -331,22 +334,28 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     if self.config.repeat_to_pack_max_length:
         dataset = repeat_dataset(dataset=dataset, max_length=self.config.max_length, num_proc=self.config.num_proc)
 
-    batch_size = len(dataset) // self.config.num_proc + 1
-    dataset = dataset.shuffle(seed=self.config.seed)
-    dataset = dataset.map(
-        lambda x: pack_sft_batch(
-            x,
-            max_length=self.config.max_length,
-            always_max_length=self.config.always_max_length,
-            drop_last=self.config.drop_last,
-            fuse_positions_prob=self.config.fuse_positions_prob,
-            seed=self.config.seed,
-        ),
-        batched=True,
-        batch_size=batch_size,
-        num_proc=self.config.num_proc,
-        desc="Packing dataset",
-    )
+    dataset = dataset.shuffle(seed=self.config.seed) # shuffle the dataset before packing for better randomness
+    dataset_size = len(dataset)
+    packed_dataset = []
+    for i in range(0, dataset_size, self.config.pack_samples_max_pool_size):
+        dataset_chunk = dataset.select(range(i, min(i + self.config.pack_samples_max_pool_size, dataset_size)))
+        batch_size = len(dataset_chunk) // self.config.num_proc + 1
+        dataset_chunk = dataset_chunk.map(
+            lambda x: pack_sft_batch(
+                x,
+                max_length=self.config.max_length,
+                always_max_length=self.config.always_max_length,
+                drop_last=self.config.drop_last,
+                fuse_positions_prob=self.config.fuse_positions_prob,
+                seed=self.config.seed,
+            ),
+            batched=True,
+            batch_size=batch_size,
+            num_proc=self.config.num_proc,
+            desc=f"Packing dataset chunk {i+1} of {(dataset_size + self.config.pack_samples_max_pool_size - 1) // self.config.pack_samples_max_pool_size}",
+        )
+        packed_dataset.append(dataset_chunk)
+    dataset = concatenate_datasets(packed_dataset)
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
     return dataset
