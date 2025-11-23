@@ -333,7 +333,7 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
 
     batch_size = len(dataset) // self.config.num_proc + 1
     # for huge datasets keep the bs to a sane size to avoid cpu-oom
-    batch_size = min(batch_size, 1e3)
+    batch_size = int(min(batch_size, 1e3))
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
         lambda x: pack_sft_batch(
