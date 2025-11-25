@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 from parameterized import parameterized
 
 from arctic_training.testing_utils import CaptureStd
@@ -41,6 +42,7 @@ model_gpt_oss = "tiny-random/gpt-oss-bf16"
 models = [model_gpt_oss, model_qwen, model_qwen_next]
 
 
+@pytest.mark.gpu
 @require_torch_multi_gpu
 class TestTrainerWithLauncher(TestCasePlus):
     # def setUp(self):
