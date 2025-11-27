@@ -225,13 +225,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # Arctic MoE model remapping has to be called before optimizer is created
         from arctic_training.model.moe.utils import detect_if_moe_model
-        from arctic_training.model.moe.utils import remap_moe_mlp_params_to_arctic_moe
+        from arctic_training.model.moe.utils import remap_orig_moe_mlp_params_to_arctic_moe
 
         if self.config.arctic_moe == "auto":
-            use_arctic_moe = detect_if_moe_model(self.model)
+            self.use_arctic_moe = detect_if_moe_model(self.model)
         else:
-            use_arctic_moe = self.config.arctic_moe
-        if use_arctic_moe:
+            self.use_arctic_moe = self.config.arctic_moe
+        if self.use_arctic_moe:
             pr0("Activating ArcticMoE", force=True)
             import deepspeed.comm as dist
 
@@ -261,7 +261,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # engine._config.use_data_before_expert_parallel_)
             # but we don't have the engine yet to get the ds config values - perhaps could extract this via AT-config?
             use_data_before_expert_parallel_ = False
-            # the ep group has to be created before remap_moe_mlp_params_to_arctic_moe as ep rank info is needed to remap pre-trained experts
+            # the ep group has to be created before remap_orig_moe_mlp_params_to_arctic_moe as ep rank info is needed to remap pre-trained experts
             groups._create_expert_data_and_model_parallel(
                 self.config.expert_parallel_size,
                 mpu=None,
@@ -269,7 +269,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             )
 
             # self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
-            remap_moe_mlp_params_to_arctic_moe(self.model, ep_size=self.config.expert_parallel_size)
+            remap_orig_moe_mlp_params_to_arctic_moe(self.model, ep_size=self.config.expert_parallel_size)
             # self.groups)
             # XXX: check we can remap back
             # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
@@ -304,7 +304,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         )
         see_memory_usage("after deepspeed.initialize", force=False)
 
-        if use_arctic_moe:
+        if self.use_arctic_moe:
             # instrument deepspeed profiler - XXX: probably abstract into a helper function to remove noise from here
             from arctic_training.model.moe.moe import ArcticMoE
 
@@ -640,6 +640,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
+
+        if self.training_finished and self.use_arctic_moe and len(self.checkpoint_engines) > 0:
+            # restore the original moe mlp weights
+            from arctic_training.model.moe.utils import remap_arctic_moe_to_orig_moe_mlp_params
+
+            remap_arctic_moe_to_orig_moe_mlp_params(self.model)
+
         for engine in self.checkpoint_engines:
             if engine.do_checkpoint:
                 logger.info(f"Saving Checkpoint at global step: {self.global_step}.")

@@ -34,6 +34,7 @@ class MoEConfig:
     act_fn: object
     ep_group: dist.ProcessGroup
     ep_size: int
+    ep_rank: int
     input_dtype: torch.dtype
     intermediate_dim: int
     is_gated: bool = True
@@ -68,6 +69,7 @@ class ArcticMoE(nn.Module):
 
         self.act_fn = config.act_fn
         self.ep_group = config.ep_group
+        self.ep_rank = config.ep_rank
         self.ep_size = config.ep_size
         self.input_dtype = config.input_dtype
         self.intermediate_dim = config.intermediate_dim

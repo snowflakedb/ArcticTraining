@@ -27,7 +27,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import copy
 import re
 import time
 from collections import defaultdict
@@ -41,6 +41,7 @@ from typing import Union
 from typing import cast
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from deepspeed.utils import groups
 from torch import nn
@@ -56,61 +57,91 @@ def detect_if_moe_model(model):
     return any(k for k in model.config.__dict__.keys() if re.search("experts", k))
 
 
-# XXX: this is just a stab - not working yet
-# def remap_arctic_expert_params_to_orig_moe_mlp(model):
-#     """
-#     undoes remap_moe_mlp_params_to_arctic_moe, renaming the arctic_moe unified representation to the original model
+@torch.no_grad()
+def remap_arctic_moe_to_orig_moe_mlp_params(model):
+    """
+    undoes remap_orig_moe_mlp_params_to_arctic_moe, renaming the arctic_moe unified representation to the original model
 
-#     Args:
-#       - model: expects an unwrapped model object
-#     """
-#     device = model.device
-#     meta_device = torch.device("meta")
+    Args:
+      - model: expects an unwrapped model object
+    """
+    device = model.device
+    # meta_device = torch.device("meta")
 
-#     for layer_num, layer_module in enumerate(model.model.layers):
-#         # some models don't have moe in every layer
-#         if not isinstance(layer_module.mlp, ArcticMoE):
-#             print(f"{layer_num} is not an MoE layer")
-#             continue
+    for layer_num, layer_module in enumerate(model.model.layers):
+        # some models don't have moe in every layer
+        if not isinstance(layer_module.mlp, ArcticMoE):
+            # print(f"{layer_num} is not an MoE layer")
+            continue
+        print(f"{layer_num} is an MoE layer")
+        arctic_moe = layer_module.mlp
 
-#         orig_experts = layer_module.mlp_orig.experts
-#         # qwen is a list
-#         experts_is_a_list = True if isinstance(orig_experts, torch.nn.modules.container.ModuleList) else False
-#         orig_experts.to_empty(device=device)
+        # if EP!=DP (i.e. MoE replicas) rank 0 could be different than `0`
+        ep_group_rank_0 = dist.get_global_rank(arctic_moe.ep_group, 0)
 
-#         def copy_weights(from_param, to_param_name):
-#             if experts_is_a_list:  # ModuleList models like qwen
-#                 # weights = torch.unbind(from_param)
-#                 for i in range(len(orig_experts)):
-#                     getattr(orig_experts[i], from_name).weight.copy(from_param[i])
-#             else:  # gpt-oss-like models with a stack of experts weights
-#                 getattr(orig_experts, from_name).weight.copy_(from_param)
+        # leave the original intact in case this is an interim model saving and not an exit
+        orig_mlp = copy.deepcopy(arctic_moe._hide["orig_mlp"])
+        orig_mlp.to_empty(device=device)  # move out of meta
 
-#         # XXX: use torch.unbind to reverse torch.stack for Qwen3 gate_up interleaving
+        # 1. router_gate => mlp.gate
+        if arctic_moe.ep_rank == 0:
+            orig_mlp.gate.weight.copy_(arctic_moe.router_gate)
 
-#         with torch.no_grad():
-#             for n, m in orig_experts.named_parameters():
-#                 if n == "gate_up_proj":  # gpt-oss
-#                     copy_weights(arctic_moe.gate_up.weight, "gate_up_proj")
-#                 elif n == "gate_proj":
-#                     copy_weights(arctic_moe._gate_proj.weight, "gate_proj")
-#                 elif n == "up_proj":
-#                     copy_weights(arctic_moe.expert_intermediate_weights, "up_proj")
-#                 elif n == "down_proj":
-#                     copy_weights(arctic_moe.expert_output_weights, "down_proj")
+        # 2. gate+up
+        # gather gate_up from all ep ranks to rank 0
+        if arctic_moe.ep_rank == 0:
+            gate_up_list = [
+                torch.zeros_like(arctic_moe.expert_gate_up, device=device) for i in range(arctic_moe.ep_size)
+            ]
+        else:
+            gate_up_list = None
 
-#         # now can drop arctic_moe
-#         layer_module.mlp.to(meta_device)
-#         layer_module.mlp = layer_module.mlp_orig
+        dist.gather(arctic_moe.expert_gate_up, gate_up_list, dst=ep_group_rank_0, group=arctic_moe.ep_group)
+
+        if arctic_moe.ep_rank == 0:
+            gate_proj = []
+            up_proj = []
+            for gate_up in gate_up_list:
+                gate_unstacked, up_unstacked = torch.unbind(gate_up.view(-1, 2), dim=-1)
+                gate_unstacked = gate_unstacked.view(*gate_up.shape[:-1], -1)
+                up_unstacked = up_unstacked.view(*gate_up.shape[:-1], -1)
+                gate_proj += [x.T for x in gate_unstacked.unbind()]
+                up_proj += [x.T for x in up_unstacked.unbind()]
+            del gate_up_list  # free memory
+            for i, expert in enumerate(orig_mlp.experts):
+                expert.gate_proj.weight.copy_(gate_proj[i])
+                expert.up_proj.weight.copy_(up_proj[i])
+
+        # 3. down
+        if arctic_moe.ep_rank == 0:
+            down_list = [torch.zeros_like(arctic_moe.expert_down, device=device) for i in range(arctic_moe.ep_size)]
+        else:
+            down_list = None
+        dist.gather(arctic_moe.expert_down, down_list, dst=ep_group_rank_0, group=arctic_moe.ep_group)
+
+        if arctic_moe.ep_rank == 0:
+            down_proj = []
+            for down in down_list:
+                down_proj += [x.T for x in down.unbind()]
+            del down_list
+            for i, expert in enumerate(orig_mlp.experts):
+                expert.down_proj.weight.copy_(down_proj[i])
+
+        # XXX: preserve and later restore if it's not exit
+        # amoe_mlp = layer_module.mlp
+        layer_module.mlp = orig_mlp
 
 
-def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
+@torch.no_grad()
+def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
     """
     remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
 
-    Currently supporting: GptOssForCausalLM and Qwen3MoeForCausalLM
+    Currently supporting:
+    - full: Qwen3MoeForCausalLM, Qwen3NextForCausalLM
+    - partial: GptOssForCausalLM (stopped syncing it for now)
 
-    XXX: this will not work with zero.Init since the weights will be already sharded. If we want to add zero.Init support we will need to gather, remap, re-shard.
+    XXX: this will not work with zero.Init since the weights will be already sharded. If we want to add zero.Init support we will need to gather, remap, re-shard. But we have no Z3 support in DS-MoE anyway, so it's irrelevant until we do.
 
     Args:
       - model: expects an unwrapped model object
@@ -193,6 +224,7 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
     local_expert_indices = list(range(num_local_experts * ep_rank, num_local_experts * (ep_rank + 1)))
 
     arctic_moe_config.ep_size = ep_size
+    arctic_moe_config.ep_rank = ep_rank
     arctic_moe_config.ep_group = ep_group
 
     pr0(f"Original model: {model}", force=True)
@@ -256,70 +288,67 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
                 weight_stacked = getattr(orig_experts, from_name)[local_expert_indices, ...]
             to_param.copy_(weight_stacked)
 
-        with torch.no_grad():
-            # pr0(f"{local_expert_indices=}", force=True)
-            # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
-            if experts_is_a_list:
-                # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
+        # pr0(f"{local_expert_indices=}", force=True)
+        # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
+        if experts_is_a_list:
+            # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
 
-                # 1. mlp.gate => router_gate
-                arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
+            # 1. mlp.gate => router_gate
+            arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
 
-                # 2. normal experts
-                # 2a. gate_proj + up_proj => expert_gate_up
-                # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
-                # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
+            # 2. normal experts
+            # 2a. gate_proj + up_proj => expert_gate_up
+            # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
+            # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
 
-                gate_stacked = torch.stack(
-                    [getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices]
+            gate_stacked = torch.stack([getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices])
+            # pr0(f"{gate_stacked.shape=}", force=True)
+            # same shape as gate_stacked
+            up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight.T for i in local_expert_indices])
+            # pr0(f"{up_stacked.shape=}", force=True)
+
+            # pr0(f"util 1 {tensor_has_nan(up_stacked)}", force=True)
+            # putting the gate and up weigths in every-other order to match arctic-moe style
+
+            gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
+            # pr0(f"{gate_up.shape=}", force=True)
+            # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
+            arctic_moe.expert_gate_up.copy_(gate_up)
+
+            # 2b. down_proj -> expert_down
+            copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+
+            # 3. shared expert
+            if arctic_moe_config.use_shared_expert:
+                pr0("shared expert detected", force=True)
+
+                # gate_proj + up_proj -> shared_expert_gate_up
+                shared_expert_gate = orig_shared_expert.gate_proj.weight.T
+                shared_expert_up = orig_shared_expert.up_proj.weight.T
+                shared_expert_gate_up = (
+                    torch.stack((shared_expert_gate, shared_expert_up), dim=-1)
+                    .view(*shared_expert_up.shape[:-1], -1)
+                    .contiguous()
                 )
-                # pr0(f"{gate_stacked.shape=}", force=True)
-                # same shape as gate_stacked
-                up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight.T for i in local_expert_indices])
-                # pr0(f"{up_stacked.shape=}", force=True)
+                arctic_moe.shared_expert_gate_up.copy_(shared_expert_gate_up)
+                pr0(f"{arctic_moe.shared_expert_gate_up.shape=}", force=True)
 
-                # pr0(f"util 1 {tensor_has_nan(up_stacked)}", force=True)
-                # putting the gate and up weigths in every-other order to match arctic-moe style
+                # down_proj -> shared_expert_down
+                shared_expert_down = orig_shared_expert.down_proj.weight.T
+                arctic_moe.shared_expert_down.copy_(shared_expert_down)
 
-                gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
-                # pr0(f"{gate_up.shape=}", force=True)
-                # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
-                arctic_moe.expert_gate_up.copy_(gate_up)
+                # shared_expert_gate -> shared_expert_output_gate
+                shared_expert_gate = orig_shared_expert_gate.weight.T
+                arctic_moe.shared_expert_output_gate.copy_(shared_expert_gate)
 
-                # 2b. down_proj -> expert_down
-                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+        else:  # gpt-oss
 
-                # 3. shared expert
-                if arctic_moe_config.use_shared_expert:
-                    pr0("shared expert detected", force=True)
-
-                    # gate_proj + up_proj -> shared_expert_gate_up
-                    shared_expert_gate = orig_shared_expert.gate_proj.weight.T
-                    shared_expert_up = orig_shared_expert.up_proj.weight.T
-                    shared_expert_gate_up = (
-                        torch.stack((shared_expert_gate, shared_expert_up), dim=-1)
-                        .view(*shared_expert_up.shape[:-1], -1)
-                        .contiguous()
-                    )
-                    arctic_moe.shared_expert_gate_up.copy_(shared_expert_gate_up)
-                    pr0(f"{arctic_moe.shared_expert_gate_up.shape=}", force=True)
-
-                    # down_proj -> shared_expert_down
-                    shared_expert_down = orig_shared_expert.down_proj.weight.T
-                    arctic_moe.shared_expert_down.copy_(shared_expert_down)
-
-                    # shared_expert_gate -> shared_expert_output_gate
-                    shared_expert_gate = orig_shared_expert_gate.weight.T
-                    arctic_moe.shared_expert_output_gate.copy_(shared_expert_gate)
-
-            else:  # gpt-oss
-
-                # 1. mlp.router => router_gate
-                arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
-                # 2. gate_up_proj -> expert_gate_up
-                copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
-                # 3. down_proj -> expert_down
-                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+            # 1. mlp.router => router_gate
+            arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
+            # 2. gate_up_proj -> expert_gate_up
+            copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
+            # 3. down_proj -> expert_down
+            copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
 
         # pr0(f"util 3 {tensor_has_nan(arctic_moe.expert_gate_up)}", force=True)
         # pr0(f"util 4 {tensor_has_nan(arctic_moe.expert_down)}", force=True)
@@ -329,6 +358,9 @@ def remap_moe_mlp_params_to_arctic_moe(model, ep_size):
         # layer_module.mlp.shared_expert.to(meta_device)
         # layer_module.mlp.shared_expert_gate.to(meta_device)
         layer_module.mlp.to(meta_device)
+
+        # stash the original - to hide it the assignment can be anything but nn.Module or nn.ModuleList
+        arctic_moe._hide = dict(orig_mlp=layer_module.mlp)
         see_memory_usage(f"{layer} after release", force=False)
 
         # override the original with unified representation
