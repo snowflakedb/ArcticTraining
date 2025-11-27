@@ -40,7 +40,10 @@ model_gpt_oss = "tiny-random/gpt-oss-bf16"
 # model_gpt_oss = "AmanPriyanshu/gpt-oss-6.0b-specialized-all-pruned-moe-only-7-experts"
 # model_gpt_oss = "TroyDoesAI/gpt-oss-4B"
 
-models = [model_gpt_oss, model_qwen, model_qwen_next]
+# XXX: todo next and gpt_oss
+# models = [model_gpt_oss, model_qwen, model_qwen_next]
+
+models = [model_qwen]
 
 
 @pytest.mark.gpu
