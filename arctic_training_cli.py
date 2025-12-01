@@ -22,7 +22,10 @@ from pathlib import Path
 
 import deepspeed
 from deepspeed.launcher.runner import main as ds_runner
-deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + ["WANDB"] # Make sure WANDB_* env vars are passed for multinode execution
+
+deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + [
+    "WANDB"
+]  # Make sure WANDB_* env vars are passed for multinode execution
 
 
 def main():
