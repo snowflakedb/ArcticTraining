@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
 
   pull_request_target:
-    types: [edited, review_requested, ready_for_review, synchronize]
     branches:
       - main
+      
   push:
     branches:
       - main
