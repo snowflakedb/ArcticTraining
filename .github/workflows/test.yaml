@@ -1,0 +1,104 @@
+name: NEW Unit Tests on GPU (Modal)
+
+# This CI is running on modal.com's GPUs.
+#
+# It's set up here on github actions and then the cloned repo is sent to modal and everything
+# happens on their hw - see ci/gpu_unit_tests.py for where the actual vm is loaded, updated and the
+# tests are run.
+#
+# Both files are annotated to what's important and how one might change or update things if needed.
+#
+# Note that since this is a Required job we can't use `on.push.path` file filter - we are using a
+# special quick collect-tests job to do the filtering for us so that the job can be skipped and
+# satisfy the Required status for PRs to pass.
+
+on:
+  pull_request_target:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    # do not use path filters here since it's a required job and if skipped it'd report failed (a
+    # known mis-feature in github), do it in the work around `collect-tests` job instead.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collect-tests:
+    name: Collect tests to run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      arctictraining: ${{ steps.filter.outputs.arctictraining }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter changed files
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            arctictraining:
+              - '**.py'
+              - '.github/workflows/gpu_unit_tests.yaml'
+              - 'ci/**'
+              - 'tests/**'
+              - '!docs/**'
+              - '!projects/**'
+              - '!scripts/**'
+              - '!tutorial/**'
+
+  deploy:
+    name: GPU Unit Tests
+    runs-on: ubuntu-latest
+    needs: collect-tests
+    env:
+      # note: we are sharing the same account with deepspeedai
+      # these are created at https://modal.com/settings/deepspeedai/tokens
+      # they are then added to the repo's secrets at https://github.com/snowflakedb/ArcticTraining/settings/secrets/actions
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      # this one comes from https://huggingface.co/settings/profile of the bot user
+      # and it too is then updated at https://github.com/snowflakedb/ArcticTraining/settings/secrets/actions
+      # XXX: this is a placeholder - we haven't needed this one yet
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+    if: needs.collect-tests.outputs.arctictraining == 'true'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip' # caching pip dependencies
+
+      - name: Install build dependencies
+        run: |
+          pip install uv # much faster than pip
+          uv pip install --system modal
+          # next we build requirements files since these help to cache the packages w/o rebuilding the modal image on each run
+          # 1. general packages
+          uv pip compile pyproject.toml --extra testing -o requirements-general.txt
+          # uv is not required but we rely on it in the CI later
+          echo "uv" >> requirements-general.txt
+          # 2. install a specific torch/cuda combo in case deps compilation got it wrong
+          echo "--index-url https://download.pytorch.org/whl/cu129"   > requirements-torch.txt
+          echo "torch==2.8.0"                                        >> requirements-torch.txt
+          # 3. flash_attn needs special care
+          echo 'flash_attn' > requirements-flash_attn.txt
+
+      - name: Run tests
+        run: |
+          modal run -m ci.gpu_unit_tests
