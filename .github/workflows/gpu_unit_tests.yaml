@@ -13,9 +13,13 @@ name: Unit Tests on GPU (Modal)
 # satisfy the Required status for PRs to pass.
 
 on:
-  pull_request:
+  workflow_dispatch:
+
+  pull_request_target:
     branches:
       - main
+    paths-ignore:
+      - '**/README.md'
   push:
     branches:
       - main
@@ -47,14 +51,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           filters: |
             arctictraining:
-              - '**.py'
-              - '.github/workflows/gpu_unit_tests.yaml'
-              - 'ci/**'
-              - 'tests/**'
-              - '!docs/**'
-              - '!projects/**'
-              - '!scripts/**'
-              - '!tutorial/**'
+              - '**/**'
+              #- '**.py'
+              #- '.github/workflows/gpu_unit_tests.yaml'
+              #- 'ci/**'
+              #- 'tests/**'
+              #- '!docs/**'
+              #- '!projects/**'
+              #- '!scripts/**'
+              #- '!tutorial/**'
 
   deploy:
     name: GPU Unit Tests
