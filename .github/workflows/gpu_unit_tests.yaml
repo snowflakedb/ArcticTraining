@@ -18,7 +18,8 @@ on:
   pull_request_target:
     branches:
       - main
-      
+    paths-ignore:
+      - '**/README.md'
   push:
     branches:
       - main
