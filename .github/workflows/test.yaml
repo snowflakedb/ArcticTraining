@@ -48,7 +48,7 @@ jobs:
           filters: |
             arctictraining:
               - '**.py'
-              - '.github/workflows/gpu_unit_tests.yaml'
+              - '.github/workflows/test.yaml'
               - 'ci/**'
               - 'tests/**'
               - '!docs/**'
