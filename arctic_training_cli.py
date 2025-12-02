@@ -24,7 +24,7 @@ from pathlib import Path
 def deepspeed_launch(config_file: str, mode: str, python_profile: str, deepspeed_args: list[str]):
     import deepspeed
     from deepspeed.launcher.runner import main as ds_runner
-    
+
     deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + [
         "WANDB"
     ]  # Make sure WANDB_* env vars are passed for multinode execution
