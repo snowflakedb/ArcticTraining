@@ -12,8 +12,9 @@ name: Unit Tests on GPU (Modal)
 # special quick collect-tests job to do the filtering for us so that the job can be skipped and
 # satisfy the Required status for PRs to pass.
 
+# test
 on:
-  pull_request_target:
+  pull_request:
     branches:
       - main
   push:
