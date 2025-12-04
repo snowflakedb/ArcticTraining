@@ -456,6 +456,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     and self.global_step % self.config.train_log_iter_interval == 0
                 ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+                    ds_timers = self.model.get_wall_clock_timers()
+                    metrics.update(ds_timers)
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
