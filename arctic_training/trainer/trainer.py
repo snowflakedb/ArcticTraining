@@ -208,6 +208,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
+        self.ds_wall_clock_available = hasattr(self.model, 'get_wall_clock_timers')
 
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
@@ -456,8 +457,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     and self.global_step % self.config.train_log_iter_interval == 0
                 ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
-                    ds_timers = self.model.get_wall_clock_timers()
-                    metrics.update(ds_timers)
+                    if self.ds_wall_clock_available:
+                        ds_timers = self.model.get_wall_clock_timers()
+                        metrics.update(ds_timers)
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
