@@ -208,7 +208,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         dschf = HfDeepSpeedConfig(self.config.deepspeed)  # noqa: F841
         model_factory = self.config.model.factory(self)
         self.model = model_factory()
-        self.ds_wall_clock_available = hasattr(self.model, 'get_wall_clock_timers')
 
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
@@ -234,6 +233,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+
+        self.ds_wall_clock_available = hasattr(self.model, "get_wall_clock_timers")
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first
