@@ -20,7 +20,42 @@ import shutil
 import textwrap
 from pathlib import Path
 
-from deepspeed.launcher.runner import main as ds_runner
+
+def deepspeed_launch(config_file: str, mode: str, python_profile: str, deepspeed_args: list[str]):
+    import deepspeed
+    from deepspeed.launcher.runner import main as ds_runner
+
+    deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + [
+        "WANDB"
+    ]  # Make sure WANDB_* env vars are passed for multinode execution
+
+    runner_name = "arctic_training_run"
+    exe_path = shutil.which(runner_name)
+    if exe_path is None:
+        raise ValueError(f"can't find {runner_name} in paths of env var PATH={os.environ['PATH']}")
+
+    return ds_runner(
+        [
+            *deepspeed_args,
+            exe_path,
+            "--mode",
+            mode,
+            "--config",
+            config_file,
+            "--python_profile",
+            python_profile,
+        ]
+    )
+
+
+def ray_launch(config_file: str, mode: str, python_profile: str):
+    from arctic_training.launcher.ray_launcher import launch as ray_launch
+
+    return ray_launch(
+        config_file=config_file,
+        mode=mode,
+        python_profile=python_profile,
+    )
 
 
 def main():
@@ -60,27 +95,26 @@ def main():
             " API is likely to change"
         ),
     )
+    parser.add_argument(
+        "--launcher",
+        type=str,
+        choices=["deepspeed", "ray"],
+        default="deepspeed",
+        help="The launcher to use for distributed training.",
+    )
     args, deepspeed_args = parser.parse_known_args()
 
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
-    runner_name = "arctic_training_run"
-    exe_path = shutil.which(runner_name)
-    if exe_path is None:
-        raise ValueError(f"can't find {runner_name} in paths of env var PATH={os.environ['PATH']}")
+    if args.launcher == "ray":
+        if len(deepspeed_args) > 0:
+            raise ValueError("DeepSpeed arguments are not supported when using Ray launcher.")
+        ray_launch(config_file=str(args.config), mode=args.mode, python_profile=args.python_profile)
+        return
 
-    ds_runner(
-        [
-            *deepspeed_args,
-            exe_path,
-            "--mode",
-            args.mode,
-            "--config",
-            str(args.config),
-            "--python_profile",
-            str(args.python_profile),
-        ]
+    deepspeed_launch(
+        config_file=str(args.config), mode=args.mode, python_profile=args.python_profile, deepspeed_args=deepspeed_args
     )
 
 
