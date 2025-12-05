@@ -73,8 +73,7 @@ This section defines the speculator architecture:
 
   * **`name_or_path`**: The base Hugging Face model (e.g., `meta-llama/Llama-3.1-8B-Instruct`).
   * **`n_speculator_heads`**: Number of future tokens the speculator predicts (lookahead depth).
-  * **`speculator_width`**: Hidden dimension size of the LSTM speculator.
-  * **`proj_dim`** & **`emb_dim`**: Dimensions for projection and embedding layers.
+  * **`speculator_width`**&**`proj_dim`** & **`emb_dim`**: Hidden dimension size of the LSTM speculator.
   * **`method`**: Architecture type (default: `sum_lstm`).
 
 #### Data Section (`data`)
