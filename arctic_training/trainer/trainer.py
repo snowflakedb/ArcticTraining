@@ -234,6 +234,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             mpu=mpu,
         )
 
+        self.ds_wall_clock_available = hasattr(self.model, "get_wall_clock_timers")
+
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first
             from deepspeed.utils import groups
@@ -456,6 +458,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     and self.global_step % self.config.train_log_iter_interval == 0
                 ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+                    if self.ds_wall_clock_available:
+                        ds_timers = self.model.get_wall_clock_timers()
+                        metrics.update(ds_timers)
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
