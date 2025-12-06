@@ -43,13 +43,24 @@ class LigerModelFactory(HFModelFactory):
         # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
 
         try:
-            return AutoLigerKernelForCausalLM.from_pretrained(
-                self.config.name_or_path,
-                config=model_config,
-                attn_implementation=self.config.attn_implementation,
-                dtype=self.config.dtype.value,
-                swiglu=swiglu,
-            )
+
+            if self.using_random_model:
+                # skip the weight loading for a faster startup if we are in a random model configuration mode
+                # I suspect this way doesn't work https://github.com/linkedin/Liger-Kernel/issues/943
+                return AutoLigerKernelForCausalLM.from_config(
+                    model_config,
+                    attn_implementation=self.config.attn_implementation,
+                    dtype=self.config.dtype.value,
+                    # swiglu=swiglu,
+                )
+            else:
+                return AutoLigerKernelForCausalLM.from_pretrained(
+                    self.config.name_or_path,
+                    config=model_config,
+                    attn_implementation=self.config.attn_implementation,
+                    dtype=self.config.dtype.value,
+                    swiglu=swiglu,
+                )
         except KeyError as e:
             raise ValueError(
                 f"It appears that liger-kernel=={liger_version_have} doesn't support the architecture of"
