@@ -43,7 +43,7 @@ model_gpt_oss = "tiny-random/gpt-oss-bf16"
 # XXX: todo next and gpt_oss
 # models = [model_gpt_oss, model_qwen, model_qwen_next]
 
-models = [model_qwen]
+models = [model_qwen, model_qwen_next]
 
 
 @pytest.mark.gpu
@@ -174,7 +174,7 @@ checkpoint:
             """.split()
 
         # keep for quick debug
-        # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd)); die
+        # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
         self.assertIn("iter: 4/4", cs.combined)

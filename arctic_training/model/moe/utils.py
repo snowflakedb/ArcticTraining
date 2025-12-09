@@ -13,20 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Copyright 2025 Snowflake Inarctic_moe_config.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import copy
 import re
 import time
@@ -55,81 +41,6 @@ from arctic_training.model.moe.moe import ArcticMoE
 
 def detect_if_moe_model(model):
     return any(k for k in model.config.__dict__.keys() if re.search("experts", k))
-
-
-@torch.no_grad()
-def remap_arctic_moe_to_orig_moe_mlp_params(model):
-    """
-    undoes remap_orig_moe_mlp_params_to_arctic_moe, renaming the arctic_moe unified representation to the original model
-
-    Args:
-      - model: expects an unwrapped model object
-    """
-    device = model.device
-    # meta_device = torch.device("meta")
-
-    for layer_num, layer_module in enumerate(model.model.layers):
-        # some models don't have moe in every layer
-        if not isinstance(layer_module.mlp, ArcticMoE):
-            # print(f"{layer_num} is not an MoE layer")
-            continue
-        print(f"{layer_num} is an MoE layer")
-        arctic_moe = layer_module.mlp
-
-        # if EP!=DP (i.e. MoE replicas) rank 0 could be different than `0`
-        ep_group_rank_0 = dist.get_global_rank(arctic_moe.ep_group, 0)
-
-        # leave the original intact in case this is an interim model saving and not an exit
-        orig_mlp = copy.deepcopy(arctic_moe._hide["orig_mlp"])
-        orig_mlp.to_empty(device=device)  # move out of meta
-
-        # 1. router_gate => mlp.gate
-        if arctic_moe.ep_rank == 0:
-            orig_mlp.gate.weight.copy_(arctic_moe.router_gate)
-
-        # 2. gate+up
-        # gather gate_up from all ep ranks to rank 0
-        if arctic_moe.ep_rank == 0:
-            gate_up_list = [
-                torch.zeros_like(arctic_moe.expert_gate_up, device=device) for i in range(arctic_moe.ep_size)
-            ]
-        else:
-            gate_up_list = None
-
-        dist.gather(arctic_moe.expert_gate_up, gate_up_list, dst=ep_group_rank_0, group=arctic_moe.ep_group)
-
-        if arctic_moe.ep_rank == 0:
-            gate_proj = []
-            up_proj = []
-            for gate_up in gate_up_list:
-                gate_unstacked, up_unstacked = torch.unbind(gate_up.view(-1, 2), dim=-1)
-                gate_unstacked = gate_unstacked.view(*gate_up.shape[:-1], -1)
-                up_unstacked = up_unstacked.view(*gate_up.shape[:-1], -1)
-                gate_proj += [x.T for x in gate_unstacked.unbind()]
-                up_proj += [x.T for x in up_unstacked.unbind()]
-            del gate_up_list  # free memory
-            for i, expert in enumerate(orig_mlp.experts):
-                expert.gate_proj.weight.copy_(gate_proj[i])
-                expert.up_proj.weight.copy_(up_proj[i])
-
-        # 3. down
-        if arctic_moe.ep_rank == 0:
-            down_list = [torch.zeros_like(arctic_moe.expert_down, device=device) for i in range(arctic_moe.ep_size)]
-        else:
-            down_list = None
-        dist.gather(arctic_moe.expert_down, down_list, dst=ep_group_rank_0, group=arctic_moe.ep_group)
-
-        if arctic_moe.ep_rank == 0:
-            down_proj = []
-            for down in down_list:
-                down_proj += [x.T for x in down.unbind()]
-            del down_list
-            for i, expert in enumerate(orig_mlp.experts):
-                expert.down_proj.weight.copy_(down_proj[i])
-
-        # XXX: preserve and later restore if it's not exit
-        # amoe_mlp = layer_module.mlp
-        layer_module.mlp = orig_mlp
 
 
 @torch.no_grad()
@@ -322,7 +233,7 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
             if arctic_moe_config.use_shared_expert:
                 pr0("shared expert detected", force=True)
 
-                # gate_proj + up_proj -> shared_expert_gate_up
+                # a. gate_proj + up_proj -> shared_expert_gate_up
                 shared_expert_gate = orig_shared_expert.gate_proj.weight.T
                 shared_expert_up = orig_shared_expert.up_proj.weight.T
                 shared_expert_gate_up = (
@@ -333,11 +244,11 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
                 arctic_moe.shared_expert_gate_up.copy_(shared_expert_gate_up)
                 pr0(f"{arctic_moe.shared_expert_gate_up.shape=}", force=True)
 
-                # down_proj -> shared_expert_down
+                # b. down_proj -> shared_expert_down
                 shared_expert_down = orig_shared_expert.down_proj.weight.T
                 arctic_moe.shared_expert_down.copy_(shared_expert_down)
 
-                # shared_expert_gate -> shared_expert_output_gate
+                # c. shared_expert_gate -> shared_expert_output_gate
                 shared_expert_gate = orig_shared_expert_gate.weight.T
                 arctic_moe.shared_expert_output_gate.copy_(shared_expert_gate)
 
@@ -376,52 +287,100 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
 
     pr0(f"Rewritten model: {model}", force=True)
 
-    # now copy over the params from the original model, while freeing their memory usage
 
+@torch.no_grad()
+def remap_arctic_moe_to_orig_moe_mlp_params(model):
+    """
+    Undoes remap_orig_moe_mlp_params_to_arctic_moe, renaming the arctic_moe unified representation to the original model. The weights are gathered on rank 0 only.
 
-"""
-from transformers import AutoModelForCausalLM
-model = AutoModelForCausalLM.from_pretrained("tiny-random/gpt-oss-bf16")
-model.model.layers[0].mlp.experts.gate_up_proj.shape
-Out[5]: torch.Size([32, 32, 128])
+    Args:
+      - model: expects an unwrapped model object
+    """
+    device = model.device
+    # meta_device = torch.device("meta")
 
-from arctic_training.model.moe.moe import ArcticMoE
-arctic_moe = ArcticMoE(c)
-arctic_moe._gate_proj.weight.shape
+    for layer_num, layer_module in enumerate(model.model.layers):
+        # some models don't have moe in every layer
+        if not isinstance(layer_module.mlp, ArcticMoE):
+            # print(f"{layer_num} is not an MoE layer")
+            continue
+        print(f"{layer_num} is an MoE layer")
+        arctic_moe = layer_module.mlp
 
-from transformers import AutoModelForCausalLM
-model = AutoModelForCausalLM.from_pretrained("snake7gun/tiny-random-qwen3moe")
-model.model.layers[0].mlp.experts.gate_proj.shape
-Out[5]: torch.Size([32, 32, 128])
+        # if EP!=DP (i.e. MoE replicas) rank 0 could be different than `0`
+        ep_group_rank_0 = dist.get_global_rank(arctic_moe.ep_group, 0)
 
+        # leave the original intact in case this is an interim model saving and not an exit
+        orig_mlp = copy.deepcopy(arctic_moe._hide["orig_mlp"])
+        orig_mlp.to_empty(device=device)  # move out of meta
 
+        # 1. router_gate => mlp.gate
+        if arctic_moe.ep_rank == 0:
+            orig_mlp.gate.weight.copy_(arctic_moe.router_gate)
 
+        # 2. gate+up
+        # gather gate_up from all ep ranks to rank 0
+        if arctic_moe.ep_rank == 0:
+            gate_up_list = [
+                torch.zeros_like(arctic_moe.expert_gate_up, device=device) for i in range(arctic_moe.ep_size)
+            ]
+        else:
+            gate_up_list = None
 
+        dist.gather(arctic_moe.expert_gate_up, gate_up_list, dst=ep_group_rank_0, group=arctic_moe.ep_group)
 
-"""
+        if arctic_moe.ep_rank == 0:
+            gate_proj = []
+            up_proj = []
+            for gate_up in gate_up_list:
+                gate_unstacked, up_unstacked = torch.unbind(gate_up.view(-1, 2), dim=-1)
+                gate_unstacked = gate_unstacked.view(*gate_up.shape[:-1], -1)
+                up_unstacked = up_unstacked.view(*gate_up.shape[:-1], -1)
+                gate_proj += [x.T for x in gate_unstacked.unbind()]
+                up_proj += [x.T for x in up_unstacked.unbind()]
+            del gate_up_list  # free memory
+            for i, expert in enumerate(orig_mlp.experts):
+                expert.gate_proj.weight.copy_(gate_proj[i])
+                expert.up_proj.weight.copy_(up_proj[i])
 
+        # 3. down
+        if arctic_moe.ep_rank == 0:
+            down_list = [torch.zeros_like(arctic_moe.expert_down, device=device) for i in range(arctic_moe.ep_size)]
+        else:
+            down_list = None
+        dist.gather(arctic_moe.expert_down, down_list, dst=ep_group_rank_0, group=arctic_moe.ep_group)
 
-# def find_mlp_module(module):
-#     # print(f"{module=}")
-#     for n, module in module.named_children():
-#         # print(f"{n=}")
-#         if n == "mlp":
-#             return module
-#         else:
-#             mlp_module = find_mlp_module(module)
-#             if mlp_module is not None:
-#                 return mlp_module
+        if arctic_moe.ep_rank == 0:
+            down_proj = []
+            for down in down_list:
+                down_proj += [x.T for x in down.unbind()]
+            del down_list
+            for i, expert in enumerate(orig_mlp.experts):
+                expert.down_proj.weight.copy_(down_proj[i])
 
-#     return None
+        # 4. shared expert
+        if arctic_moe._config.use_shared_expert:
 
-# mlp = find_mlp_module(model)  # noqa
+            orig_shared_expert = orig_mlp.shared_expert
+            orig_shared_expert_gate = orig_mlp.shared_expert_gate
 
-# model.layers.0.mlp
-# model.layers.0.mlp.router
-# model.layers.0.mlp.experts
-# model.layers.1.mlp
-# model.layers.1.mlp.router
-# model.layers.1.mlp.experts
+            # a. shared_expert_gate_up
+            gate_up = arctic_moe.shared_expert_gate_up
+            gate_unstacked, up_unstacked = torch.unbind(gate_up.view(-1, 2), dim=-1)
+            gate_unstacked = gate_unstacked.view(*gate_up.shape[:-1], -1)
+            up_unstacked = up_unstacked.view(*gate_up.shape[:-1], -1)
+            orig_shared_expert.gate_proj.weight.copy_(gate_unstacked.T)
+            orig_shared_expert.up_proj.weight.copy_(up_unstacked.T)
+
+            # b. shared_expert_down
+            orig_shared_expert.down_proj.weight.copy_(arctic_moe.shared_expert_down.T)
+
+            # c. shared_expert_output_gate
+            orig_shared_expert_gate.weight.copy_(arctic_moe.shared_expert_output_gate.T)
+
+        # XXX: preserve and later restore if it's not an exit?
+        # amoe_mlp = layer_module.mlp
+        layer_module.mlp = orig_mlp
 
 
 def identify_expert_params(model, ep_size):
