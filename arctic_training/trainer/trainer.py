@@ -391,13 +391,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.metrics.record("loss", maybe_item(loss))
 
         self.model.step()
-
+        
+        self.checkpoint()
+        
         # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
         if self.global_step >= self.training_horizon:
             self.early_stop = True
-
-        self.checkpoint()
 
         if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
             self.early_stop = True
