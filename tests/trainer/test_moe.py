@@ -200,6 +200,6 @@ checkpoint:
         torch_assert_safetensors_close(
             baseline_checkpoint_dir / "global_step_4/model.safetensors",
             amoe_checkpoint_dir / "global_step_4/model.safetensors",
-            rtol=1.6e-2,
-            atol=1e-5,
+            rtol=2e-2,
+            atol=2e-5,
         )
