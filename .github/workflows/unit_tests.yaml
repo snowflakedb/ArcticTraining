@@ -45,6 +45,7 @@ jobs:
           key: huggingface-cache-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ steps.get_latest_versions.outputs.versions }}
       - name: Setup environment
         run: |
+          rm -rf .venv
           pip install uv
           uv venv 
           source .venv/bin/activate
