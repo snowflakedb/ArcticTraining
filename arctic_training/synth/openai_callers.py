@@ -52,6 +52,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         save_to_credential_file: str = "~/.arctic_synth/credentials/default.yaml",
         batch_size: int = 50_000,  # default batch size for OpenAI is 50,000,
         polling_interval: int = 30,  # (in secs) default polling interval to check task status
+        file_expiry_seconds: int = 2592000,  # (in seconds) default expiry seconds for uploaded files, 30 days
         *args,
         **kwargs,
     ):
@@ -66,6 +67,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         self.requests: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.batch_size = batch_size
         self.polling_interval = polling_interval
+        self.file_expiry_seconds = file_expiry_seconds
 
         # save credential for command line tool
         if credential_path is None:
@@ -128,7 +130,14 @@ class OpenAIBatchProcessor(BatchProcessor):
         # upload each batch file
         openai_file_ids = []
         for batch_file in batch_files:
-            openai_file = self.files.create(file=open(batch_file, "rb"), purpose="batch")
+            openai_file = self.files.create(
+                file=open(batch_file, "rb"),
+                purpose="batch",
+                expires_after={
+                    "anchor": "created_at",
+                    "seconds": self.file_expiry_seconds,
+                },
+            )
             openai_file_ids.append(openai_file.id)
 
         # save file ids to task
@@ -355,6 +364,7 @@ class OpenAISynth(OpenAI, OpenAIBatchProcessor):
         save_to_credential_file: str = "~/.arctic_synth/credentials/default.yaml",
         batch_size: int = 50_000,  # default batch size for OpenAI is 50,000
         polling_interval: int = 30,  # (in secs) default polling interval to check task status
+        file_expiry_seconds: int = 2592000,  # (in seconds) default expiry seconds for uploaded files, 30 days
         *args,
         **kwargs,
     ):
@@ -368,6 +378,7 @@ class OpenAISynth(OpenAI, OpenAIBatchProcessor):
             save_to_credential_file=save_to_credential_file,
             batch_size=batch_size,
             polling_interval=polling_interval,
+            file_expiry_seconds=file_expiry_seconds,
             *args,
             **kwargs,
         )
@@ -387,6 +398,7 @@ class AzureOpenAISynth(AzureOpenAI, OpenAIBatchProcessor):
         save_to_credential_file: str = "~/.arctic_synth/credentials/default.yaml",
         batch_size: int = 100_000,  # default batch size for Azure OpenAI is 100,000
         polling_interval: int = 30,  # (in secs) default polling interval to check task status
+        file_expiry_seconds: int = 2592000,  # (in seconds) default expiry seconds for uploaded files, 30 days
         *args,
         **kwargs,
     ):
@@ -408,6 +420,7 @@ class AzureOpenAISynth(AzureOpenAI, OpenAIBatchProcessor):
             save_to_credential_file=save_to_credential_file,
             batch_size=batch_size,
             polling_interval=polling_interval,
+            file_expiry_seconds=file_expiry_seconds,
             *args,
             **kwargs,
         )
