@@ -68,7 +68,7 @@ class OpenAIBatchProcessor(BatchProcessor):
         self.batch_size = batch_size
         self.polling_interval = polling_interval
         self.file_expiry_seconds = file_expiry_seconds
-        
+
         # save credential for command line tool
         if credential_path is None:
             credential_file = os.path.expanduser(save_to_credential_file)
