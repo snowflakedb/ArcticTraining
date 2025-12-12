@@ -151,7 +151,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
+        self.global_step_this_run = 0
+        self.global_step_at_start_this_run = 0
         self.early_stop = False
+        self.early_stop_reason = ""
         self.world_size = config.world_size
         self.global_rank = config.global_rank
         self.epoch_finished = False
@@ -372,6 +375,30 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         self.model.backward(loss)
 
+    def need_early_exit(self):
+        """
+        If we need to exit early, set `self.early_stop_reason` and return True
+        Otherwise return False
+        """
+        # exit conditions in the order of likelyhood
+        if (
+            self.config.exit_iteration_this_run > 0
+            and self.config.exit_iteration_this_run == self.global_step_this_run
+        ):
+            self.early_stop_reason = f"reached exit_iteration_this_run of {self.global_step_this_run}"
+            return True
+        elif self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
+            self.early_stop_reason = f"reached exit_iteration of {self.global_step}"
+            return True
+        elif self.config.kill_switch_path.exists():
+            self.early_stop_reason = f"detected kill switch {self.config.kill_switch_path}"
+            return True
+        elif self.global_step >= self.training_horizon:
+            self.early_stop_reason = f"reached training_horizon of {self.global_step}"
+            return True
+
+        return False
+
     @callback_wrapper("step")
     def step(self, batch: Dict[str, torch.Tensor]) -> None:
         """
@@ -396,12 +423,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
-        if self.global_step >= self.training_horizon:
-            self.early_stop = True
-
-        if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
-            self.early_stop = True
-            logger.info(f"Hit exit iteration of {self.global_step}, ending training")
+        self.global_step_this_run = self.global_step - self.global_step_at_start_this_run
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
@@ -429,6 +451,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         for batch in batch_iterator:
             self.train_batch_idx += 1
+
+            # Run the early exit checks before stepping to correctly deal with resume should the training not continue
+            if self.need_early_exit():
+                self.early_stop = True
+                break
 
             self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0
 
@@ -480,11 +507,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                             metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
                             self.wandb_experiment.log(metrics, step=self.global_step)
 
-            if self.config.kill_switch_path.exists():
-                self.early_stop = True
-
-            if self.early_stop:
-                break
         self.metrics.stop_timer("iter")
         self.epoch_finished = True
 
@@ -494,6 +516,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Main training loop. Calls the epoch method for each epoch of training.
         """
         try:
+
+            # to be able to keep track of number of steps of this run inside step()
+            self.global_step_at_start_this_run = self.global_step
+
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
                 self.epoch()
@@ -501,7 +527,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     break
                 self.checkpoint()
             self.training_finished = True
-            logger.info("Training finished.")
+            if self.global_rank == 0:
+                if self.early_stop:
+                    print(f"*** Exiting training early because training {self.early_stop_reason}")
+                else:
+                    print("*** Training finished normally.")
             self.checkpoint()
         except Exception as e:
             logger.error(f"Training failed with error: {e}")
@@ -526,6 +556,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
+        if self.global_step_this_run == 0:
+            logger.info("No steps were run this run, not saving the checkpoint")
+            return
+
         for engine in self.checkpoint_engines:
             if engine.do_checkpoint:
                 logger.info(f"Saving Checkpoint at global step: {self.global_step}.")
