@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import os
 import re
 import time
 from collections import defaultdict
@@ -26,9 +27,13 @@ from typing import Tuple
 from typing import Union
 from typing import cast
 
+import deepspeed.runtime.engine
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from deepspeed.checkpoint.utils import clone_tensors_for_torch_save
+from deepspeed.runtime.checkpoint_engine import TorchCheckpointEngine
+from deepspeed.runtime.engine import DeepSpeedEngine
 from deepspeed.utils import groups
 from torch import nn
 
@@ -39,12 +44,26 @@ from arctic_training.debug.utils import see_memory_usage
 from arctic_training.model.moe.moe import ArcticMoE
 
 
+def monkey_patch_ds_moe():
+
+    # override the original Meg-DS profiler print util
+    # from deepspeed.runtime.engine import DeepSpeedEngine
+
+    from arctic_training.model.moe.moe import print_forward_breakdown
+
+    DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
+
+    # DS checkpointing
+    DeepSpeedEngine._save_moe_checkpoint = amoe_save_checkpoint
+    DeepSpeedEngine.load_moe_state_dict = amoe_load_state_dict
+
+
 def detect_if_moe_model(model):
     return any(k for k in model.config.__dict__.keys() if re.search("experts", k))
 
 
 @torch.no_grad()
-def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
+def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size, is_resume):
     """
     remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
 
@@ -57,15 +76,14 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
     Args:
       - model: expects an unwrapped model object
       - ep_size: EP size
+      - is_resume: don't copy the weights on resume, they will be filled from a DS checkpoint at a later time
     """
-
-    import deepspeed.runtime.engine
 
     # this plugs us into the old DeepspeedMoE system whose integration into Z2 is needed for ArcticMoE to work with ZeRO-2
     # https://github.com/deepspeedai/DeepSpeed/blob/69e03e52d0ebc567d34a163e925899751f7dbcb8/deepspeed/runtime/engine.py#L1323
     deepspeed.runtime.engine.MoE = ArcticMoE
 
-    import os
+    pr0(f"Resuming mode: {is_resume}", force=True)
 
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f"cuda:{local_rank}")
@@ -168,98 +186,105 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
         # qwen
         # XXX
 
-        # qwen is a ModuleList
-        experts_is_a_list = (
-            True if isinstance(layer_module.mlp.experts, torch.nn.modules.container.ModuleList) else False
-        )
-        # pr0(f"{experts_is_a_list=}", force=False)
+        def copy_weights():
 
-        # performance: move specific params to cuda - so that all the tensor manipulation are done
-        # on cuda - much much faster than on cpu
-        #
-        # move to cuda only the experts slice we will use on this rank
-        orig_experts = layer_module.mlp.experts
-        if experts_is_a_list:
-            for i in local_expert_indices:
-                getattr(orig_experts[i], "gate_proj").to(device)
-                getattr(orig_experts[i], "up_proj").to(device)
-                getattr(orig_experts[i], "down_proj").to(device)
-        if arctic_moe_config.use_shared_expert:
-            orig_shared_expert = layer_module.mlp.shared_expert.to(device)
-            orig_shared_expert_gate = layer_module.mlp.shared_expert_gate.to(device)
+            # qwen is a ModuleList
+            experts_is_a_list = (
+                True if isinstance(layer_module.mlp.experts, torch.nn.modules.container.ModuleList) else False
+            )
+            # pr0(f"{experts_is_a_list=}", force=False)
 
-        see_memory_usage(f"{layer} after orig mlp to device", force=False)
-
-        def copy_weights(from_name, to_param, local_expert_indices):
-            if experts_is_a_list:  # ModuleList models like qwen
-                weight_stacked = torch.stack(
-                    [getattr(orig_experts[i], from_name).weight.T for i in local_expert_indices]
-                )
-            else:  # gpt-oss-like models with a stack of experts weights
-                weight_stacked = getattr(orig_experts, from_name)[local_expert_indices, ...]
-            to_param.copy_(weight_stacked)
-
-        # pr0(f"{local_expert_indices=}", force=True)
-        # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
-        if experts_is_a_list:
-            # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
-
-            # 1. mlp.gate => router_gate
-            arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
-
-            # 2. normal experts
-            # 2a. gate_proj + up_proj => expert_gate_up
-            # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
-            # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
-
-            gate_stacked = torch.stack([getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices])
-            # pr0(f"{gate_stacked.shape=}", force=True)
-            # same shape as gate_stacked
-            up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight.T for i in local_expert_indices])
-            # pr0(f"{up_stacked.shape=}", force=True)
-
-            # pr0(f"util 1 {tensor_has_nan(up_stacked)}", force=True)
-            # putting the gate and up weigths in every-other order to match arctic-moe style
-
-            gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
-            # pr0(f"{gate_up.shape=}", force=True)
-            # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
-            arctic_moe.expert_gate_up.copy_(gate_up)
-
-            # 2b. down_proj -> expert_down
-            copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
-
-            # 3. shared expert
+            # performance: move specific params to cuda - so that all the tensor manipulation are done
+            # on cuda - much much faster than on cpu
+            #
+            # move to cuda only the experts slice we will use on this rank
+            orig_experts = layer_module.mlp.experts
+            if experts_is_a_list:
+                for i in local_expert_indices:
+                    getattr(orig_experts[i], "gate_proj").to(device)
+                    getattr(orig_experts[i], "up_proj").to(device)
+                    getattr(orig_experts[i], "down_proj").to(device)
             if arctic_moe_config.use_shared_expert:
-                pr0("shared expert detected", force=True)
+                orig_shared_expert = layer_module.mlp.shared_expert.to(device)
+                orig_shared_expert_gate = layer_module.mlp.shared_expert_gate.to(device)
 
-                # a. gate_proj + up_proj -> shared_expert_gate_up
-                shared_expert_gate = orig_shared_expert.gate_proj.weight.T
-                shared_expert_up = orig_shared_expert.up_proj.weight.T
-                shared_expert_gate_up = (
-                    torch.stack((shared_expert_gate, shared_expert_up), dim=-1)
-                    .view(*shared_expert_up.shape[:-1], -1)
-                    .contiguous()
+            see_memory_usage(f"{layer} after orig mlp to device", force=False)
+
+            def copy_weights(from_name, to_param, local_expert_indices):
+                if experts_is_a_list:  # ModuleList models like qwen
+                    weight_stacked = torch.stack(
+                        [getattr(orig_experts[i], from_name).weight.T for i in local_expert_indices]
+                    )
+                else:  # gpt-oss-like models with a stack of experts weights
+                    weight_stacked = getattr(orig_experts, from_name)[local_expert_indices, ...]
+                to_param.copy_(weight_stacked)
+
+            # pr0(f"{local_expert_indices=}", force=True)
+            # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
+            if experts_is_a_list:
+                # pr0(f"{orig_experts[0].gate_proj.weight.shape=}", force=True)
+
+                # 1. mlp.gate => router_gate
+                arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
+
+                # 2. normal experts
+                # 2a. gate_proj + up_proj => expert_gate_up
+                # orig_experts[0].gate_proj.weight [hidden_size, intermediate_size]
+                # gate_stacked.shape == [num_local_experts, intermediate_size, hidden_size]
+
+                gate_stacked = torch.stack(
+                    [getattr(orig_experts[i], "gate_proj").weight.T for i in local_expert_indices]
                 )
-                arctic_moe.shared_expert_gate_up.copy_(shared_expert_gate_up)
-                pr0(f"{arctic_moe.shared_expert_gate_up.shape=}", force=True)
+                # pr0(f"{gate_stacked.shape=}", force=True)
+                # same shape as gate_stacked
+                up_stacked = torch.stack([getattr(orig_experts[i], "up_proj").weight.T for i in local_expert_indices])
+                # pr0(f"{up_stacked.shape=}", force=True)
 
-                # b. down_proj -> shared_expert_down
-                shared_expert_down = orig_shared_expert.down_proj.weight.T
-                arctic_moe.shared_expert_down.copy_(shared_expert_down)
+                # pr0(f"util 1 {tensor_has_nan(up_stacked)}", force=True)
+                # putting the gate and up weigths in every-other order to match arctic-moe style
 
-                # c. shared_expert_gate -> shared_expert_output_gate
-                shared_expert_gate = orig_shared_expert_gate.weight.T
-                arctic_moe.shared_expert_output_gate.copy_(shared_expert_gate)
+                gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
+                # pr0(f"{gate_up.shape=}", force=True)
+                # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
+                arctic_moe.expert_gate_up.copy_(gate_up)
 
-        else:  # gpt-oss
+                # 2b. down_proj -> expert_down
+                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
 
-            # 1. mlp.router => router_gate
-            arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
-            # 2. gate_up_proj -> expert_gate_up
-            copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
-            # 3. down_proj -> expert_down
-            copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+                # 3. shared expert
+                if arctic_moe_config.use_shared_expert:
+                    pr0("shared expert detected", force=True)
+
+                    # a. gate_proj + up_proj -> shared_expert_gate_up
+                    shared_expert_gate = orig_shared_expert.gate_proj.weight.T
+                    shared_expert_up = orig_shared_expert.up_proj.weight.T
+                    shared_expert_gate_up = (
+                        torch.stack((shared_expert_gate, shared_expert_up), dim=-1)
+                        .view(*shared_expert_up.shape[:-1], -1)
+                        .contiguous()
+                    )
+                    arctic_moe.shared_expert_gate_up.copy_(shared_expert_gate_up)
+                    pr0(f"{arctic_moe.shared_expert_gate_up.shape=}", force=True)
+
+                    # b. down_proj -> shared_expert_down
+                    shared_expert_down = orig_shared_expert.down_proj.weight.T
+                    arctic_moe.shared_expert_down.copy_(shared_expert_down)
+
+                    # c. shared_expert_gate -> shared_expert_output_gate
+                    shared_expert_gate = orig_shared_expert_gate.weight.T
+                    arctic_moe.shared_expert_output_gate.copy_(shared_expert_gate)
+
+            else:  # gpt-oss
+
+                # 1. mlp.router => router_gate
+                arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
+                # 2. gate_up_proj -> expert_gate_up
+                copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
+                # 3. down_proj -> expert_down
+                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+
+        if not is_resume:
+            copy_weights()
 
         # pr0(f"util 3 {tensor_has_nan(arctic_moe.expert_gate_up)}", force=True)
         # pr0(f"util 4 {tensor_has_nan(arctic_moe.expert_down)}", force=True)
@@ -270,7 +295,7 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size):
         # layer_module.mlp.shared_expert_gate.to(meta_device)
         layer_module.mlp.to(meta_device)
 
-        # stash the original - to hide it the assignment can be anything but nn.Module or nn.ModuleList
+        # stash the original - to hide it the assignment value can be anything but nn.Module or nn.ModuleList
         arctic_moe._hide = dict(orig_mlp=layer_module.mlp)
         see_memory_usage(f"{layer} after release", force=False)
 
@@ -497,3 +522,114 @@ def split_params_into_different_moe_groups_for_optimizer(
             param_groups.append(param_group)
 
     return param_groups
+
+
+def get_expert_ckpt_name(save_dir, tag, ep_rank, moe_layer_id):
+    ckpt_name = os.path.join(save_dir, tag, f"ep_rank_{ep_rank}_moe_layer_{moe_layer_id}_model_states.pt")
+    return ckpt_name
+
+
+def amoe_save_checkpoint(self, save_dir, tag, client_state={}, exclude_frozen_parameters=False):
+    """
+    It looks like we have to take care of saving everything in the model when using MoE and not just MoE params.
+    """
+
+    print(f"AMoE Checkpoint saving into {save_dir}/{tag}")
+    save_path = self._get_ckpt_name(save_dir, tag)
+
+    # XXX: for now ignoring expert_data_parallel
+
+    ep_rank = 0
+    moe_layer_id = 0
+    for n_module, module in self.module.named_modules():
+
+        if isinstance(module, ArcticMoE):
+            ep_rank = module.ep_rank  # this will also be used later for optimizer states
+            # get all moe parameters
+            moe_state_dict = {}
+            for n, p in module.state_dict().items():
+                # if 'expert' in n and 'moe.gate.wg.weight' not in n:
+                moe_state_dict[n_module + "." + n] = p
+            # moe_str_prefix = ".arctic_moe."
+            pr0(f"saving keys {moe_state_dict.keys()}", force=True)
+
+            moe_save_path = get_expert_ckpt_name(save_dir, tag, ep_rank, moe_layer_id)
+            self.checkpoint_engine.save(moe_state_dict, moe_save_path)
+
+            moe_layer_id += 1
+
+    self._curr_ckpt_path = os.path.join(save_dir, tag)
+
+    # Save optimizer states. They are different across each EP rank
+    optimizer_state = {
+        "optimizer": self.optimizer.state_dict() if self.optimizer and not self.zero_optimization() else None
+    }
+    # TODO: why use BufferedWriter not the path
+    file_path = self._get_optimizer_ckpt_name(save_dir, tag, ep_rank)
+    self.checkpoint_engine.save(optimizer_state, file_path)
+
+    # Load flow uses below saved file for model parameters, RNG and more
+    if ep_rank == 0:
+        # Get non-moe parameters
+        # Classes DeepSpeedEngine and PipelineEngine have different behavior for method module_state_dict.
+        # DeepSpeedEngine returns the state dict, where PipelineEngine saves the state dict and returns None.
+        # We need to get the state dict, therefore, call to DeepSpeedEngine (base class for PipelineEngine)
+        full_state_dict = DeepSpeedEngine.module_state_dict(self, exclude_frozen_parameters=exclude_frozen_parameters)
+        non_moe_state_dict = {k: v for k, v in full_state_dict.items() if not ("expert" in k or "router_gate" in k)}
+
+        # TODO: update num experts info,.. in checkpoint
+        state = dict(
+            module=non_moe_state_dict,
+            lr_scheduler=self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
+            data_sampler=(
+                self.training_dataloader.data_sampler.state_dict()
+                if (self.training_dataloader is not None and self.curriculum_learning_enabled())
+                else None
+            ),
+            random_ltd=self.random_ltd_scheduler.state_dict() if self.random_ltd_enabled() else None,
+            sparse_tensor_module_names=self.sparse_tensor_module_names,
+            skipped_steps=self.skipped_steps,
+            global_steps=self.global_steps,
+            global_samples=self.global_samples,
+            dp_world_size=self.dp_world_size,
+            mp_world_size=self.mp_world_size,
+            num_experts=self.num_experts,
+        )
+        state.update(client_state)
+        print(
+            f"Saving model checkpoint: {save_path}",
+        )
+        saveable_state_dict = state
+        if self.checkpoint_engine.preserves_storage_sharing():
+            saveable_state_dict = clone_tensors_for_torch_save(state)
+        self.checkpoint_engine.save(saveable_state_dict, save_path)
+
+    # exit()
+
+
+# XXX: additionally to perform a fast resume we also need to create a subclass with the original moe mlp blocks overridden with AMoE and its config somehow as well and use that in model/hf_factory.py -
+#
+
+
+def amoe_load_state_dict(
+    checkpoint_path,
+    tag,
+    state_dict,
+    old_moe_load,
+    model=None,
+    mpu=None,
+    num_experts=1,
+    checkpoint_engine=TorchCheckpointEngine(),
+):
+    print("AMoE Checkpoint loading")
+
+    moe_layer_id = 0
+    for n_module, module in model.named_modules():
+        pr0(f"{n_module}")
+        if isinstance(module, ArcticMoE):
+            ep_rank = module.ep_rank
+            moe_ckpt_path = get_expert_ckpt_name(checkpoint_path, tag, ep_rank, moe_layer_id)
+            ep_state_dict = checkpoint_engine.load(moe_ckpt_path, map_location=torch.device("cpu"))
+            pr0(f"loading keys {ep_state_dict.keys()}", force=True)
+            state_dict.update(ep_state_dict)
+            moe_layer_id += 1

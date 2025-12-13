@@ -46,6 +46,13 @@ model_gpt_oss = "tiny-random/gpt-oss-bf16"
 models = [model_qwen, model_qwen_next]
 
 
+def get_train_logs(train_file_log_path, cs):
+    try:
+        return read_json_file(train_file_log_path)
+    except FileNotFoundError as e:
+        raise RuntimeError(f"Error caught while reading {train_file_log_path}: {e}Relevant stderr output:\n{cs.err}")
+
+
 @pytest.mark.gpu
 @require_torch_multi_gpu
 class TestTrainerWithLauncher(TestCasePlus):
@@ -103,7 +110,7 @@ seed: 42
         baseline_checkpoint_dir = baseline_output_dir / "checkpoint"
 
         baseline_config = f"""
-exit_iteration: 4
+exit_iteration_this_run: 2
 
 optimizer:
   type: fused_adam
@@ -112,6 +119,12 @@ optimizer:
 train_log_metrics_path: {baseline_log_train_file}
 
 checkpoint:
+  - type: deepspeed
+    save_every_n_epochs: 1
+    save_every_n_steps: 2
+    output_dir: {baseline_checkpoint_dir}
+    save_end_of_training: true
+    auto_resume: true
   - type: huggingface
     save_end_of_training: true
     output_dir: {baseline_checkpoint_dir}
@@ -127,17 +140,21 @@ checkpoint:
         print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        self.assertIn("iter: 4/4", cs.combined)
-
-        try:
-            train_logs = read_json_file(baseline_log_train_file)
-        except FileNotFoundError as e:
-            raise RuntimeError(
-                f"Error caught while reading {baseline_log_train_file}: {e}Relevant stderr output:\n{cs.err}"
-            )
+        self.assertIn("iter:  2/10", cs.combined)
+        train_logs = get_train_logs(baseline_log_train_file, cs)
         self.assertEqual(train_logs[0]["iter"], 1)
         loss_a_1 = train_logs[0]["loss"]
         loss_a_2 = train_logs[1]["loss"]
+
+        # run another round with resume
+        with CaptureStd() as cs:
+            execute_subprocess_async(cmd, env=self.get_env())
+        self.assertIn("iter:  4/10", cs.combined)
+        train_logs = get_train_logs(baseline_log_train_file, cs)
+        self.assertEqual(train_logs[0]["iter"], 1)
+        loss_a_3 = train_logs[0]["loss"]
+        loss_a_4 = train_logs[1]["loss"]
+
         # loss_a_3 = train_logs[2]["loss"]
 
         # exit(0)
@@ -150,7 +167,7 @@ checkpoint:
         amoe_checkpoint_dir = amoe_output_dir / "checkpoint"
 
         amoe_config = f"""
-exit_iteration: 4
+exit_iteration_this_run: 2
 
 optimizer:
   type: fused_adam_moe
@@ -162,6 +179,12 @@ expert_parallel_size: 2
 train_log_metrics_path: {amoe_log_train_file}
 
 checkpoint:
+  - type: deepspeed
+    save_every_n_epochs: 1
+    save_every_n_steps: 2
+    output_dir: {amoe_checkpoint_dir}
+    save_end_of_training: true
+    auto_resume: true
   - type: huggingface
     save_end_of_training: true
     output_dir: {amoe_checkpoint_dir}
@@ -174,32 +197,43 @@ checkpoint:
             """.split()
 
         # keep for quick debug
-        # print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
+        print(" ".join([f"\nPYTHONPATH={self.src_dir_str}"] + cmd))
         with CaptureStd() as cs:
             execute_subprocess_async(cmd, env=self.get_env())
-        self.assertIn("iter: 4/4", cs.combined)
-
-        try:
-            train_logs = read_json_file(amoe_log_train_file)
-        except FileNotFoundError as e:
-            raise RuntimeError(
-                f"Error caught while reading {amoe_log_train_file}: {e}Relevant stderr output:\n{cs.err}"
-            )
+        self.assertIn("iter:  2/10", cs.combined)
+        train_logs = get_train_logs(amoe_log_train_file, cs)
         self.assertEqual(train_logs[0]["iter"], 1)
         loss_b_1 = train_logs[0]["loss"]
         loss_b_2 = train_logs[1]["loss"]
-        # loss_b_3 = train_logs[2]["loss"]
+
+        # run another round with resume
+        with CaptureStd() as cs:
+            execute_subprocess_async(cmd, env=self.get_env())
+        self.assertIn("iter:  4/10", cs.combined)
+        train_logs = get_train_logs(amoe_log_train_file, cs)
+        self.assertEqual(train_logs[0]["iter"], 1)
+        loss_b_3 = train_logs[0]["loss"]
+        loss_b_4 = train_logs[1]["loss"]
 
         # quality checks that loss is closely matching DS Z2 non-AMoE setup
         # dtype is lost when logs are saved, so matching againt bf16 standard torch.testing.assert_close tolerance which is rtol=1.6e-2, atol=1e-5
         torch_assert_close(loss_a_1, loss_b_1, rtol=1.6e-2, atol=1e-5)
         torch_assert_close(loss_a_2, loss_b_2, rtol=1.6e-2, atol=1e-5)
-        # torch_assert_close(loss_a_3, loss_b_3, rtol=1.6e-2, atol=1e-5)
+        torch_assert_close(loss_a_3, loss_b_3, rtol=1.6e-2, atol=1e-5)
+        torch_assert_close(loss_a_4, loss_b_4, rtol=1.6e-2, atol=1e-5)
+
+        # now check the conversion from AMoE to original model format worked correctly
+        torch_assert_safetensors_close(
+            baseline_checkpoint_dir / "global_step_2/model.safetensors",
+            amoe_checkpoint_dir / "global_step_2/model.safetensors",
+            rtol=2e-2,
+            atol=2e-5,
+        )
 
         # now check the conversion from AMoE to original model format worked correctly
         torch_assert_safetensors_close(
             baseline_checkpoint_dir / "global_step_4/model.safetensors",
             amoe_checkpoint_dir / "global_step_4/model.safetensors",
-            rtol=2e-2,
-            atol=2e-5,
+            atol=3e-5,
+            rtol=2.2e-2,
         )

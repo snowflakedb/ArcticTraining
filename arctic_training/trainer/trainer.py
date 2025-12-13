@@ -153,7 +153,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
+        self.global_step_this_run = 0
+        self.global_step_at_start_this_run = 0
         self.early_stop = False
+        self.early_stop_reason = ""
         self.world_size = config.world_size
         self.global_rank = config.global_rank
         self.epoch_finished = False
@@ -176,6 +179,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
+
+        # checkpointing and resume
+        self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
+        for engine in self.checkpoint_engines:
+            # currently only deepspeed engine supports resume from intermediate checkpoint
+            if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
+                self.is_resume = True
+
+        print(f"IS RESUME={self.is_resume}")
 
         # XXX: We can abstract this section further with AT-specific wrapper, but
         # UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
@@ -238,13 +250,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if not dist.is_initialized():
                 dist.init_distributed(dist_backend="nccl", dist_init_required=True)
 
-            # override the original Meg-DS profiler print util
-            # import deepspeed.runtime.engine
-            from deepspeed.runtime.engine import DeepSpeedEngine
+            from arctic_training.model.moe.utils import monkey_patch_ds_moe
 
-            from arctic_training.model.moe.moe import print_forward_breakdown
-
-            DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
+            monkey_patch_ds_moe()
 
             # deepspeed.runtime.engine.DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
             # DeepspeedMoE is only integrated with ZeRO-2
@@ -269,7 +277,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             )
 
             # self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
-            remap_orig_moe_mlp_params_to_arctic_moe(self.model, ep_size=self.config.expert_parallel_size)
+
+            # we sort out if we are in resume mode much later, by actually trying to load the model, but that's too late so we are going to rely on testing if the latest checkpoint exists instead
+            # early_is_resume = False
+            # for engine in self.checkpoint_engines:
+            #     # currently only deepspeed engine supports resume from intermediate checkpoint
+            #     if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
+            #         early_is_resume = True
+            remap_orig_moe_mlp_params_to_arctic_moe(
+                self.model, ep_size=self.config.expert_parallel_size, is_resume=self.is_resume
+            )
             # self.groups)
             # XXX: check we can remap back
             # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
@@ -351,14 +368,18 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     device=self.device,
                 )
 
-        self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
-
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
                 engine.load(self.model)
-                # Check if we actually loaded a checkpoint by seeing if global_step changed
-                if self.global_step > 0:
-                    self.is_resume = True
+
+        # self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
+
+        # for engine in self.checkpoint_engines:
+        #     if engine.config.auto_resume:
+        #         engine.load(self.model)
+        #         # Check if we actually loaded a checkpoint by seeing if global_step changed
+        #         if self.global_step > 0:
+        #             self.is_resume = True
 
         self.metrics = Metrics(self)
 
@@ -460,6 +481,34 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         self.model.backward(loss)
 
+    def need_early_exit(self):
+        """
+        If we need to exit early, set `self.early_stop_reason` and return True
+        Otherwise return False
+        """
+        pr0(
+            f"ITERATION {self.global_step=} {self.config.exit_iteration=} {self.config.exit_iteration_this_run=}",
+            force=True,
+        )
+        # exit conditions in the order of likelyhood
+        if (
+            self.config.exit_iteration_this_run > 0
+            and self.config.exit_iteration_this_run == self.global_step_this_run
+        ):
+            self.early_stop_reason = f"reached exit_iteration_this_run of {self.global_step_this_run}"
+            return True
+        elif self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
+            self.early_stop_reason = f"reached exit_iteration of {self.global_step}"
+            return True
+        elif self.config.kill_switch_path.exists():
+            self.early_stop_reason = f"detected kill switch {self.config.kill_switch_path}"
+            return True
+        elif self.global_step >= self.training_horizon:
+            self.early_stop_reason = f"reached training_horizon of {self.global_step}"
+            return True
+
+        return False
+
     @callback_wrapper("step")
     def step(self, batch: Dict[str, torch.Tensor]) -> None:
         """
@@ -513,12 +562,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
-        if self.global_step >= self.training_horizon:
-            self.early_stop = True
-
-        if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
-            self.early_stop = True
-            logger.info(f"Hit exit iteration of {self.global_step}, ending training")
+        self.global_step_this_run = self.global_step - self.global_step_at_start_this_run
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
@@ -546,6 +590,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         for batch in batch_iterator:
             self.train_batch_idx += 1
+
+            # Run the early exit checks before stepping to correctly deal with resume should the training not continue
+            if self.need_early_exit():
+                self.early_stop = True
+                break
 
             self.gas_boundary = self.train_batch_idx % self.config.gradient_accumulation_steps == 0
 
@@ -597,11 +646,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                             metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
                             self.wandb_experiment.log(metrics, step=self.global_step)
 
-            if self.config.kill_switch_path.exists():
-                self.early_stop = True
-
-            if self.early_stop:
-                break
         self.metrics.stop_timer("iter")
         self.epoch_finished = True
 
@@ -614,6 +658,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.print_model_parameters_header()
 
         try:
+
+            # to be able to keep track of number of steps of this run inside step()
+            self.global_step_at_start_this_run = self.global_step
+
             for epoch_idx in self.epochs:
                 self.epoch_idx = epoch_idx
                 self.epoch()
@@ -621,7 +669,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     break
                 self.checkpoint()
             self.training_finished = True
-            logger.info("Training finished.")
+            if self.global_rank == 0:
+                if self.early_stop:
+                    print(f"*** Exiting training early because training {self.early_stop_reason}")
+                else:
+                    print("*** Training finished normally.")
             self.checkpoint()
         except Exception as e:
             logger.error(f"Training failed with error: {e}")
@@ -647,14 +699,28 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
 
-        if self.training_finished and self.use_arctic_moe and len(self.checkpoint_engines) > 0:
-            # restore the original moe mlp weights
-            from arctic_training.model.moe.utils import remap_arctic_moe_to_orig_moe_mlp_params
-
-            remap_arctic_moe_to_orig_moe_mlp_params(self.model)
+        pr0(f"{self.global_step_this_run=}")
+        if self.global_step_this_run == 0:
+            logger.info("No steps were run this run, not saving the checkpoint")
+            return
 
         for engine in self.checkpoint_engines:
             if engine.do_checkpoint:
+
+                if engine.name == "huggingface" and self.use_arctic_moe:
+                    if self.training_finished:
+                        # export to the original moe mlp format/layout - this is slow but it's the end of the training so it's fine.
+                        from arctic_training.model.moe.utils import remap_arctic_moe_to_orig_moe_mlp_params
+
+                        logger.info("Exporting to the original MoE format before saving the checkpoint")
+                        remap_arctic_moe_to_orig_moe_mlp_params(self.model)
+                    else:
+                        raise ValueError(
+                            "Currently supporting saving to HF checkpoint for AMoE models only when the training is"
+                            " finished, because conversion will be very slow. For interim checkpoints use `deepspeed`"
+                            " type of the checkpoint as it'd be much faster to save to and resume from. "
+                        )
+
                 logger.info(f"Saving Checkpoint at global step: {self.global_step}.")
                 engine.save(self.model)
 
