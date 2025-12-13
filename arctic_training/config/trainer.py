@@ -126,6 +126,13 @@ class TrainerConfig(BaseConfig):
     sequence_parallel_size: int = Field(default=1, ge=1)
     """ Sequence Parallelism Degree. Disabled if set to 1 """
 
+    expert_parallel_size: int = Field(default=1, ge=1)
+    """ Expert Parallelism Degree. Disabled if set to 1 """
+
+    # do we need arctic_moe if expert_parallel_size > 1?
+    arctic_moe: Union[bool, Literal["auto"]] = False
+    """ Whether to enable arctic moe. Values True/False/"auto" - "auto" will try to detect if the model is an MoE model """
+
     activation_checkpoint_cpu_offload: bool = False
     """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
 
@@ -148,7 +155,10 @@ class TrainerConfig(BaseConfig):
     """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
-    """ Force exit of training after specified iteration count (useful for debugging). """
+    """ Do not continue training after specified iteration count even if there is still data and epochs to run (useful for debugging and tests). """
+
+    exit_iteration_this_run: int = Field(default=0, ge=0)
+    """ Force exit of training after specified iteration count in this run (but will restart running until `exit_iteration` or running out of data/epochs after resume (useful for debugging and tests). """
 
     min_iterations: HumanInt = Field(default=0, ge=0)
     """ When >0, the training dataset will be replicated until there is enough data to run this many iterations. """
