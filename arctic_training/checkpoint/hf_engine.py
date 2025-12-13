@@ -153,5 +153,9 @@ class HFCheckpointEngine(CheckpointEngine):
 
         self.trainer.tokenizer.save_pretrained(self.checkpoint_dir)
 
+    @property
+    def latest_checkpoint_exists(self) -> bool:
+        raise NotImplementedError
+
     def load(self, model) -> None:
         raise NotImplementedError
