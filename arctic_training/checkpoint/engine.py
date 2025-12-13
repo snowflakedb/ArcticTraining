@@ -98,6 +98,8 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
             and self.trainer.global_step > 0
         ):
             return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
+
+        # print(f"{return_value=} {self.trainer.global_step=} {self.config.save_every_n_steps=}")
         if self.config.save_every_n_epochs:
             return_value = return_value or (
                 self.epoch_finished and (self.trainer.epoch_idx % self.config.save_every_n_epochs) == 0
@@ -112,6 +114,11 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
         checkpoint_dir = self.config.output_dir / f"global_step_{self.trainer.global_step}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         return checkpoint_dir
+
+    @property
+    def latest_checkpoint_exists(self) -> bool:
+        """Checks if the latest checkpoint exists."""
+        raise NotImplementedError("latest_checkpoint_exists method must be implemented")
 
     @abstractmethod
     @callback_wrapper("load")
