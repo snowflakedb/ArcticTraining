@@ -273,6 +273,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     device=self.device,
                 )
 
+        for engine in self.checkpoint_engines:
+            if engine.config.auto_resume:
+                engine.load(self.model)
+
         self.metrics = Metrics(self)
 
         if self.global_rank == 0 and self.config.wandb.enable:
