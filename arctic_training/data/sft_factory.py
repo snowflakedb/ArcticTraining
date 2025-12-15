@@ -220,22 +220,32 @@ def pack_sft_batch(
         best_remaining = None
         for bin_idx, current_len in enumerate(bin_lengths):
             remaining = max_length - current_len
-            if sample_len <= remaining:
-                remaining_after = remaining - sample_len
-                if best_remaining is None or remaining_after < best_remaining:
-                    best_remaining = remaining_after
-                    best_bin = bin_idx
+            if remaining <= 0:
+                continue
+            if not always_max_length and sample_len > remaining:
+                continue
+            take_len = min(sample_len, remaining)
+            remaining_after = remaining - take_len
+            if best_remaining is None or remaining_after < best_remaining:
+                best_remaining = remaining_after
+                best_bin = bin_idx
 
         if best_bin is None:
             best_bin = start_new_bin()
 
         target_bin = bins[best_bin]
-        target_bin["input_ids"].extend(input_ids)
-        target_bin["labels"].extend(labels)
-        target_bin["attention_mask"].extend(attention_mask)
-        target_bin["position_ids"].extend(range(sample_len))
-        target_bin["packed_sample_seqlens"].append(sample_len)
-        bin_lengths[best_bin] += sample_len
+        remaining = max_length - bin_lengths[best_bin]
+        if remaining <= 0:
+            continue  # should not happen, but guard against negative remaining
+        take_len = min(sample_len, remaining) if always_max_length else sample_len
+        take_len = min(take_len, remaining)
+
+        target_bin["input_ids"].extend(input_ids[:take_len])
+        target_bin["labels"].extend(labels[:take_len])
+        target_bin["attention_mask"].extend(attention_mask[:take_len])
+        target_bin["position_ids"].extend(range(take_len))
+        target_bin["packed_sample_seqlens"].append(take_len)
+        bin_lengths[best_bin] += take_len
 
     for bin_idx, packed in enumerate(bins):
         total_len = bin_lengths[bin_idx]
