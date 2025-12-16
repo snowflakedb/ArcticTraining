@@ -29,7 +29,7 @@ model:
 
 data:
   sources:
-    - type: snowflake_table
+    - type: snowflake
       # Fully qualified table name: [[db.]schema.]table_name
       table_name: ARCTIC_TRAINING.CAUSAL_DEMO.GUTENBERG_100
       # Map Snowflake column names (uppercase) to expected lowercase

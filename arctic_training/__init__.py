@@ -37,8 +37,7 @@ from arctic_training.data.hf_causal_source import HFDataSourceCausal
 from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.sft_factory import SFTDataFactory
-from arctic_training.data.snowflake_source import SnowflakeDatasetDataSource
-from arctic_training.data.snowflake_source import SnowflakeTableDataSource
+from arctic_training.data.snowflake_source import SnowflakeDataSource
 from arctic_training.data.source import DataSource
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory

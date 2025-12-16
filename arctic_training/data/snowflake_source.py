@@ -71,49 +71,28 @@ def get_default_snowflake_session() -> "Session":
     return Session.builder.getOrCreate()
 
 
-class SnowflakeSqlSourceConfig(DataSourceConfig):
-    """Configuration for Snowflake SQL data sources."""
+class SnowflakeSourceConfig(DataSourceConfig):
+    """Configuration for Snowflake data sources.
 
-    sql: str = ""
+    Supports three mutually exclusive modes:
+    - sql: Execute a raw SQL query
+    - table_name: Load all data from a table (generates SELECT * FROM table_name)
+    - dataset_uri: Load from a versioned Snowflake Dataset
+    """
+
+    sql: Optional[str] = None
     """
     SQL query to execute against Snowflake.
     Example: 'SELECT col1, col2 FROM my_db.my_schema.my_table WHERE created_at > "2024-01-01"'
     """
 
-    column_mapping: Dict[str, str] = Field(default_factory=dict)
-    """
-    Optional mapping from source column names to target column names.
-    If empty, data passes through unchanged.
-    Example: {'source_col': 'target_col'} renames 'source_col' to 'target_col'.
-    """
-
-    limit: Optional[int] = None
-    """Maximum number of rows to load. If None, loads all rows."""
-
-    batch_size: int = 1024
-    """Batch size for internal data retrieval."""
-
-
-class SnowflakeTableSourceConfig(SnowflakeSqlSourceConfig):
-    """Configuration for Snowflake Table data sources."""
-
-    table_name: str
+    table_name: Optional[str] = None
     """
     Snowflake table reference in format [[db.]schema.]table_name.
     Examples: 'my_table', 'my_schema.my_table', 'my_db.my_schema.my_table'
     """
 
-    @model_validator(mode="after")
-    def generate_sql_from_table_name(self) -> Self:
-        """Generate SQL query from table_name."""
-        self.sql = f"SELECT * FROM {self.table_name}"
-        return self
-
-
-class SnowflakeDatasetSourceConfig(DataSourceConfig):
-    """Configuration for Snowflake Dataset data sources."""
-
-    dataset_uri: str
+    dataset_uri: Optional[str] = None
     """
     Snowflake Dataset URI in format snow://dataset/<dataset_name>/versions/<version_name>.
     Where <dataset_name> is in format [[db.]schema.]dataset_name.
@@ -134,39 +113,64 @@ class SnowflakeDatasetSourceConfig(DataSourceConfig):
     """Batch size for internal data retrieval."""
 
     @model_validator(mode="after")
-    def validate_dataset_uri(self) -> Self:
-        """Validate that dataset_uri matches the expected format."""
-        match = _DATASET_URI_PATTERN.match(self.dataset_uri)
-        if not match:
-            raise ValueError(
-                f"Invalid dataset_uri format: '{self.dataset_uri}'. "
-                "Expected format: 'snow://dataset/<dataset_name>/versions/<version_name>'"
-            )
+    def validate_exactly_one_source(self) -> Self:
+        """Ensure exactly one of sql, table_name, or dataset_uri is specified."""
+        sources = [self.sql, self.table_name, self.dataset_uri]
+        specified = sum(1 for s in sources if s is not None)
+        if specified != 1:
+            raise ValueError("Exactly one of 'sql', 'table_name', or 'dataset_uri' must be specified")
 
-        # Validate the dataset_name component using Snowflake's identifier parser
-        from snowflake.ml._internal.utils.identifier import parse_schema_level_object_identifier
+        # Auto-generate sql from table_name
+        if self.table_name:
+            self.sql = f"SELECT * FROM {self.table_name}"
 
-        dataset_name = match.group(1)
-        try:
-            parse_schema_level_object_identifier(dataset_name)
-        except ValueError as e:
-            raise ValueError(f"Invalid dataset_name format in URI: {e}")
+        # Validate dataset_uri format if specified
+        if self.dataset_uri:
+            match = _DATASET_URI_PATTERN.match(self.dataset_uri)
+            if not match:
+                raise ValueError(
+                    f"Invalid dataset_uri format: '{self.dataset_uri}'. "
+                    "Expected format: 'snow://dataset/<dataset_name>/versions/<version_name>'"
+                )
+
+            # Validate the dataset_name component using Snowflake's identifier parser
+            from snowflake.ml._internal.utils.identifier import parse_schema_level_object_identifier
+
+            dataset_name = match.group(1)
+            try:
+                parse_schema_level_object_identifier(dataset_name)
+            except ValueError as e:
+                raise ValueError(f"Invalid dataset_name format in URI: {e}")
 
         return self
 
 
-class SnowflakeSqlDataSource(DataSource):
-    """DataSource for loading data from Snowflake using SQL queries."""
+class SnowflakeDataSource(DataSource):
+    """DataSource for loading data from Snowflake.
+
+    Supports three modes:
+    - SQL query: Execute arbitrary SQL and load results
+    - Table: Load all data from a Snowflake table
+    - Dataset: Load from a versioned Snowflake Dataset
+    """
 
     name = "snowflake"
-    config: SnowflakeSqlSourceConfig
+    config: SnowflakeSourceConfig
 
-    def load(self, config: SnowflakeSqlSourceConfig, split: str) -> DatasetType:
-        """Load data from Snowflake using a SQL query.
+    def load(self, config: SnowflakeSourceConfig, split: str) -> DatasetType:
+        """Load data from Snowflake.
 
-        Uses DataConnector.from_sql() to execute the query.
+        Routes to the appropriate loading method based on config.
         """
         _check_snowflake_ml_installed()
+
+        if config.dataset_uri:
+            return self._load_from_dataset(config)
+        else:
+            return self._load_from_sql(config)
+
+    def _load_from_sql(self, config: SnowflakeSourceConfig) -> DatasetType:
+        """Load data using a SQL query."""
         from snowflake.ml.data.data_connector import DataConnector
 
         session = get_default_snowflake_session()
@@ -183,40 +187,15 @@ class SnowflakeSqlDataSource(DataSource):
 
         return dataset
 
-    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
-        """Apply column mapping if provided."""
-        if self.config.column_mapping:
-            dataset = dataset.rename_columns(self.config.column_mapping)
-        return dataset
-
-
-class SnowflakeTableDataSource(SnowflakeSqlDataSource):
-    """DataSource for loading data from Snowflake Tables."""
-
-    name = "snowflake_table"
-    config: SnowflakeTableSourceConfig
-
-
-class SnowflakeDatasetDataSource(DataSource):
-    """DataSource for loading data from Snowflake Datasets."""
-
-    name = "snowflake_dataset"
-    config: SnowflakeDatasetSourceConfig
-
-    def load(self, config: SnowflakeDatasetSourceConfig, split: str) -> DatasetType:
-        """Load data from a Snowflake Dataset.
-
-        Parses the dataset URI to extract dataset name and version,
-        loads the Dataset using load_dataset(), then uses DataConnector
-        to convert to a HuggingFace dataset.
-        """
-        _check_snowflake_ml_installed()
+    def _load_from_dataset(self, config: SnowflakeSourceConfig) -> DatasetType:
+        """Load data from a Snowflake Dataset."""
         from snowflake.ml.data.data_connector import DataConnector
         from snowflake.ml.dataset import load_dataset
 
         session = get_default_snowflake_session()
 
         # Parse URI and load the Snowflake Dataset object
+        assert config.dataset_uri is not None
         match = _DATASET_URI_PATTERN.match(config.dataset_uri)
         if not match:
             raise ValueError(f"Invalid dataset_uri format: '{config.dataset_uri}'")

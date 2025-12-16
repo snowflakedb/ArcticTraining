@@ -30,7 +30,7 @@ model:
 
 data:
   sources:
-    - type: snowflake_dataset
+    - type: snowflake
       # Snowflake Dataset URI format: snow://dataset/<name>/versions/<version>
       # Where <name> can be [[db.]schema.]dataset_name
       dataset_uri: "snow://dataset/ARCTIC_TRAINING.CAUSAL_DEMO.GUTENBERG_DATASET/versions/v1"

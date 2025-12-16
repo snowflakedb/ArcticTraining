@@ -1,14 +1,18 @@
 # Causal Training with Snowflake Data Sources
 
-This project demonstrates causal language model training using data stored in Snowflake. It includes examples of all three Snowflake data source types supported by Arctic Training.
+This project demonstrates causal language model training using data stored in Snowflake. It includes examples of all three Snowflake data source modes supported by Arctic Training.
 
-## Snowflake Data Source Types
+## Snowflake Data Source
 
-| Type | Config Key | Description |
+The unified `snowflake` data source type supports three mutually exclusive modes:
+
+| Mode | Config Key | Description |
 |------|------------|-------------|
-| SQL Query | `snowflake` | Execute arbitrary SQL queries against Snowflake |
-| Table | `snowflake_table` | Load data directly from a Snowflake table |
-| Dataset | `snowflake_dataset` | Load data from a versioned Snowflake Dataset |
+| SQL Query | `sql` | Execute arbitrary SQL queries against Snowflake |
+| Table | `table_name` | Load data directly from a Snowflake table |
+| Dataset | `dataset_uri` | Load data from a versioned Snowflake Dataset |
+
+**Note:** Exactly one of `sql`, `table_name`, or `dataset_uri` must be specified.
 
 ## Prerequisites
 
@@ -96,7 +100,7 @@ After set up, you should have:
 
 ## Running Training
 
-### Using SQL Query Source
+### Using SQL Query Mode
 
 Load data via a custom SQL query:
 
@@ -113,9 +117,9 @@ data:
       column_mapping: {"TEXT": "text"}
 ```
 
-### Using Table Source
+### Using Table Name Mode
 
-Load data directly from a table:
+Load data directly from a table (auto-generates `SELECT * FROM table_name`):
 
 ```bash
 arctic_training run-causal-snowflake-table.yml
@@ -125,12 +129,12 @@ Config snippet:
 ```yaml
 data:
   sources:
-    - type: snowflake_table
+    - type: snowflake
       table_name: ARCTIC_TRAINING.CAUSAL_DEMO.GUTENBERG_100
       column_mapping: {"TEXT": "text"}
 ```
 
-### Using Dataset Source
+### Using Dataset URI Mode
 
 Load data from a versioned Snowflake Dataset:
 
@@ -142,14 +146,14 @@ Config snippet:
 ```yaml
 data:
   sources:
-    - type: snowflake_dataset
+    - type: snowflake
       dataset_uri: "snow://dataset/ARCTIC_TRAINING.CAUSAL_DEMO.GUTENBERG_DATASET/versions/v1"
       column_mapping: {"TEXT": "text"}
 ```
 
 ## Configuration Options
 
-All three Snowflake data source types support these common options:
+All modes support these common options:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -157,16 +161,15 @@ All three Snowflake data source types support these common options:
 | `limit` | int | None | Maximum rows to load |
 | `batch_size` | int | 1024 | Batch size for data retrieval |
 
-### Type-Specific Options
+### Mode-Specific Options
 
-**`snowflake` (SQL)**
-- `sql`: The SQL query to execute
+Exactly one of the following must be specified:
 
-**`snowflake_table`**
-- `table_name`: Table reference as `[[db.]schema.]table_name`
-
-**`snowflake_dataset`**
-- `dataset_uri`: Dataset URI as `snow://dataset/<name>/versions/<version>`
+| Option | Description |
+|--------|-------------|
+| `sql` | SQL query to execute |
+| `table_name` | Table reference as `[[db.]schema.]table_name` |
+| `dataset_uri` | Dataset URI as `snow://dataset/<name>/versions/<version>` |
 
 ## Troubleshooting
 
