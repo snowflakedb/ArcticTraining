@@ -1,0 +1,55 @@
+# Causal training using Snowflake Table data source
+#
+# This config demonstrates loading training data from a Snowflake table directly.
+# The table name is automatically converted to a SELECT * query internally.
+#
+# Prerequisites:
+#   1. Run setup_snowflake.py to create the required Snowflake resources
+#   2. Configure Snowflake credentials (env vars or ~/.snowflake/connections.toml)
+#
+# Usage:
+#   arctic_training run-causal-snowflake-table.yml
+
+type: causal
+micro_batch_size: 1
+exit_iteration: 10
+min_iterations: 10
+
+deepspeed:
+  zero_optimization:
+    stage: 3
+
+optimizer:
+  learning_rate: 1e-5
+
+model:
+  name_or_path: hf-internal-testing/tiny-random-LlamaForCausalLM
+  attn_implementation: flash_attention_2
+  dtype: bf16
+
+data:
+  sources:
+    - type: snowflake_table
+      # Fully qualified table name: [[db.]schema.]table_name
+      table_name: ARCTIC_TRAINING.CAUSAL_DEMO.GUTENBERG_100
+      # Map Snowflake column names (uppercase) to expected lowercase
+      column_mapping: {"TEXT": "text"}
+      # Optional: limit number of rows for testing
+      # limit: 50
+      # Optional: batch size for data retrieval
+      # batch_size: 1024
+
+  cache_dir: /tmp/data-cache
+  num_proc: 16
+  dl_num_workers: 1
+  max_length: 2048
+
+logger:
+  level: WARNING
+  output_dir: "logs"
+  print_output_ranks: [0,1,2,3,4,5,6,7]
+
+checkpoint:
+  - type: huggingface
+    save_every_n_steps: 300
+    output_dir: /tmp/ft-model
