@@ -100,7 +100,8 @@ class SnowflakeDatasetSourceConfig(DataSourceConfig):
     dataset_uri: str
     """
     Snowflake Dataset URI in format snow://dataset/<dataset_name>/versions/<version_name>.
-    Example: 'snow://dataset/my_training_set/versions/v1'
+    Where <dataset_name> is in format [[db.]schema.]dataset_name.
+    Examples: 'snow://dataset/my_training_set/versions/v1', 'snow://dataset/my_schema.my_dataset/versions/v1'
     """
 
     column_mapping: Dict[str, str] = Field(default_factory=dict)

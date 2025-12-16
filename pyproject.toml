@@ -92,6 +92,7 @@ testing = [
     "pytest-instafail",
     "parameterized",
     "pytest-xdist",
+    "arctic_training[snowflake]",
 ]
 
 formatting = [

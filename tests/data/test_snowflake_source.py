@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 from datasets import Dataset
 from pydantic import ValidationError
+from snowflake.ml.data.data_connector import DataConnector
 
 from arctic_training.data.snowflake_source import SnowflakeDatasetDataSource
 from arctic_training.data.snowflake_source import SnowflakeDatasetSourceConfig
@@ -67,49 +68,21 @@ class TestSnowflakeDatasetSourceConfig:
     """Tests for SnowflakeDatasetSourceConfig validation."""
 
     @pytest.mark.parametrize(
-        ("dataset_uri", "expected_dataset_uri", "expected_name", "expected_version"),
+        "dataset_uri",
         [
-            (
-                "snow://dataset/my_dataset/versions/v1",
-                "snow://dataset/my_dataset/versions/v1",
-                "my_dataset",
-                "v1",
-            ),
-            (
-                'snow://dataset/"my-training_set"/versions/v1.0',
-                'snow://dataset/"my-training_set"/versions/v1.0',
-                '"my-training_set"',
-                "v1.0",
-            ),
+            "snow://dataset/my_dataset/versions/v1",
+            'snow://dataset/"my-training_set"/versions/v1.0',
             # Dataset names can also be qualified as [[db.]schema.]dataset_name
-            (
-                "snow://dataset/my_schema.my_dataset/versions/v1",
-                "snow://dataset/my_schema.my_dataset/versions/v1",
-                "my_schema.my_dataset",
-                "v1",
-            ),
-            (
-                "snow://dataset/my_db.my_schema.my_dataset/versions/v2",
-                "snow://dataset/my_db.my_schema.my_dataset/versions/v2",
-                "my_db.my_schema.my_dataset",
-                "v2",
-            ),
+            "snow://dataset/my_schema.my_dataset/versions/v1",
+            "snow://dataset/my_db.my_schema.my_dataset/versions/v2",
             # Quoted identifiers can be used to allow special characters (e.g. hyphens)
-            (
-                'snow://dataset/"my_db"."my_schema"."my-training_set"/versions/v1',
-                'snow://dataset/"my_db"."my_schema"."my-training_set"/versions/v1',
-                '"my_db"."my_schema"."my-training_set"',
-                "v1",
-            ),
+            'snow://dataset/"my_db"."my_schema"."my-training_set"/versions/v1',
         ],
     )
-    def test_valid_dataset_uri(self, dataset_uri, expected_dataset_uri, expected_name, expected_version):
-        """Test that valid dataset URIs are accepted and normalized."""
+    def test_valid_dataset_uri(self, dataset_uri):
+        """Test that valid dataset URIs are accepted."""
         config = SnowflakeDatasetSourceConfig(type="snowflake_dataset", dataset_uri=dataset_uri)
-        assert config.dataset_uri == expected_dataset_uri
-        name, version = config.parse_dataset_uri()
-        assert name == expected_name
-        assert version == expected_version
+        assert config.dataset_uri == dataset_uri
 
     @pytest.mark.parametrize(
         "dataset_uri",
@@ -148,8 +121,8 @@ class TestSnowflakeTableDataSource:
     """Tests for SnowflakeTableDataSource."""
 
     @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
-    @patch("arctic_training.data.snowflake_source._check_snowflake_ml_installed")
-    def test_load_calls_data_connector_with_sql(self, mock_check, mock_get_session):
+    @patch.object(DataConnector, "from_sql")
+    def test_load_calls_data_connector_with_sql(self, mock_from_sql, mock_get_session):
         """Test that load() calls DataConnector.from_sql() with correct query."""
         # Setup mocks
         mock_session = MagicMock()
@@ -158,8 +131,7 @@ class TestSnowflakeTableDataSource:
         mock_dataset = Dataset.from_dict({"text": ["hello", "world"]})
         mock_connector_instance = MagicMock()
         mock_connector_instance.to_huggingface_dataset.return_value = mock_dataset
-        mock_connector_cls = MagicMock()
-        mock_connector_cls.from_sql.return_value = mock_connector_instance
+        mock_from_sql.return_value = mock_connector_instance
 
         # Create config and data source
         config = SnowflakeTableSourceConfig(
@@ -172,14 +144,10 @@ class TestSnowflakeTableDataSource:
         mock_data_factory = MagicMock()
         data_source = SnowflakeTableDataSource(data_factory=mock_data_factory, config=config)
 
-        # Patch the DataConnector import inside the load method
-        with patch("arctic_training.data.snowflake_source.DataConnector", mock_connector_cls):
-            result = data_source.load(config, split="train")
+        result = data_source.load(config, split="train")
 
         # Verify SQL query was constructed correctly
-        mock_connector_cls.from_sql.assert_called_once_with(
-            "SELECT * FROM my_db.my_schema.my_table", session=mock_session
-        )
+        mock_from_sql.assert_called_once_with("SELECT * FROM my_db.my_schema.my_table", session=mock_session)
         mock_connector_instance.to_huggingface_dataset.assert_called_once_with(
             streaming=False,
             limit=100,
@@ -234,28 +202,32 @@ class TestSnowflakeDatasetDataSource:
         ("dataset_uri", "expected_name", "expected_version"),
         [
             ("snow://dataset/my_dataset/versions/v1", "my_dataset", "v1"),
+            # Dataset names can also be qualified as [[db.]schema.]dataset_name
             ("snow://dataset/my_schema.my_dataset/versions/v1", "my_schema.my_dataset", "v1"),
             ("snow://dataset/my_db.my_schema.my_dataset/versions/v2", "my_db.my_schema.my_dataset", "v2"),
+            # Quoted identifiers can be used to allow special characters (e.g. hyphens)
+            ('snow://dataset/"my-training_set"/versions/v1.0', '"my-training_set"', "v1.0"),
             (
-                'snow://dataset/"my-training_set"/versions/v1.0',
-                "my-training_set",
-                "v1.0",
+                'snow://dataset/"my_db"."my_schema"."my-training_set"/versions/v1',
+                '"my_db"."my_schema"."my-training_set"',
+                "v1",
             ),
         ],
     )
-    def test_load_calls_data_connector(self, dataset_uri, expected_name, expected_version):
-        """Test that load() calls load_dataset and DataConnector correctly."""
+    @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
+    @patch.object(DataConnector, "from_dataset")
+    def test_load_calls_data_connector(
+        self, mock_from_dataset, mock_get_session, dataset_uri, expected_name, expected_version
+    ):
+        """Test that load() calls DataConnector.from_dataset() correctly."""
         # Setup mocks
         mock_session = MagicMock()
-
-        mock_snow_dataset = MagicMock()
-        mock_load_dataset_fn = MagicMock(return_value=mock_snow_dataset)
+        mock_get_session.return_value = mock_session
 
         mock_hf_dataset = Dataset.from_dict({"messages": [["msg1"], ["msg2"]]})
         mock_connector_instance = MagicMock()
         mock_connector_instance.to_huggingface_dataset.return_value = mock_hf_dataset
-        mock_connector_cls = MagicMock()
-        mock_connector_cls.from_dataset.return_value = mock_connector_instance
+        mock_from_dataset.return_value = mock_connector_instance
 
         # Create config and data source
         config = SnowflakeDatasetSourceConfig(
@@ -268,18 +240,12 @@ class TestSnowflakeDatasetDataSource:
         mock_data_factory = MagicMock()
         data_source = SnowflakeDatasetDataSource(data_factory=mock_data_factory, config=config)
 
-        # Patch imports inside the load method
-        with patch("arctic_training.data.snowflake_source._check_snowflake_ml_installed"), patch(
-            "arctic_training.data.snowflake_source.get_default_snowflake_session", return_value=mock_session
-        ), patch("arctic_training.data.snowflake_source.DataConnector", mock_connector_cls), patch(
-            "arctic_training.data.snowflake_source.load_dataset", mock_load_dataset_fn
-        ):
-            result = data_source.load(config, split="train")
+        result = data_source.load(config, split="train")
 
-        # Verify load_dataset was called with parsed name and version
-        mock_load_dataset_fn.assert_called_once_with(mock_session, expected_name, expected_version)
         # Verify DataConnector.from_dataset was called with the loaded dataset
-        mock_connector_cls.from_dataset.assert_called_once_with(mock_snow_dataset)
+        mock_from_dataset.assert_called_once_with(
+            session=mock_session, dataset_name=expected_name, dataset_version=expected_version
+        )
         mock_connector_instance.to_huggingface_dataset.assert_called_once_with(
             streaming=False,
             limit=500,
@@ -306,19 +272,3 @@ class TestSnowflakeDatasetDataSource:
 
         mock_dataset.rename_columns.assert_called_once_with({"chat": "messages"})
         assert result == mock_renamed_dataset
-
-
-class TestImportError:
-    """Tests for graceful handling when snowflake-ml-python is not installed."""
-
-    def test_import_error_message(self):
-        """Test that a helpful error message is raised when package is missing."""
-        # Patch the import to simulate missing package
-        with patch.dict("sys.modules", {"snowflake.ml": None}):
-            from arctic_training.data.snowflake_source import _check_snowflake_ml_installed
-
-            with pytest.raises(ImportError) as exc_info:
-                _check_snowflake_ml_installed()
-
-            assert "snowflake-ml-python is required" in str(exc_info.value)
-            assert "pip install 'arctic_training[snowflake]'" in str(exc_info.value)
