@@ -71,13 +71,13 @@ def get_default_snowflake_session() -> "Session":
     return Session.builder.getOrCreate()
 
 
-class SnowflakeTableSourceConfig(DataSourceConfig):
-    """Configuration for Snowflake Table data sources."""
+class SnowflakeSqlSourceConfig(DataSourceConfig):
+    """Configuration for Snowflake SQL data sources."""
 
-    table_name: str
+    sql: str = ""
     """
-    Snowflake table reference in format [[db.]schema.]table_name.
-    Examples: 'my_table', 'my_schema.my_table', 'my_db.my_schema.my_table'
+    SQL query to execute against Snowflake.
+    Example: 'SELECT col1, col2 FROM my_db.my_schema.my_table WHERE created_at > "2024-01-01"'
     """
 
     column_mapping: Dict[str, str] = Field(default_factory=dict)
@@ -92,6 +92,22 @@ class SnowflakeTableSourceConfig(DataSourceConfig):
 
     batch_size: int = 1024
     """Batch size for internal data retrieval."""
+
+
+class SnowflakeTableSourceConfig(SnowflakeSqlSourceConfig):
+    """Configuration for Snowflake Table data sources."""
+
+    table_name: str
+    """
+    Snowflake table reference in format [[db.]schema.]table_name.
+    Examples: 'my_table', 'my_schema.my_table', 'my_db.my_schema.my_table'
+    """
+
+    @model_validator(mode="after")
+    def generate_sql_from_table_name(self) -> Self:
+        """Generate SQL query from table_name."""
+        self.sql = f"SELECT * FROM {self.table_name}"
+        return self
 
 
 class SnowflakeDatasetSourceConfig(DataSourceConfig):
@@ -139,27 +155,24 @@ class SnowflakeDatasetSourceConfig(DataSourceConfig):
         return self
 
 
-class SnowflakeTableDataSource(DataSource):
-    """DataSource for loading data from Snowflake Tables."""
+class SnowflakeSqlDataSource(DataSource):
+    """DataSource for loading data from Snowflake using SQL queries."""
 
-    name = "snowflake_table"
-    config: SnowflakeTableSourceConfig
+    name = "snowflake"
+    config: SnowflakeSqlSourceConfig
 
-    def load(self, config: SnowflakeTableSourceConfig, split: str) -> DatasetType:
-        """Load data from a Snowflake table.
+    def load(self, config: SnowflakeSqlSourceConfig, split: str) -> DatasetType:
+        """Load data from Snowflake using a SQL query.
 
-        Uses DataConnector.from_sql() to query the table directly.
+        Uses DataConnector.from_sql() to execute the query.
         """
         _check_snowflake_ml_installed()
         from snowflake.ml.data.data_connector import DataConnector
 
         session = get_default_snowflake_session()
 
-        # Build SQL query to select from the table
-        query = f"SELECT * FROM {config.table_name}"
-
         # Create connector from SQL query
-        connector = DataConnector.from_sql(query, session=session)
+        connector = DataConnector.from_sql(config.sql, session=session)
 
         # Convert to HuggingFace dataset
         dataset = connector.to_huggingface_dataset(
@@ -175,6 +188,13 @@ class SnowflakeTableDataSource(DataSource):
         if self.config.column_mapping:
             dataset = dataset.rename_columns(self.config.column_mapping)
         return dataset
+
+
+class SnowflakeTableDataSource(SnowflakeSqlDataSource):
+    """DataSource for loading data from Snowflake Tables."""
+
+    name = "snowflake_table"
+    config: SnowflakeTableSourceConfig
 
 
 class SnowflakeDatasetDataSource(DataSource):

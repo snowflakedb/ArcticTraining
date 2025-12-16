@@ -23,8 +23,45 @@ from snowflake.ml.data.data_connector import DataConnector
 
 from arctic_training.data.snowflake_source import SnowflakeDatasetDataSource
 from arctic_training.data.snowflake_source import SnowflakeDatasetSourceConfig
+from arctic_training.data.snowflake_source import SnowflakeSqlDataSource
+from arctic_training.data.snowflake_source import SnowflakeSqlSourceConfig
 from arctic_training.data.snowflake_source import SnowflakeTableDataSource
 from arctic_training.data.snowflake_source import SnowflakeTableSourceConfig
+
+
+class TestSnowflakeSqlSourceConfig:
+    """Tests for SnowflakeSqlSourceConfig validation."""
+
+    def test_valid_sql_query(self):
+        """Test that valid SQL queries are accepted."""
+        sql = "SELECT col1, col2 FROM my_db.my_schema.my_table WHERE id > 100"
+        config = SnowflakeSqlSourceConfig(type="snowflake", sql=sql)
+        assert config.sql == sql
+
+    def test_default_values(self):
+        """Test that default values are set correctly."""
+        config = SnowflakeSqlSourceConfig(type="snowflake", sql="SELECT * FROM my_table")
+        assert config.column_mapping == {}
+        assert config.limit is None
+        assert config.batch_size == 1024
+
+    def test_custom_values(self):
+        """Test that custom values are preserved."""
+        config = SnowflakeSqlSourceConfig(
+            type="snowflake",
+            sql="SELECT * FROM my_table",
+            column_mapping={"old_col": "new_col"},
+            limit=1000,
+            batch_size=512,
+        )
+        assert config.column_mapping == {"old_col": "new_col"}
+        assert config.limit == 1000
+        assert config.batch_size == 512
+
+    def test_empty_sql_default(self):
+        """Test that sql field defaults to empty string."""
+        config = SnowflakeSqlSourceConfig(type="snowflake")
+        assert config.sql == ""
 
 
 class TestSnowflakeTableSourceConfig:
@@ -42,6 +79,19 @@ class TestSnowflakeTableSourceConfig:
         """Test that [[db.]schema.]table format is accepted."""
         config = SnowflakeTableSourceConfig(type="snowflake_table", table_name=table_name)
         assert config.table_name == table_name
+
+    @pytest.mark.parametrize(
+        ("table_name", "expected_sql"),
+        [
+            ("my_table", "SELECT * FROM my_table"),
+            ("my_schema.my_table", "SELECT * FROM my_schema.my_table"),
+            ("my_db.my_schema.my_table", "SELECT * FROM my_db.my_schema.my_table"),
+        ],
+    )
+    def test_sql_generated_from_table_name(self, table_name: str, expected_sql: str):
+        """Test that sql field is auto-populated from table_name."""
+        config = SnowflakeTableSourceConfig(type="snowflake_table", table_name=table_name)
+        assert config.sql == expected_sql
 
     def test_default_values(self):
         """Test that default values are set correctly."""
@@ -62,6 +112,85 @@ class TestSnowflakeTableSourceConfig:
         assert config.column_mapping == {"old_col": "new_col"}
         assert config.limit == 1000
         assert config.batch_size == 512
+
+
+class TestSnowflakeSqlDataSource:
+    """Tests for SnowflakeSqlDataSource."""
+
+    @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
+    @patch.object(DataConnector, "from_sql")
+    def test_load_calls_data_connector_with_sql(self, mock_from_sql, mock_get_session):
+        """Test that load() calls DataConnector.from_sql() with the provided SQL."""
+        # Setup mocks
+        mock_session = MagicMock()
+        mock_get_session.return_value = mock_session
+
+        mock_dataset = Dataset.from_dict({"col1": ["a", "b"], "col2": [1, 2]})
+        mock_connector_instance = MagicMock()
+        mock_connector_instance.to_huggingface_dataset.return_value = mock_dataset
+        mock_from_sql.return_value = mock_connector_instance
+
+        # Create config and data source
+        sql = "SELECT col1, col2 FROM my_db.my_schema.my_table WHERE id > 100"
+        config = SnowflakeSqlSourceConfig(
+            type="snowflake",
+            sql=sql,
+            limit=100,
+            batch_size=512,
+        )
+
+        mock_data_factory = MagicMock()
+        data_source = SnowflakeSqlDataSource(data_factory=mock_data_factory, config=config)
+
+        result = data_source.load(config, split="train")
+
+        # Verify SQL query was passed correctly
+        mock_from_sql.assert_called_once_with(sql, session=mock_session)
+        mock_connector_instance.to_huggingface_dataset.assert_called_once_with(
+            streaming=False,
+            limit=100,
+            batch_size=512,
+        )
+        assert result == mock_dataset
+
+    def test_post_load_callback_applies_column_mapping(self):
+        """Test that post_load_callback applies column mapping."""
+        mock_dataset = Dataset.from_dict({"old_col": ["a", "b"], "other": [1, 2]})
+        mock_renamed_dataset = Dataset.from_dict({"new_col": ["a", "b"], "other": [1, 2]})
+        mock_dataset.rename_columns = MagicMock(return_value=mock_renamed_dataset)
+
+        config = SnowflakeSqlSourceConfig(
+            type="snowflake",
+            sql="SELECT * FROM my_table",
+            column_mapping={"old_col": "new_col"},
+        )
+
+        mock_data_factory = MagicMock()
+        data_source = SnowflakeSqlDataSource(data_factory=mock_data_factory, config=config)
+
+        result = data_source.post_load_callback(mock_dataset)
+
+        mock_dataset.rename_columns.assert_called_once_with({"old_col": "new_col"})
+        assert result == mock_renamed_dataset
+
+    def test_post_load_callback_passthrough_without_mapping(self):
+        """Test that post_load_callback passes through unchanged without mapping."""
+        mock_dataset = Dataset.from_dict({"col": ["a", "b"]})
+        mock_dataset.rename_columns = MagicMock()
+
+        config = SnowflakeSqlSourceConfig(
+            type="snowflake",
+            sql="SELECT * FROM my_table",
+            column_mapping={},  # Empty mapping
+        )
+
+        mock_data_factory = MagicMock()
+        data_source = SnowflakeSqlDataSource(data_factory=mock_data_factory, config=config)
+
+        result = data_source.post_load_callback(mock_dataset)
+
+        mock_dataset.rename_columns.assert_not_called()
+        assert result == mock_dataset
 
 
 class TestSnowflakeDatasetSourceConfig:
