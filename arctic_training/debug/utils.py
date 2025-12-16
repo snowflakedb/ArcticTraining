@@ -38,7 +38,7 @@ except Exception:
 # mess with this module and commit wrong things by mistake
 DISABLE_DEBUG = True
 
-DISABLE_SEE_MEM_USAGE = False
+DISABLE_SEE_MEM_USAGE = True
 
 torch_memory_reserved = get_accelerator().memory_reserved
 torch_max_memory_reserved = get_accelerator().max_memory_reserved

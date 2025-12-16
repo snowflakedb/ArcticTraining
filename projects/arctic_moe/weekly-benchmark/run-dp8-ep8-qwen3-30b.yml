@@ -1,6 +1,7 @@
 type: sft
 micro_batch_size: 1
 min_iterations: 12
+exit_iteration_this_run: 6
 exit_iteration: 12
 
 arctic_moe: true
@@ -22,9 +23,9 @@ model:
   #name_or_path: snake7gun/tiny-random-qwen3moe
   #name_or_path: DavidAU/Qwen3-MOE-4x0.6B-2.4B-Writing-Thunder
   #name_or_path: DavidAU/Qwen3-MOE-6x1.7B-10.2B-Shining-Madness-Uncensored
-  # hf_config_kwargs:
-  #   #num_hidden_layers: 48 #
-  #   num_hidden_layers: 24 #
+  hf_config_kwargs:
+     num_hidden_layers: 48 #
+     #num_hidden_layers: 2 #
 
   attn_implementation: flash_attention_2
   #attn_implementation: sdpa
@@ -55,7 +56,7 @@ wandb:
   enable: true
   #enable: false
   project: arctic-moe
-  name: dp8-ep8-amoe-z2-Qwen3-30B
+  name: dp8-ep8-amoe-z2-Qwen3-30B-resume
 
 logger:
   level: WARNING
@@ -64,3 +65,15 @@ logger:
   output_dir: "logs"
   #file_output_ranks: [0,1]
   print_output_ranks: [0,1,2,3,4,5,6,7]
+
+
+checkpoint:
+  - type: deepspeed
+    save_every_n_epochs: 1
+    save_every_n_steps: 6
+    output_dir: /data-fast/checkpoint
+    save_end_of_training: true
+    auto_resume: true
+  - type: huggingface
+    save_end_of_training: true
+    output_dir: /data-fast/fine-tuned-model

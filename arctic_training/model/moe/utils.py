@@ -551,10 +551,18 @@ def amoe_save_checkpoint(self, save_dir, tag, client_state={}, exclude_frozen_pa
                 # if 'expert' in n and 'moe.gate.wg.weight' not in n:
                 moe_state_dict[n_module + "." + n] = p
             # moe_str_prefix = ".arctic_moe."
-            pr0(f"saving keys {moe_state_dict.keys()}", force=True)
+            # pr0(f"saving keys {moe_state_dict.keys()}", force=True)
+            # for k,v in moe_state_dict.items():
+            #     print(f"{k} {v.shape=} {v.device}")
+            see_memory_usage(f"{moe_layer_id} {n_module} after saving", force=True)
 
             moe_save_path = get_expert_ckpt_name(save_dir, tag, ep_rank, moe_layer_id)
-            self.checkpoint_engine.save(moe_state_dict, moe_save_path)
+            if self.checkpoint_engine.preserves_storage_sharing():
+                saveable_state_dict = clone_tensors_for_torch_save(moe_state_dict)
+            else:
+                saveable_state_dict = moe_state_dict
+
+            self.checkpoint_engine.save(saveable_state_dict, moe_save_path)
 
             moe_layer_id += 1
 
@@ -564,9 +572,12 @@ def amoe_save_checkpoint(self, save_dir, tag, client_state={}, exclude_frozen_pa
     optimizer_state = {
         "optimizer": self.optimizer.state_dict() if self.optimizer and not self.zero_optimization() else None
     }
-    # TODO: why use BufferedWriter not the path
+    if self.checkpoint_engine.preserves_storage_sharing():
+        saveable_state_dict = clone_tensors_for_torch_save(optimizer_state)
+    else:
+        saveable_state_dict = optimizer_state
     file_path = self._get_optimizer_ckpt_name(save_dir, tag, ep_rank)
-    self.checkpoint_engine.save(optimizer_state, file_path)
+    self.checkpoint_engine.save(saveable_state_dict, file_path)
 
     # Load flow uses below saved file for model parameters, RNG and more
     if ep_rank == 0:
@@ -596,12 +607,11 @@ def amoe_save_checkpoint(self, save_dir, tag, client_state={}, exclude_frozen_pa
             num_experts=self.num_experts,
         )
         state.update(client_state)
-        print(
-            f"Saving model checkpoint: {save_path}",
-        )
-        saveable_state_dict = state
+        pr0(f"Saving model checkpoint: {save_path}", force=True)
         if self.checkpoint_engine.preserves_storage_sharing():
             saveable_state_dict = clone_tensors_for_torch_save(state)
+        else:
+            saveable_state_dict = state
         self.checkpoint_engine.save(saveable_state_dict, save_path)
 
     # exit()
@@ -623,13 +633,20 @@ def amoe_load_state_dict(
 ):
     print("AMoE Checkpoint loading")
 
+    local_rank = int(os.getenv("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}")
+    see_memory_usage("before AMoE loading", force=True)
     moe_layer_id = 0
     for n_module, module in model.named_modules():
         pr0(f"{n_module}")
         if isinstance(module, ArcticMoE):
             ep_rank = module.ep_rank
             moe_ckpt_path = get_expert_ckpt_name(checkpoint_path, tag, ep_rank, moe_layer_id)
-            ep_state_dict = checkpoint_engine.load(moe_ckpt_path, map_location=torch.device("cpu"))
-            pr0(f"loading keys {ep_state_dict.keys()}", force=True)
+            ep_state_dict = checkpoint_engine.load(moe_ckpt_path, map_location=device)
+            pr0(f"loading keys {ep_state_dict.keys()} from {moe_ckpt_path}", force=True)
+            see_memory_usage(f"{moe_layer_id} {n_module} after loading", force=True)
+            # for k,v in ep_state_dict.items():
+            #     print(f"{k} {v.shape=} {v.device}")
             state_dict.update(ep_state_dict)
             moe_layer_id += 1
+    see_memory_usage("after AMoE loading", force=True)
