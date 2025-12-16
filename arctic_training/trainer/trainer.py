@@ -182,8 +182,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             model_name_or_path=self.config.model.name_or_path,
             core_attn_implementation=self.config.model.attn_implementation,
             sequence_parallel_size=self.config.sequence_parallel_size,
-            max_length=self.config.data.max_length,
             micro_batch_size=self.config.micro_batch_size,
+            seq_length=self.config.data.max_length,
             seq_length_is_variable=True,
         )
 
@@ -234,6 +234,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
+
+        self.ds_wall_clock_available = hasattr(self.model, "get_wall_clock_timers")
 
         if self.config.sequence_parallel_size > 1:
             # deepspeed.initialize needs to run first
@@ -397,12 +399,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.step()
 
+        self.checkpoint()
+
         # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
         if self.global_step >= self.training_horizon:
             self.early_stop = True
-
-        self.checkpoint()
 
         if self.config.exit_iteration > 0 and self.config.exit_iteration == self.global_step:
             self.early_stop = True
@@ -463,6 +465,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     and self.global_step % self.config.train_log_iter_interval == 0
                 ):
                     metrics = {k: v for k, v in self.metrics.summary_dict.items()}
+                    if self.ds_wall_clock_available:
+                        ds_timers = self.model.get_wall_clock_timers()
+                        metrics.update(ds_timers)
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
