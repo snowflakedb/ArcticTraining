@@ -15,6 +15,7 @@
 
 import re
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import Dict
 from typing import Optional
 
@@ -157,6 +158,12 @@ class SnowflakeDataSource(DataSource):
     name = "snowflake"
     config: SnowflakeSourceConfig
 
+    session: Optional[Any] = None
+    """
+    Optional Snowpark Session to use for connecting to Snowflake.
+    If None, a default session will be created using get_default_snowflake_session().
+    """
+
     def load(self, config: SnowflakeSourceConfig, split: str) -> DatasetType:
         """Load data from Snowflake.
 
@@ -164,16 +171,16 @@ class SnowflakeDataSource(DataSource):
         """
         _check_snowflake_ml_installed()
 
-        if config.dataset_uri:
-            return self._load_from_dataset(config)
-        else:
-            return self._load_from_sql(config)
+        session = self.session or get_default_snowflake_session()
 
-    def _load_from_sql(self, config: SnowflakeSourceConfig) -> DatasetType:
+        if config.dataset_uri:
+            return self._load_from_dataset(config, session=session)
+        else:
+            return self._load_from_sql(config, session=session)
+
+    def _load_from_sql(self, config: SnowflakeSourceConfig, *, session: "Session") -> DatasetType:
         """Load data using a SQL query."""
         from snowflake.ml.data.data_connector import DataConnector
-
-        session = get_default_snowflake_session()
 
         # Create connector from SQL query
         connector = DataConnector.from_sql(config.sql, session=session)
@@ -187,12 +194,10 @@ class SnowflakeDataSource(DataSource):
 
         return dataset
 
-    def _load_from_dataset(self, config: SnowflakeSourceConfig) -> DatasetType:
+    def _load_from_dataset(self, config: SnowflakeSourceConfig, *, session: "Session") -> DatasetType:
         """Load data from a Snowflake Dataset."""
         from snowflake.ml.data.data_connector import DataConnector
         from snowflake.ml.dataset import load_dataset
-
-        session = get_default_snowflake_session()
 
         # Parse URI and load the Snowflake Dataset object
         assert config.dataset_uri is not None

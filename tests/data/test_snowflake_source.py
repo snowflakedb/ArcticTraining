@@ -199,13 +199,11 @@ class TestSnowflakeDataSource:
 
     # ===== SQL Mode Tests =====
 
-    @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
     @patch.object(DataConnector, "from_sql")
-    def test_load_with_sql(self, mock_from_sql, mock_get_session):
+    def test_load_with_sql(self, mock_from_sql):
         """Test that load() calls DataConnector.from_sql() with the provided SQL."""
         # Setup mocks
         mock_session = MagicMock()
-        mock_get_session.return_value = mock_session
 
         mock_dataset = Dataset.from_dict({"col1": ["a", "b"], "col2": [1, 2]})
         mock_connector_instance = MagicMock()
@@ -223,6 +221,7 @@ class TestSnowflakeDataSource:
 
         mock_data_factory = MagicMock()
         data_source = SnowflakeDataSource(data_factory=mock_data_factory, config=config)
+        data_source.session = mock_session
 
         result = data_source.load(config, split="train")
 
@@ -237,13 +236,11 @@ class TestSnowflakeDataSource:
 
     # ===== Table Name Mode Tests =====
 
-    @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
     @patch.object(DataConnector, "from_sql")
-    def test_load_with_table_name(self, mock_from_sql, mock_get_session):
+    def test_load_with_table_name(self, mock_from_sql):
         """Test that load() with table_name generates correct SQL."""
         # Setup mocks
         mock_session = MagicMock()
-        mock_get_session.return_value = mock_session
 
         mock_dataset = Dataset.from_dict({"text": ["hello", "world"]})
         mock_connector_instance = MagicMock()
@@ -260,6 +257,7 @@ class TestSnowflakeDataSource:
 
         mock_data_factory = MagicMock()
         data_source = SnowflakeDataSource(data_factory=mock_data_factory, config=config)
+        data_source.session = mock_session
 
         result = data_source.load(config, split="train")
 
@@ -290,16 +288,14 @@ class TestSnowflakeDataSource:
             ),
         ],
     )
-    @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
     @patch("snowflake.ml.dataset.load_dataset")
     @patch.object(DataConnector, "from_dataset")
     def test_load_with_dataset_uri(
-        self, mock_from_dataset, mock_load_dataset, mock_get_session, dataset_uri, expected_name, expected_version
+        self, mock_from_dataset, mock_load_dataset, dataset_uri, expected_name, expected_version
     ):
         """Test that load() with dataset_uri calls DataConnector.from_dataset() correctly."""
         # Setup mocks
         mock_session = MagicMock()
-        mock_get_session.return_value = mock_session
 
         mock_snow_dataset = MagicMock()
         mock_load_dataset.return_value = mock_snow_dataset
@@ -319,6 +315,7 @@ class TestSnowflakeDataSource:
 
         mock_data_factory = MagicMock()
         data_source = SnowflakeDataSource(data_factory=mock_data_factory, config=config)
+        data_source.session = mock_session
 
         result = data_source.load(config, split="train")
 
