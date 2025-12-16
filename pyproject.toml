@@ -78,6 +78,7 @@ all = [
     "arctic_training[testing]",
     "arctic_training[vllm]",
     "arctic_training[cortex]",
+    "arctic_training[snowflake]",
 ]
 
 dev = [
@@ -113,6 +114,10 @@ vllm = [
 
 cortex = [
     "snowflake-connector-python==3.12.3",
+]
+
+snowflake = [
+    "snowflake-ml-python",
 ]
 
 [project.scripts]
