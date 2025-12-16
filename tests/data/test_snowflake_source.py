@@ -215,14 +215,18 @@ class TestSnowflakeDatasetDataSource:
         ],
     )
     @patch("arctic_training.data.snowflake_source.get_default_snowflake_session")
+    @patch("snowflake.ml.dataset.load_dataset")
     @patch.object(DataConnector, "from_dataset")
     def test_load_calls_data_connector(
-        self, mock_from_dataset, mock_get_session, dataset_uri, expected_name, expected_version
+        self, mock_from_dataset, mock_load_dataset, mock_get_session, dataset_uri, expected_name, expected_version
     ):
         """Test that load() calls DataConnector.from_dataset() correctly."""
         # Setup mocks
         mock_session = MagicMock()
         mock_get_session.return_value = mock_session
+
+        mock_snow_dataset = MagicMock()
+        mock_load_dataset.return_value = mock_snow_dataset
 
         mock_hf_dataset = Dataset.from_dict({"messages": [["msg1"], ["msg2"]]})
         mock_connector_instance = MagicMock()
@@ -242,10 +246,10 @@ class TestSnowflakeDatasetDataSource:
 
         result = data_source.load(config, split="train")
 
+        # Verify load_dataset was called with correct arguments
+        mock_load_dataset.assert_called_once_with(mock_session, expected_name, expected_version)
         # Verify DataConnector.from_dataset was called with the loaded dataset
-        mock_from_dataset.assert_called_once_with(
-            session=mock_session, dataset_name=expected_name, dataset_version=expected_version
-        )
+        mock_from_dataset.assert_called_once_with(mock_snow_dataset)
         mock_connector_instance.to_huggingface_dataset.assert_called_once_with(
             streaming=False,
             limit=500,

@@ -120,11 +120,22 @@ class SnowflakeDatasetSourceConfig(DataSourceConfig):
     @model_validator(mode="after")
     def validate_dataset_uri(self) -> Self:
         """Validate that dataset_uri matches the expected format."""
-        if not _DATASET_URI_PATTERN.match(self.dataset_uri):
+        match = _DATASET_URI_PATTERN.match(self.dataset_uri)
+        if not match:
             raise ValueError(
                 f"Invalid dataset_uri format: '{self.dataset_uri}'. "
                 "Expected format: 'snow://dataset/<dataset_name>/versions/<version_name>'"
             )
+
+        # Validate the dataset_name component using Snowflake's identifier parser
+        from snowflake.ml._internal.utils.identifier import parse_schema_level_object_identifier
+
+        dataset_name = match.group(1)
+        try:
+            parse_schema_level_object_identifier(dataset_name)
+        except ValueError as e:
+            raise ValueError(f"Invalid dataset_name format in URI: {e}")
+
         return self
 
 
