@@ -1,0 +1,234 @@
+wandb_version: 1
+
+type:
+  desc: null
+  value: biencoder
+code:
+  desc: null
+  value: train.py
+skip_validation:
+  desc: null
+  value: false
+model:
+  desc: null
+  value:
+    type: biencoder
+    name_or_path: /scratch/local
+    dtype: torch.float32
+    save_name: null
+    attn_implementation: sdpa
+    disable_activation_checkpoint: true
+    peft_config: null
+    pooling: first_token
+    kwargs:
+      trust_remote_code: true
+tokenizer:
+  desc: null
+  value:
+    type: fake
+    name_or_path: /scratch/local
+data:
+  desc: null
+  value:
+    type: contrastive_pretokenized
+    sources: []
+    eval_sources: []
+    train_eval_split:
+    - 1.0
+    - 0.0
+    max_length: 8192
+    num_proc: 16
+    dl_num_workers: 2
+    seed: 42
+    use_data_cache: null
+    cache_processed_data: null
+    cache_dir: /tmp
+    cache_fs_type: shared
+    filesystem: s3
+    root_directory: s3://ml-dev-sfc-or-dev-misc1-k8s/cortexsearch/biencoder/fine_tune_data_arctic_training_format/synthetic_experiment_1/unified_synthetic/batched_512/data/
+    split_factor: 4
+    pad_value: 0
+    left_pad: false
+    max_seq_length_query: 1024
+    max_seq_length_doc: 1024
+    eval_root_directories: null
+    eval_split_factor: 1
+    eval_max_seq_length_query: null
+    eval_max_seq_length_doc: null
+    preserve_relations_on_split: true
+logger:
+  desc: null
+  value:
+    output_dir: /dev/null
+    level: INFO
+    print_output_ranks:
+    - 0
+    file_output_ranks:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+wandb:
+  desc: null
+  value:
+    enable: true
+    entity: null
+    project: arctic-embed
+    name: arctic2m-synthetic-experiment-1-unified-synthetic-20251029T160040Z
+scheduler:
+  desc: null
+  value:
+    type: wds
+    learning_rate: null
+optimizer:
+  desc: null
+  value:
+    type: fusedadam
+    weight_decay: 0.01
+    betas:
+    - 0.9
+    - 0.999
+    learning_rate: 3.0e-05
+deepspeed:
+  desc: null
+  value:
+    gradient_clipping: 10.0
+    zero_optimization:
+      stage: 1.0
+    communication_data_type: fp32
+    train_micro_batch_size_per_gpu: 1
+    train_batch_size: 8.0
+    gradient_accumulation_steps: 1
+    sequence_parallel_size: 1
+    steps_per_print: 10
+    prescale_gradients: false
+    wall_clock_breakdown: false
+epochs:
+  desc: null
+  value: 1
+loss_log_interval:
+  desc: null
+  value: 0
+train_log_iter_interval:
+  desc: null
+  value: 1
+train_log_metrics_path:
+  desc: null
+  value: train-log-metrics.jsonl
+gradient_accumulation_steps:
+  desc: null
+  value: 1
+micro_batch_size:
+  desc: null
+  value: 1
+sequence_parallel_size:
+  desc: null
+  value: 1
+activation_checkpoint_cpu_offload:
+  desc: null
+  value: false
+tiled_mlp_compute:
+  desc: null
+  value: false
+seed:
+  desc: null
+  value: 42
+checkpoint:
+  desc: null
+  value:
+  - type: biencoder_s3
+    output_dir: /scratch/checkpoints-temp-synthetic
+    enabled: true
+    auto_resume: false
+    save_every_n_steps: 3000
+    save_every_n_epochs: 0
+    save_end_of_training: true
+train_iters:
+  desc: null
+  value: 0
+eval_frequency:
+  desc: null
+  value: 0
+exit_iteration:
+  desc: null
+  value: 0
+min_iterations:
+  desc: null
+  value: 0
+overfit_first_batch:
+  desc: null
+  value: false
+mem_profiler:
+  desc: null
+  value: null
+mem_profiler_dir:
+  desc: null
+  value: /dev/null/mem-prof
+mem_profiler_max_entries:
+  desc: null
+  value: 100000
+kill_switch_path:
+  desc: null
+  value: /tmp/at_kill_switch
+use_in_batch_negatives:
+  desc: null
+  value: false
+loss_temperature:
+  desc: null
+  value: 0.02
+mrl_dim:
+  desc: null
+  value: null
+eval_interval:
+  desc: null
+  value: null
+_wandb:
+  desc: null
+  value:
+    python_version: 3.10.12
+    cli_version: 0.16.6
+    framework: xgboost
+    huggingface_version: 4.53.0
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1761753721.0
+    t:
+      1:
+      - 1
+      - 5
+      - 6
+      - 11
+      - 49
+      - 51
+      - 53
+      - 55
+      - 71
+      - 98
+      2:
+      - 1
+      - 5
+      - 6
+      - 11
+      - 49
+      - 51
+      - 53
+      - 55
+      - 71
+      - 98
+      3:
+      - 2
+      - 13
+      - 16
+      - 23
+      - 24
+      - 61
+      4: 3.10.12
+      5: 0.16.6
+      6: 4.53.0
+      8:
+      - 5
+      13: linux-x86_64
