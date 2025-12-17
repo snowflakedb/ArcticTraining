@@ -67,9 +67,16 @@ def get_default_snowflake_session() -> "Session":
 
     from snowflake.snowpark import Session
 
-    # Get an existing active session or create a new one using default connection
-    # This will use environment variables or ~/.snowflake/connections.toml
-    return Session.builder.getOrCreate()
+    try:
+        # Get an existing active session or create a new one using default connection
+        # This will use environment variables or ~/.snowflake/connections.toml
+        return Session.builder.getOrCreate()
+    except Exception:
+        from snowflake.ml._internal.utils.connection_params import SnowflakeLoginOptions
+
+        # Fall back to SnowML's connection parameters
+        config = SnowflakeLoginOptions()
+        return Session.builder.configs(config).getOrCreate()  # noqa: F841
 
 
 class SnowflakeSourceConfig(DataSourceConfig):
