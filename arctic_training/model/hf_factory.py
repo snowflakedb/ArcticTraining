@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch.nn as nn
 from peft import get_peft_model
 from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
@@ -58,6 +59,29 @@ class HFModelFactory(ModelFactory):
         return model
 
     def post_create_model_callback(self, model):
+        if self.trainer.config.fp8_recipe is not None:
+            import transformer_engine.pytorch as te
+
+            def replace_linears(module):
+                for name, child in module.named_children():
+                    if "lm_head" in name.lower():
+                        continue
+                    elif isinstance(child, nn.Linear):
+                        te_linear = te.Linear(
+                            in_features=child.in_features,
+                            out_features=child.out_features,
+                            bias=child.bias is not None,
+                        )
+                        te_linear.weight.data.copy_(child.weight.data)
+                        if child.bias is not None:
+                            te_linear.bias.data.copy_(child.bias.data)
+                        te_linear.to(child.weight.device, dtype=child.weight.dtype)
+                        setattr(module, name, te_linear)
+                    else:
+                        replace_linears(child)
+
+            replace_linears(model)
+
         if self.config.peft_config is not None:
             model = get_peft_model(model, self.config.peft_config_obj)
             trainable_params, all_params = model.get_nb_trainable_parameters()
