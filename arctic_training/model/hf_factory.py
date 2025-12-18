@@ -59,28 +59,38 @@ class HFModelFactory(ModelFactory):
         return model
 
     def post_create_model_callback(self, model):
-        if self.trainer.config.fp8_recipe is not None:
+        if self.config.fp8_recipe is not None:
             import transformer_engine.pytorch as te
+
+            replace_module_count = 0
 
             def replace_linears(module):
                 for name, child in module.named_children():
-                    if "lm_head" in name.lower():
-                        continue
-                    elif isinstance(child, nn.Linear):
-                        te_linear = te.Linear(
-                            in_features=child.in_features,
-                            out_features=child.out_features,
-                            bias=child.bias is not None,
-                        )
-                        te_linear.weight.data.copy_(child.weight.data)
-                        if child.bias is not None:
-                            te_linear.bias.data.copy_(child.bias.data)
-                        te_linear.to(child.weight.device, dtype=child.weight.dtype)
-                        setattr(module, name, te_linear)
-                    else:
-                        replace_linears(child)
+                    if any(tm in name for tm in self.config.fp8_target_modules):
+                        if not isinstance(child, nn.Linear):
+                            logger.warning(f"Module {name} matched for FP8 conversion but is not nn.Linear, skipping.")
+                        else:
+                            te_linear = te.Linear(
+                                in_features=child.in_features,
+                                out_features=child.out_features,
+                                bias=child.bias is not None,
+                            )
+                            te_linear.weight.data.copy_(child.weight.data)
+                            if child.bias is not None:
+                                te_linear.bias.data.copy_(child.bias.data)
+                            te_linear.to(child.weight.device, dtype=child.weight.dtype)
+                            setattr(module, name, te_linear)
+
+                            nonlocal replace_module_count
+                            replace_module_count += 1
+
+                    replace_linears(child)
 
             replace_linears(model)
+            if replace_module_count == 0:
+                raise ValueError(
+                    "FP8 recipe specified but no modules were replaced. Please check `fp8_target_modules`."
+                )
 
         if self.config.peft_config is not None:
             model = get_peft_model(model, self.config.peft_config_obj)

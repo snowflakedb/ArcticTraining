@@ -25,7 +25,6 @@ from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Literal
-from typing import Optional
 from typing import Union
 from typing import cast
 
@@ -171,9 +170,6 @@ class TrainerConfig(BaseConfig):
 
     kill_switch_path: Path = Path("/tmp/at_kill_switch")
     """ Path to a file that can be used to trigger a graceful shutdown mid-training (sets early exit to True). """
-
-    fp8_recipe: Optional[Any] = None
-    """ Transformer Engine FP8 recipe configuration. `type` indicates which recipe type to use. If `null`, FP8 training is disabled. """
 
     @model_validator(mode="after")
     def set_max_length(self) -> Self:
@@ -382,44 +378,6 @@ class TrainerConfig(BaseConfig):
             return coerced_dict
 
         return coerce_dict_values(v)
-
-    @field_validator("fp8_recipe", mode="before")
-    @classmethod
-    def create_fp8_recipe_obj(cls, v: Optional[Dict[str, Any]]) -> Any:
-        if v is None:
-            return v
-
-        try:
-            import transformer_engine.common.recipe as te_recipe
-        except ImportError:
-            raise ImportError(
-                "FP8 recipe specified but `transformer_engine` is not installed. "
-                "Please install `transformer_engine` to use FP8 training:\n"
-                '`pip install --no-build-isolation "transformer_engine[pytorch]"`'
-            )
-
-        available_recipe_types = {}
-        for r in dir(te_recipe):
-            try:
-                if issubclass(getattr(te_recipe, r), te_recipe.Recipe):
-                    available_recipe_types[r.lower()] = getattr(te_recipe, r)
-            except Exception:
-                continue
-        if "type" not in v:
-            raise ValueError(
-                f"No `type` specified in `fp8_recipe` config. Available types: {available_recipe_types.keys()}"
-            )
-        recipe_type = v.pop("type").lower()
-        if recipe_type not in available_recipe_types:
-            raise ValueError(
-                f"FP8 recipe type {recipe_type} not found. Available types: {available_recipe_types.keys()}"
-            )
-        recipe_cls = available_recipe_types[recipe_type]
-
-        if "fp8_format" in v:
-            v["fp8_format"] = te_recipe.Format[v["fp8_format"].upper()]
-
-        return recipe_cls(**v)
 
     @model_validator(mode="after")
     def build_deepspeed_config(self) -> Self:

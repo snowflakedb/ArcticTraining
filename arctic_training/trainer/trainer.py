@@ -432,7 +432,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                 )
             return te.autocast(enabled=True, recipe=recipe)
 
-        with maybe_fp8(self.config.fp8_recipe):
+        with maybe_fp8(self.config.model.fp8_recipe):
             loss = self.loss(batch)
 
         self.backward(loss)
