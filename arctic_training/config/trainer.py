@@ -149,7 +149,10 @@ class TrainerConfig(BaseConfig):
     """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
-    """ Force exit of training after specified iteration count (useful for debugging). """
+    """ Do not continue training after specified iteration count even if there is still data and epochs to run (useful for debugging and tests). """
+
+    exit_iteration_this_run: int = Field(default=0, ge=0)
+    """ Force exit of training after specified iteration count in this run (but will restart running until `exit_iteration` or running out of data/epochs after resume (useful for debugging and tests). """
 
     min_iterations: HumanInt = Field(default=0, ge=0)
     """ When >0, the training dataset will be replicated until there is enough data to run this many iterations. """
