@@ -559,8 +559,30 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Evaluation loop. Measures the model's performance on the evaluation dataset.
         """
         self.model.eval()
+        losses = []
         with torch.no_grad():
-            losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
+            for batch_idx, eval_batch in enumerate(self.eval_batches):
+                loss = self.loss(eval_batch)
+                loss_value = loss.item()
+                losses.append(loss_value)
+
+                # Debug NaN losses
+                if torch.isnan(loss) or torch.isinf(loss):
+                    logger.warning(
+                        f"NaN/Inf eval loss detected at batch {batch_idx}!\n"
+                        f"  loss: {loss_value}\n"
+                        f"  batch keys: {eval_batch.keys()}\n"
+                        f"  input_ids shape: {eval_batch['input_ids'].shape if 'input_ids' in eval_batch else 'N/A'}\n"
+                        f"  labels shape: {eval_batch['labels'].shape if 'labels' in eval_batch else 'N/A'}"
+                    )
+                    if "labels" in eval_batch:
+                        labels = eval_batch["labels"]
+                        non_masked = (labels != -100).sum().item()
+                        total = labels.numel()
+                        logger.warning(
+                            f"  non-masked labels: {non_masked}/{total} ({100*non_masked/total:.1f}%)\n"
+                            f"  all labels are -100: {non_masked == 0}"
+                        )
         self.metrics.record("loss/eval", losses)  # type: ignore
 
     @callback_wrapper("checkpoint")
