@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import deepspeed
 import torch.nn as nn
 from peft import get_peft_model
 from transformers import AutoConfig
@@ -74,11 +75,25 @@ class HFModelFactory(ModelFactory):
                                 in_features=child.in_features,
                                 out_features=child.out_features,
                                 bias=child.bias is not None,
+                                device=child.weight.device,
                             )
-                            te_linear.weight.data.copy_(child.weight.data)
-                            if child.bias is not None:
-                                te_linear.bias.data.copy_(child.bias.data)
-                            te_linear.to(child.weight.device, dtype=child.weight.dtype)
+
+                            if hasattr(child.weight, "ds_id"):
+                                # Parameter is managed by DeepSpeed Zero-3
+                                params_to_fetch = [child.weight]
+                                if child.bias is not None:
+                                    params_to_fetch.append(child.bias)
+
+                                with deepspeed.zero.GatheredParameters(params_to_fetch, modifier_rank=None):
+                                    te_linear.weight.data.copy_(child.weight.data)
+                                    if child.bias is not None:
+                                        te_linear.bias.data.copy_(child.bias.data)
+                            else:
+                                # Regular parameter, copy directly
+                                te_linear.weight.data.copy_(child.weight.data)
+                                if child.bias is not None:
+                                    te_linear.bias.data.copy_(child.bias.data)
+
                             setattr(module, name, te_linear)
 
                             nonlocal replace_module_count
