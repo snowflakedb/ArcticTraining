@@ -18,6 +18,7 @@ import math
 import random
 from abc import ABC
 from abc import abstractmethod
+from contextlib import nullcontext
 from functools import cached_property
 from typing import Callable
 from typing import Dict
@@ -59,6 +60,11 @@ from arctic_training.registry import _validate_class_method
 from arctic_training.scheduler.factory import SchedulerFactory
 from arctic_training.tokenizer.factory import TokenizerFactory
 from arctic_training.utils import append_json_file
+
+try:
+    import transformer_engine.pytorch as te
+except ImportError:
+    te = None
 
 
 class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
@@ -417,7 +423,19 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.train()
 
-        loss = self.loss(batch)
+        def maybe_fp8(recipe):
+            if recipe is None:
+                return nullcontext()
+            if te is None:
+                raise ImportError(
+                    "FP8 recipe specified but `transformer_engine` is not installed. "
+                    "Please install `transformer_engine` to use FP8 training:\n"
+                    '`pip install --no-build-isolation "transformer_engine[pytorch]"`'
+                )
+            return te.autocast(enabled=True, recipe=recipe)
+
+        with maybe_fp8(self.config.model.fp8_recipe):
+            loss = self.loss(batch)
 
         self.backward(loss)
 
