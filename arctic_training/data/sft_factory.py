@@ -512,7 +512,11 @@ class SFTDataFactory(DataFactory):
                 conversation_ids["offset_mapping"],
             )
         ):
-            if any(id_s >= s and id_e <= e for s, e in assistant_ranges):
+            # Check if token OVERLAPS with any assistant range (not fully contained).
+            # This handles short assistant content where tokens span wider than the content.
+            # Overlap condition: token_start < range_end AND token_end > range_start
+            # Also handle edge case where range is invalid (s == -1 means not found)
+            if any(s != -1 and id_s < e and id_e > s for s, e in assistant_ranges):
                 pre_output = id_
                 output.append(id_)
             else:
