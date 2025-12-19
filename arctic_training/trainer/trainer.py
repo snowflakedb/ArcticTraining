@@ -373,15 +373,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.config.auto_resume:
                 engine.load(self.model)
 
-        # self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
-
-        # for engine in self.checkpoint_engines:
-        #     if engine.config.auto_resume:
-        #         engine.load(self.model)
-        #         # Check if we actually loaded a checkpoint by seeing if global_step changed
-        #         if self.global_step > 0:
-        #             self.is_resume = True
-
         self.metrics = Metrics(self)
 
         if self.global_rank == 0 and self.config.wandb.enable:
