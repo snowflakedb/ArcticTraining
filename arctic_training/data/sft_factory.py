@@ -497,8 +497,10 @@ class SFTDataFactory(DataFactory):
             if message["role"] == "assistant":
                 return_indices.append((match_index, end_index))
             # Update search position for next message (track all messages in order)
+            # Use max() to ensure we never go backwards - this handles the case where
+            # fallback search finds content at an earlier position (likely a false match)
             if match_index != -1:
-                search_start = match_index + len(message_text)
+                search_start = max(search_start, match_index + len(message_text))
         return return_indices
 
     @staticmethod
