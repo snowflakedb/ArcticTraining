@@ -185,6 +185,13 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.overfit_first_batch:
             self.train_dataloader = OverfitOneBatchDataLoader(self.train_dataloader)
 
+        # checkpointing and resume
+        self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
+        for engine in self.checkpoint_engines:
+            # currently only deepspeed engine supports resume from intermediate checkpoint
+            if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
+                self.is_resume = True
+
         # XXX: We can abstract this section further with AT-specific wrapper, but
         # UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
@@ -273,14 +280,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     device=self.device,
                 )
 
-        self.checkpoint_engines = [engine(self) for engine in self.config.checkpoint_engines]
-
         for engine in self.checkpoint_engines:
             if engine.config.auto_resume:
                 engine.load(self.model)
-                # Check if we actually loaded a checkpoint by seeing if global_step changed
-                if self.global_step > 0:
-                    self.is_resume = True
 
         self.metrics = Metrics(self)
 
