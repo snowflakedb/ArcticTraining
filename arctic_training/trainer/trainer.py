@@ -579,8 +579,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         labels = eval_batch["labels"]
                         non_masked = (labels != -100).sum().item()
                         total = labels.numel()
+                        pct = (100 * non_masked / total) if total > 0 else 0.0
                         logger.warning(
-                            f"  non-masked labels: {non_masked}/{total} ({100*non_masked/total:.1f}%)\n"
+                            f"  non-masked labels: {non_masked}/{total} ({pct:.1f}%)\n"
                             f"  all labels are -100: {non_masked == 0}"
                         )
         self.metrics.record("loss/eval", losses)  # type: ignore
