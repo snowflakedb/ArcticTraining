@@ -1,6 +1,5 @@
 type: sft
 micro_batch_size: 1
-gradient_accumulation_steps: 6
 epochs: 2
 activation_checkpoint_cpu_offload: true
 
@@ -30,10 +29,10 @@ data:
   max_length: 32768
   cache_dir: /checkpoint/aponnusamy/data-cache
   pack_samples: true
-  ignore_empty_think: true
+  ignore_empty_think: false
 
 # Evaluation interval - required when eval_sources is provided
-eval_interval: 150
+eval_interval: 50
 
 deepspeed:
   zero_optimization:
@@ -57,7 +56,7 @@ checkpoint:
   - type: huggingface
     save_every_n_steps: 150
     save_end_of_training: true
-    output_dir: /modeling-checkpoints/aponnusamy/checkpoints/qwen3-32b-ac-sft
+    output_dir: /modeling-checkpoints/aponnusamy/checkpoints/qwen3-32b-ac-sft-1218
 
 wandb:
   enable: true
