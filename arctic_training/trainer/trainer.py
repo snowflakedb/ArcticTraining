@@ -584,6 +584,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                             f"  non-masked labels: {non_masked}/{total} ({pct:.1f}%)\n"
                             f"  all labels are -100: {non_masked == 0}"
                         )
+        
+        # Clear GPU cache after eval to prevent memory accumulation across eval checkpoints
+        torch.cuda.empty_cache()
         self.metrics.record("loss/eval", losses)  # type: ignore
 
     @callback_wrapper("checkpoint")

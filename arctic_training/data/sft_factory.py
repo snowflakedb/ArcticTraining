@@ -273,6 +273,14 @@ class SFTDataConfig(DataConfig):
     ignore_empty_think: bool = False
     """ Whether to mask the empty think tokens preventing the loss of thinking ability."""
 
+    fim_loss_masking: bool = False
+    """
+    When enabled, for FIM (Fill-in-the-Middle) training where assistant responses contain
+    <|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>{output}, only calculate loss
+    on the {output} portion (after <|fim_middle|>) plus EOS token. Everything before and
+    including <|fim_middle|> will be masked from loss.
+    """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -390,6 +398,7 @@ class SFTDataFactory(DataFactory):
                     self.tokenizer,
                     mask_inputs=self.config.mask_inputs,
                     ignore_empty_think=self.config.ignore_empty_think,
+                    fim_loss_masking=self.config.fim_loss_masking,
                 )
             },
             remove_columns=dataset.column_names,
@@ -404,6 +413,7 @@ class SFTDataFactory(DataFactory):
         tokenizer: PreTrainedTokenizerBase,
         mask_inputs: bool = True,
         ignore_empty_think: bool = False,
+        fim_loss_masking: bool = False,
     ) -> BatchEncoding:
         conversation_text = tokenizer.apply_chat_template(conversation=messages, tokenize=False)
         conversation_ids = tokenizer(
@@ -413,7 +423,9 @@ class SFTDataFactory(DataFactory):
         )
 
         if mask_inputs:
-            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text, ignore_empty_think)
+            assistant_ranges = cls.get_assistant_start_end_indices(
+                messages, conversation_text, ignore_empty_think, fim_loss_masking
+            )
             # _ = get_assistant_start_end_indices(messages, conversation_text)
             labels = cls.get_masked_labels(conversation_ids, assistant_ranges)
             conversation_ids["labels"] = labels
@@ -443,12 +455,16 @@ class SFTDataFactory(DataFactory):
 
         return conversation_ids
 
+    # FIM middle marker for Fill-in-the-Middle training
+    FIM_MIDDLE_MARKER = "<|fim_middle|>"
+
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
     def get_assistant_start_end_indices(
         messages: List[Dict[str, str]],
         conversation_text: str,
         ignore_empty_think: bool = False,
+        fim_loss_masking: bool = False,
     ) -> List[Tuple[int, int]]:
         return_indices = []
         # Track search position to avoid matching assistant content that appears
@@ -484,18 +500,44 @@ class SFTDataFactory(DataFactory):
                         )
             end_index = match_index + len(message_text) if match_index != -1 else -1
 
+            # Determine the effective start index for loss calculation
+            effective_start_index = match_index
+
+            # For FIM loss masking, adjust start to be after <|fim_middle|>
+            # This ensures loss is only calculated on the output portion
+            if message["role"] == "assistant" and fim_loss_masking and match_index != -1:
+                fim_marker = SFTDataFactory.FIM_MIDDLE_MARKER
+                fim_pos_in_content = message_text.find(fim_marker)
+                if fim_pos_in_content != -1:
+                    # Adjust start index to be right after <|fim_middle|>
+                    effective_start_index = match_index + fim_pos_in_content + len(fim_marker)
+                    if DEBUG_LABEL_MASKING:
+                        logger.info(
+                            f"FIM loss masking: adjusted start from {match_index} to {effective_start_index} "
+                            f"(found {fim_marker} at position {fim_pos_in_content} in content)"
+                        )
+                else:
+                    # FIM marker not found - mask entire response by returning invalid range
+                    # This prevents incorrect loss calculation on data that doesn't match expected format
+                    effective_start_index = -1
+                    end_index = -1
+                    logger.warning(
+                        f"FIM loss masking enabled but {fim_marker} not found in assistant content. "
+                        f"Masking entire response to prevent incorrect loss. Content: {repr(message_text[:100])}..."
+                    )
+
             if DEBUG_LABEL_MASKING and message["role"] == "assistant":
                 conv_len = len(conversation_text)
                 position_pct = (match_index / conv_len * 100) if match_index != -1 else -1
                 logger.info(
-                    f"Assistant range: ({match_index}, {end_index}) - "
+                    f"Assistant range: ({effective_start_index}, {end_index}) - "
                     f"{position_pct:.1f}% into conversation (len={conv_len}), "
                     f"content: {repr(message_text[:30])}..."
                 )
 
             # Only record assistant message ranges
             if message["role"] == "assistant":
-                return_indices.append((match_index, end_index))
+                return_indices.append((effective_start_index, end_index))
             # Update search position for next message (track all messages in order)
             # Use max() to ensure we never go backwards - this handles the case where
             # fallback search finds content at an earlier position (likely a false match)

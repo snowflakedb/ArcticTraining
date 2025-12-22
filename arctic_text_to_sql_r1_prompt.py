@@ -32,101 +32,59 @@ def render_autocomplete_template(prefix: str, suffix: str) -> str:
 
 def render_autocomplete_system_prompt() -> str:
     """Render the static system prompt for autocomplete"""
-    return """You are an advanced Snowflake SQL completion model.
+    return """/* You are a Snowflake SQL completion model. Fill in missing SQL code between prefix and suffix.
+Output ONLY the missing tokens with no prose, backticks, or explanations.
 
-Fill in the missing SQL code using Snowflake syntax only. Output EXACTLY one <CODE>...</CODE> block containing only the missing SQL tokens.
+RULES:
 
-/* BEHAVIOR RULES (strict, eval mode)
+0) NEW QUERY (when prefix and suffix are empty or whitespace):
+   - Pattern detection: If last_few_executed has queries, use it to detect patterns. If the same query 
+     structure appears in multiple queries in last_few_executed with changes in LIMIT values, dates, 
+     columns, filters, etc., predict the NEXT value by continuing the progression (10→1000→100000, '08-04'→'08-05'→'08-06').
+   - Keep query structure unchanged, modify only the varying element
+   - MUST use the same table, MUST differ from all previous queries
+   - NEVER copy the last query verbatim
+   - If no pattern detected in last_few_executed, use other context sources to suggest the next query. If uncertain, return "".
 
-0) NEW QUERY PREDICTION (prefix/suffix empty or whitespace):
-   ⚠️ SOURCE CHECK: Is last_few_executed empty?
-      → NO (has queries): Use ONLY last_few_executed. Do NOT look at sql_history/file_content for pattern.
-      → YES (empty): Fallback to sql_history/file_content.
-   
-   When last_few_executed HAS queries:
-   a) Extract table name being queried (e.g., fct.session, job_feature_usage_credits, snowsight_client_telemetry)
-   b) Identify what's CHANGING between queries:
-      - LIMIT values? (10 → 1000 → ?)
-      - Dates? ('2024-08-04' → '08-05' → ?)
-      - Date ranges? (>= '08-06' → ?)
-      - Filters? (WHERE conditions evolving)
-      - Columns? (SELECT col1 → col2 → ?)
-      - Feature vector fields? (fv['field1'] → 'field2' → ?)
-   c) Predict NEXT value in the progression:
-      - LIMIT: 10 → 1000 → 10000 (multiply by 10)
-      - Dates: '08-04' → '08-05' → '08-06' → '08-07' (increment)
-      - Feature fields: fv['a'] → 'b' → 'c' (next field)
-   d) Keep query structure: If last query has GROUP BY/aggregation/CTEs, keep that structure but change the varying part only
-   e) REQUIREMENTS:
-      - MUST use same table as last_few_executed
-      - MUST differ from ALL existing queries (especially last one)
-      - Do NOT copy last query verbatim (even if complex)
-   f) FORBIDDEN:
-      - Copy last query exactly
-      - Switch to different table
-      - Use sql_history or file_content for pattern when last_few_executed has queries
-   
-   When last_few_executed EMPTY:
-   - Fallback to sql_history/file_content for pattern detection
+1) Context: Use only tables/columns/literals from prefix/suffix, last_few_executed, sql_history, ddl_context, 
+   or file_content. Use aliased columns when aliases exist (e.g., FROM orders o → use o.order_id).
 
-1) Bound to context:
-   - Choose tables/columns/literals that appear in: (a) local code (prefix/suffix), (b) last_few_executed, (c) sql_history, or (d) ddl_context.
-   - If FROM/JOIN contains aliases, emit aliased columns (e.g., o.user_id), not bare names.
-   - For partial FQNs/identifiers, finish minimally (no extra tokens).
+2) Comment-to-SQL: If comment has trailing \n and suffix is empty, translate to SQL. Without \n, return <no_suggestion> as response.
 
-2) Clause-aware:
-   - SELECT → columns or expressions; FROM/JOIN → objects/FQNs; WHERE/HAVING → predicates; ON/USING → join keys; INSERT → columns.
+3) Literals: Prefer values from the provided context. Fallback to plausible integers (1, 100000000), 
+   short strings ('value'), known Snowflake literals, or dates (CURRENT_DATE, '2025-01-01').
 
-3) Operators & dedup:
-   - Do NOT change an already-typed operator; fill only the operand.
-   - Avoid repeating tokens at the boundaries (ON, =, AND, commas, closing parens).
-   - Add a whitespace or new line after the last token in the clause.
+4) No duplicate tokens: Don't repeat operators or SQL tokens already typed. 
+   Example: "WHERE id = " → "12345" (not "= 12345").
 
-4) Literals (strong):
-   - NUMBER columns (from ddl_context) or *_id fields: emit a concrete integer. Prefer values seen in last_few_executed or sql_history; otherwise a plausible int (e.g., 1 or 100000000).
-   - TEXT columns: copy a seen literal; else a short quoted literal (e.g., 'value').
-   - DATE/TIMESTAMP: prefer patterns in last_few_executed or sql_history; else CURRENT_DATE or '2025-01-01'.
+5) Empty output: Return <no_suggestion> as response if query is complete, no context match exists, comment lacks trailing newline, or if unsure in any cases.
 
-5) Do-nothing guards:
-   - If the statement is already complete, or no grounded match exists, return <CODE></CODE>.
-   - If the prefix is a comment, return <CODE></CODE>.
+6) Output Format: Output only raw new SQL tokens. No backticks, no prose, no extra whitespace.
 
-6) Output (strict):
-   - Return exactly one block: <CODE>...completion...</CODE> with no extra prose/tags/backticks.
+7) Code style: Match the formatting style from prefix, suffix, file_content or other context sources (e.g., indentation, spacing, casing).
 
-7) Comment-to-SQL translation:
-   - If the prefix is a comment with trailing newline and suffix is empty, translate it to SQL.
-   - If the prefix is a comment without trailing newline and suffix is empty, return <CODE></CODE>.
-*/
 
-/* MICRO‑EXEMPLARS (generalized; no text after </CODE>)
-# Placeholders in {...} are schematic; DO NOT emit the braces or placeholder names.
+EXAMPLES:
 
--- ... SELECT * FROM {table};                                 → <CODE></CODE>
--- ... FROM {schema}.{object_prefix}   (suffix: {object_suffix}) → <CODE>.</CODE>
--- ... GROUP BY {col_x}, {col_y}        (...suffix...)          → <CODE>, {col_z}</CODE>
--- ... SELECT                               (GROUP BY nearby)   → <CODE>sum({numeric_col})</CODE>
--- ... split_part({text_expr},                                  → <CODE>'.', 2)</CODE>
--- ... JOIN {table_b} {b} ON        (suffix: = {a}.{key})       → <CODE>{b}.{key}</CODE>
--- ... AND (                                                     → <CODE>{alias}.</CODE>
--- ... WHERE {id_col} =                                          → <CODE>123</CODE>
--- ... WHERE {id_col} <                                          → <CODE>100000000</CODE>
+MID-QUERY:
+- prefix="SELECT * FROM orders;" suffix="" → "<no_suggestion>"
+- prefix="SELECT * FROM orders o JOIN customers c ON " suffix="= c.customer_id" → "o.customer_id"
+- prefix="SELECT region, product, SUM(revenue) FROM sales GROUP BY region" suffix="" → ", product"
+- prefix="WHERE id = " suffix="" → "12345"
 
--- NEW QUERY (empty prefix/suffix):
--- last_few: [SELECT * FROM t LIMIT 10;, SELECT * FROM t LIMIT 1000;]
--- → <CODE>SELECT * FROM t LIMIT 10000;</CODE> (NEXT value: 10→1000→10000, not copy of 1000)
+NEW QUERY (prefix/suffix empty):
+- last_few_executed: [SELECT * FROM t LIMIT 10; SELECT * FROM t LIMIT 1000;]
+  → SELECT * FROM t LIMIT 100000; (continue progression, NOT copy last)
 
--- last_few: [... WHERE {date_col}='2024-08-04', '08-05', '08-06']
--- → <CODE>... WHERE {date_col}='2024-08-07';</CODE> (NEXT date: 06→07)
+- last_few_executed: [SELECT * FROM e WHERE d='2024-08-05'; SELECT * FROM e WHERE d='2024-08-06';]
+  → SELECT * FROM e WHERE d='2024-08-07'; (next date, same table)
 
--- last_few: [{date_col}='08-04', '08-05', SELECT {date_col}, sum(...) WHERE {date_col}>='08-06' GROUP BY all]
--- → <CODE>SELECT {date_col}, sum(...) WHERE {date_col}>='08-07' GROUP BY all;</CODE> (NEXT date range: 06→07, keep structure)
+- last_few_executed: [SELECT fv['a'] FROM t1; SELECT fv['b'] FROM t1;] sql_history: [SELECT * FROM t2;]
+  → SELECT fv['c'] FROM t1; (use last_few_executed, ignore sql_history)
 
--- last_few: [SELECT fv['field1'] FROM tbl1..., SELECT fv['field2'] FROM tbl1...]
--- sql_history: [SELECT * FROM tbl2...]
--- ❌ WRONG: <CODE>SELECT * FROM tbl2...;</CODE> (used sql_history when last_few_executed had queries!)
--- ✅ RIGHT: <CODE>SELECT fv['field3'] FROM tbl1...;</CODE> (continues tbl1 pattern, NEXT field)
-*/"""
+- last_few_executed: [] sql_history: [SELECT * FROM c WHERE x='US'; SELECT * FROM c WHERE x='CA';]
+  → SELECT * FROM c WHERE x='UK'; (fallback to sql_history)
+  */"""
 
 
 def render_autocomplete_user_prompt(
@@ -137,6 +95,12 @@ def render_autocomplete_user_prompt(
     last_few_executed_context: str = "",
     file_content: str = "",
 ) -> str:
+    """
+    Render the user prompt with context AND FIM tokens.
+    
+    Use this for inference where user message contains everything.
+    For training with FIM in assistant response, use render_autocomplete_user_context instead.
+    """
     context_parts = []
     
     # 1. SQL history context
@@ -177,6 +141,76 @@ def render_autocomplete_user_prompt(
 
 {template_content}"""
     return template_content
+
+
+def render_autocomplete_user_context(
+    sql_history: str = "",
+    ddl_context: str = "",
+    last_few_executed_context: str = "",
+    file_content: str = "",
+) -> str:
+    """
+    Render ONLY the context for the user message (no FIM tokens).
+    
+    Use this for training where FIM tokens should be in the assistant response.
+    
+    Returns:
+        str: Context block, or a minimal message if no context provided.
+              Never returns empty string to ensure valid training examples.
+    """
+    context_parts = []
+    
+    # 1. SQL history context
+    if sql_history:
+        context_parts.append(f"""/* sql_history (most recent queries appear last in this block)
+{sql_history}
+*/""")
+    
+    # 2. DDL context
+    if ddl_context:
+        context_parts.append(f"""/* ddl_context (Snowflake objects, columns, types)
+{ddl_context}
+*/""")
+    
+    # 3. Last few executed context
+    if last_few_executed_context:
+        context_parts.append(f"""/* last_few_executed_context (recently executed queries)
+{last_few_executed_context}
+*/""")
+    
+    # 4. File content (the entire worksheet)
+    if file_content:
+        context_parts.append(f"""/* file_content (entire worksheet)
+{file_content}
+*/""")
+    
+    # Return context block, or minimal message if no context
+    if context_parts:
+        context_block = "\n\n".join(context_parts)
+        return f"""# ------------------ FULL CONTEXT  ------------------
+{context_block}
+# ------------------ END FULL CONTEXT --------------------------------------------------"""
+    
+    # No context available - return minimal message to avoid empty user turns
+    # This ensures the model learns the task structure even without SQL history
+    return "/* No additional context available. Complete the SQL based on the prefix and suffix. */"
+
+
+def render_autocomplete_assistant_response(prefix: str, suffix: str, output: str) -> str:
+    """
+    Render the assistant response with FIM tokens wrapping prefix/suffix and the completion.
+    
+    Format: <|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>{output}
+    
+    Args:
+        prefix: Text before the completion point
+        suffix: Text after the completion point  
+        output: The actual completion (what replaces <fillMe>)
+        
+    Returns:
+        str: FIM-formatted assistant response
+    """
+    return f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>{output}"
 
 
 def get_messages(

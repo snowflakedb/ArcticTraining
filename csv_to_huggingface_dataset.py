@@ -35,8 +35,9 @@ import pandas as pd
 NO_SUGGESTION_TOKEN = "<no_suggestion>"
 
 from snow_rlhf.verl_comp.utils.dataset.arctic_text_to_sql_r1_prompt import (
+    render_autocomplete_assistant_response,
     render_autocomplete_system_prompt,
-    render_autocomplete_user_prompt,
+    render_autocomplete_user_context,
 )
 
 
@@ -227,11 +228,14 @@ def parse_input_json(input_text):
 
 def create_messages(prefix, suffix, sql_history, output_content):
     """
-    Create the messages list for HuggingFace instruct format using FIM template.
+    Create the messages list for HuggingFace instruct format with FIM in assistant response.
 
-    Uses the same template rendering as arctic_text_to_sql_r1_prompt.py:
-    - render_autocomplete_system_prompt(): Static system prompt with behavior rules
-    - render_autocomplete_user_prompt(): User message with context and FIM tokens
+    Message structure:
+    - System: Static behavior rules
+    - User: Context only (sql_history, ddl_context, etc.)
+    - Assistant: FIM tokens with prefix/suffix + the completion output
+
+    This format trains the model to output: <|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>{output}
 
     Args:
         prefix (str): Text before <fillMe> in the partial query
@@ -245,20 +249,26 @@ def create_messages(prefix, suffix, sql_history, output_content):
     # Render the static system prompt (no context, just behavior rules)
     system_content = render_autocomplete_system_prompt()
 
-    # Render the user message with all context and FIM tokens
-    user_content = render_autocomplete_user_prompt(
-        prefix=prefix,
-        suffix=suffix,
+    # Render the user message with ONLY context (no FIM tokens)
+    user_content = render_autocomplete_user_context(
         sql_history=sql_history,
         ddl_context="",  # Empty as per plan
         last_few_executed_context="",  # Empty as per plan
         file_content="",  # Empty as per plan
     )
 
+    # Render the assistant response with FIM tokens + output
+    # Format: <|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>{output}
+    assistant_content = render_autocomplete_assistant_response(
+        prefix=prefix,
+        suffix=suffix,
+        output=output_content,
+    )
+
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": user_content},
-        {"role": "assistant", "content": output_content},
+        {"role": "assistant", "content": assistant_content},
     ]
     return messages
 

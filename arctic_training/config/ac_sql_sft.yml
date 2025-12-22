@@ -1,6 +1,6 @@
 type: sft
 micro_batch_size: 1
-epochs: 2
+epochs: 3
 activation_checkpoint_cpu_offload: true
 
 model:
@@ -30,6 +30,7 @@ data:
   cache_dir: /checkpoint/aponnusamy/data-cache
   pack_samples: true
   ignore_empty_think: false
+  fim_loss_masking: true
 
 # Evaluation interval - required when eval_sources is provided
 eval_interval: 50
@@ -56,12 +57,12 @@ checkpoint:
   - type: huggingface
     save_every_n_steps: 150
     save_end_of_training: true
-    output_dir: /modeling-checkpoints/aponnusamy/checkpoints/qwen3-32b-ac-sft-1218
+    output_dir: /modeling-checkpoints/aponnusamy/checkpoints/qwen3-32b-ac-sft-1220
 
 wandb:
   enable: true
   project: snowflakesql_sft_training
-  name: qwen3-32b-ac-sft
+  name: qwen3-32b-ac-sft-1220
 
 logger:
   level: WARNING
