@@ -25,20 +25,24 @@ Examples:
 
 import argparse
 import atexit
-import glob
-import json
+import gc
 import os
-import re
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
-from tqdm import tqdm
+from typing import Any
+from typing import Dict
+from typing import List
 
-from datasets import Dataset, load_dataset, concatenate_datasets, load_from_disk
-from transformers import AutoTokenizer
-
+import ray
+import torch
 from arctic_forge import Driver
 from arctic_forge.config import ModelConfig
+from datasets import Dataset
+from datasets import concatenate_datasets
+from datasets import load_dataset
+from datasets import load_from_disk
+from tqdm import tqdm
+from transformers import AutoTokenizer
 
 
 def load_template(template_name: str) -> str:
@@ -71,14 +75,8 @@ def _load_magicoder() -> Dataset:
         source_name: str,
     ) -> Dict[str, Any]:
         conversation = [
-            {
-                "role": "user",
-                "content": example[query_key]
-            },
-            {
-                "role": "assistant",
-                "content": example[response_key]
-            },
+            {"role": "user", "content": example[query_key]},
+            {"role": "assistant", "content": example[response_key]},
         ]
         return {"source": source_name, "messages": conversation}
 
@@ -88,7 +86,8 @@ def _load_magicoder() -> Dataset:
             query_key="problem",
             response_key="solution",
             source_name="Magicoder",
-        ))
+        )
+    )
 
 
 def load_hf_dataset(dataset: str, args: argparse.Namespace) -> Dataset:
@@ -146,15 +145,11 @@ def build_prompt_segments(
                 continue
 
             for start in range(0, max_len, gen_prompt_length):
-                chunk_ids = input_ids[start:start + gen_prompt_length]
+                chunk_ids = input_ids[start : start + gen_prompt_length]
                 new_input_tokens.append(chunk_ids)
-                new_prompt_texts.append(
-                    tokenizer.decode(chunk_ids, skip_special_tokens=False))
+                new_prompt_texts.append(tokenizer.decode(chunk_ids, skip_special_tokens=False))
 
-        return {
-            "input_tokens": new_input_tokens,
-            "prompt_text": new_prompt_texts
-        }
+        return {"input_tokens": new_input_tokens, "prompt_text": new_prompt_texts}
 
     processed_dataset = dataset.map(
         process_batch,
@@ -170,8 +165,7 @@ def build_prompt_segments(
     return processed_dataset
 
 
-def concatenate_and_save_dataset(data_save_folder_name: str,
-                                 disk_save_location: str) -> None:
+def concatenate_and_save_dataset(data_save_folder_name: str, disk_save_location: str) -> None:
     """
     Loads Hugging Face datasets saved in subdirectories and concatenates them.
     """
@@ -206,8 +200,10 @@ def concatenate_and_save_dataset(data_save_folder_name: str,
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=("End-to-end data generation pipeline using ArcticForge. "
-                     "Can run one or many HF datasets concurrently."), )
+        description=(
+            "End-to-end data generation pipeline using ArcticForge. Can run one or many HF datasets concurrently."
+        ),
+    )
     parser.add_argument(
         "--hf_dataset",
         type=str,
@@ -217,9 +213,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--datasets",
         nargs="+",
-        help=
-        ("If provided, run these HF datasets concurrently; overrides --hf_dataset. "
-         "Examples: ultrachat magicoder"),
+        help="If provided, run these HF datasets concurrently; overrides --hf_dataset. Examples: ultrachat magicoder",
     )
     parser.add_argument(
         "--model_path",
@@ -231,26 +225,25 @@ def parse_args() -> argparse.Namespace:
         "--output_dir",
         type=str,
         required=True,
-        help=
-        ("Output directory. In multi-dataset mode, each dataset will write to "
-         "<output_dir>/<dataset_name>."),
+        help="Output directory. In multi-dataset mode, each dataset will write to <output_dir>/<dataset_name>.",
     )
     parser.add_argument(
         "--concat_output_dir",
         type=str,
         default=None,
-        help=
-        ("If provided, all JSONL files in `output_dir` (including subdirectories) "
-         "will be concatenated into a single HF Dataset and saved here."),
+        help=(
+            "If provided, all JSONL files in `output_dir` (including subdirectories) "
+            "will be concatenated into a single HF Dataset and saved here."
+        ),
     )
     parser.add_argument(
         "--checkpoint_path",
         type=str,
         default=None,
-        help=
-        ("Checkpoint folder (for single dataset) or checkpoint ROOT (for multi-dataset). "
-         "In multi-dataset mode, checkpoints go to <checkpoint_path>/<dataset_name>."
-         ),
+        help=(
+            "Checkpoint folder (for single dataset) or checkpoint ROOT (for multi-dataset). "
+            "In multi-dataset mode, checkpoints go to <checkpoint_path>/<dataset_name>."
+        ),
     )
     parser.add_argument(
         "--checkpoint_frequency",
@@ -330,8 +323,7 @@ def start_task_for_dataset(
     # Define the async processing pipeline for this dataset
     # We define this dynamically on the shared driver instance
     @driver.pipeline
-    async def generation_pipeline(sample: Dict[str, Any],
-                                  llm) -> Dict[str, Any]:
+    async def generation_pipeline(sample: Dict[str, Any], llm) -> Dict[str, Any]:
         response = await llm.generate(
             prompt=sample["prompt_text"],
             max_tokens=args.max_tokens,
@@ -348,8 +340,7 @@ def start_task_for_dataset(
         else:
             response_text = str(response)
 
-        output_ids = tokenizer(response_text,
-                               add_special_tokens=False)["input_ids"]
+        output_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"]
 
         return {
             "input": sample["input_tokens"],
@@ -364,11 +355,6 @@ def start_task_for_dataset(
     driver.run(prompt_dataset, **run_kwargs)
 
     return out_dir
-
-
-import gc
-import ray
-import torch
 
 
 def main() -> None:
@@ -399,9 +385,7 @@ def main() -> None:
         print(f"{'='*40}")
 
         # 1. Initialize Driver (Starts Ray + vLLM)
-        print(
-            f"[INFO] Initializing ArcticForge Driver for model: {args.model_path}"
-        )
+        print(f"[INFO] Initializing ArcticForge Driver for model: {args.model_path}")
         driver = Driver(config=model_config)
         atexit.unregister(driver.shutdown)
 
@@ -423,7 +407,7 @@ def main() -> None:
             print(f"[INFO] Shutting down resources for {ds_name}...")
 
             # Check if the driver has a built-in shutdown method
-            if hasattr(driver, 'shutdown'):
+            if hasattr(driver, "shutdown"):
                 driver.shutdown()
 
             # Delete the python object
@@ -446,8 +430,7 @@ def main() -> None:
     # 5. Concatenate results if requested
     if args.concat_output_dir:
         print("\n[INFO] Starting dataset concatenation...")
-        concatenate_and_save_dataset(data_save_folder_name=args.output_dir,
-                                     disk_save_location=args.concat_output_dir)
+        concatenate_and_save_dataset(data_save_folder_name=args.output_dir, disk_save_location=args.concat_output_dir)
 
 
 if __name__ == "__main__":
