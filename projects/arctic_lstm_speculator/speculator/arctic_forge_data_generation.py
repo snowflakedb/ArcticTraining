@@ -165,25 +165,23 @@ def build_prompt_segments(
     return processed_dataset
 
 
-def concatenate_and_save_dataset(data_save_folder_name: str, disk_save_location: str) -> None:
+def concatenate_and_save_dataset(
+    data_save_folder_name: str, disk_save_location: str, tokenizer: AutoTokenizer = None
+) -> None:
     """
-    Loads Hugging Face datasets saved in subdirectories and concatenates them.
+    Loads datasets, concatenates them, and robustly unpacks ArcticForge results
+    to map columns for Speculator training.
     """
     print(f"[INFO] Concatenating datasets from {data_save_folder_name}...")
 
-    # Find all subdirectories (assuming each dataset is in a subdir)
-    # or just try to load the base dir if it's a single dataset.
     subdirs = [f.path for f in os.scandir(data_save_folder_name) if f.is_dir()]
-
     datasets_to_concat = []
 
     for subdir in tqdm(subdirs, desc="Loading datasets"):
         try:
-            # Try to load as a HF dataset (Arrow format)
             ds = load_from_disk(subdir)
             datasets_to_concat.append(ds)
         except Exception as e:
-            # If a subdir isn't a dataset, skip it
             print(f"[WARN] Could not load dataset from {subdir}: {e}")
 
     if not datasets_to_concat:
@@ -192,6 +190,40 @@ def concatenate_and_save_dataset(data_save_folder_name: str, disk_save_location:
 
     print(f"[INFO] Concatenating {len(datasets_to_concat)} datasets...")
     merged_dataset = concatenate_datasets(datasets_to_concat)
+
+    available_columns = merged_dataset.column_names
+    print(f"[DEBUG] Merged dataset columns: {available_columns}")
+
+    def format_for_speculator(example):
+        output_ids = None
+
+        if "__arctic_forge_result__" in example:
+            result = example["__arctic_forge_result__"]
+            if isinstance(result, dict):
+                if "input_ids" in result:
+                    output_ids = result["input_ids"]
+                elif "output" in result:
+                    output_ids = result["output"]
+                elif "response_text" in result and tokenizer:
+                    output_ids = tokenizer(result["response_text"], add_special_tokens=False)["input_ids"]
+
+        if output_ids is None:
+            if "output" in example and example["output"]:
+                output_ids = example["output"]
+            elif "response_text" in example and tokenizer:
+                output_ids = tokenizer(example["response_text"], add_special_tokens=False)["input_ids"]
+            elif "response" in example and tokenizer:
+                output_ids = tokenizer(example["response"], add_special_tokens=False)["input_ids"]
+
+        if output_ids is None:
+            # Print keys to help debug if this happens again
+            raise ValueError(f"Could not extract output IDs. Row keys: {list(example.keys())}")
+
+        return {"input_ids": output_ids, "labels": output_ids}
+
+    print("[INFO] Formatting columns: unpacking and mapping to 'input_ids'/'labels'...")
+
+    merged_dataset = merged_dataset.map(format_for_speculator, num_proc=32, remove_columns=available_columns)
 
     print(f"[INFO] Saving merged dataset to: {disk_save_location}")
     merged_dataset.save_to_disk(disk_save_location)
@@ -324,31 +356,41 @@ def start_task_for_dataset(
     # We define this dynamically on the shared driver instance
     @driver.pipeline
     async def generation_pipeline(sample: Dict[str, Any], llm) -> Dict[str, Any]:
-        response = await llm.generate(
-            prompt=sample["prompt_text"],
-            max_tokens=args.max_tokens,
-            temperature=args.gen_temp,
-            top_p=args.gen_top_p,
-            top_k=args.gen_top_k,
-        )
+        import sys
+        import traceback
 
-        # Normalize response to a string
-        if isinstance(response, dict) and "text" in response:
-            response_text = response["text"]
-        elif isinstance(response, (list, tuple)):
-            response_text = str(response[0])
-        else:
-            response_text = str(response)
+        try:
+            request_output = await llm.generate(
+                prompt=sample["prompt_text"],
+                max_tokens=args.max_tokens,
+                temperature=args.gen_temp,
+                top_p=args.gen_top_p,
+                top_k=args.gen_top_k,
+                ignore_eos=True,
+            )
 
-        output_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"]
+            # Note: OpenAI API does not return token id directly
+            response_text = str(request_output)
+            output_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"]
 
-        return {
-            "input": sample["input_tokens"],
-            "output": output_ids,
-            "prompt_text": sample["prompt_text"],
-            "response_text": response_text,
-            "dataset": dataset_name,
-        }
+            target_len = args.max_tokens
+            current_len = len(output_ids)
+
+            if current_len > target_len:
+                # Case A: Too long (e.g. 320 tokens or 257). Keep the LAST 256 tokens.
+                output_ids = output_ids[-target_len:]
+            elif current_len < target_len:
+                # Case B: Too short (e.g. 255). Pad with zeros to exactly 256.
+                padding = [0] * (target_len - current_len)
+                output_ids = list(output_ids) + padding
+
+            return {
+                "input_ids": output_ids,
+                "labels": output_ids,
+            }
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+            raise
 
     print(f"[INFO] Starting ArcticForge run for dataset: {dataset_name}")
     # This will use the already initialized Ray/vLLM instance
@@ -376,6 +418,7 @@ def main() -> None:
         tensor_parallel_size=1,
         max_model_len=8192,
         max_num_seqs=2048,
+        async_scheduling=True,
     )
 
     # Process datasets loop
