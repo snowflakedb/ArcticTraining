@@ -134,7 +134,6 @@ def build_prompt_segments(
         )
 
         new_input_tokens = []
-        new_prompt_texts = []
 
         for input_ids in tokenized_batch["input_ids"]:
             if not input_ids:
@@ -147,9 +146,8 @@ def build_prompt_segments(
             for start in range(0, max_len, gen_prompt_length):
                 chunk_ids = input_ids[start : start + gen_prompt_length]
                 new_input_tokens.append(chunk_ids)
-                new_prompt_texts.append(tokenizer.decode(chunk_ids, skip_special_tokens=False))
 
-        return {"input_tokens": new_input_tokens, "prompt_text": new_prompt_texts}
+        return {"input_tokens": new_input_tokens}
 
     processed_dataset = dataset.map(
         process_batch,
@@ -360,29 +358,20 @@ def start_task_for_dataset(
         import traceback
 
         try:
-            request_output = await llm.generate(
-                prompt=sample["prompt_text"],
+            request_output = await llm.generate_token_ids(
+                prompt_token_ids=sample["input_tokens"],
                 max_tokens=args.max_tokens,
                 temperature=args.gen_temp,
                 top_p=args.gen_top_p,
                 top_k=args.gen_top_k,
                 ignore_eos=True,
             )
-
-            # Note: OpenAI API does not return token id directly
-            response_text = str(request_output)
-            output_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"]
+            output_ids = request_output
 
             target_len = args.max_tokens
             current_len = len(output_ids)
 
-            if current_len > target_len:
-                # Case A: Too long (e.g. 320 tokens or 257). Keep the LAST 256 tokens.
-                output_ids = output_ids[-target_len:]
-            elif current_len < target_len:
-                # Case B: Too short (e.g. 255). Pad with zeros to exactly 256.
-                padding = [0] * (target_len - current_len)
-                output_ids = list(output_ids) + padding
+            assert target_len == current_len
 
             return {
                 "input_ids": output_ids,
