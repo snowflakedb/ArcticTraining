@@ -46,7 +46,19 @@ class SFTTrainer(Trainer):
         batch = to_device(batch, self.device)
 
         if self.config.sequence_parallel_size == 1:
-            # if model.type=liger is configured - this will use a much more efficient fused
+            labels = batch.get("labels")
+
+            # Check if all labels are masked (would cause NaN loss from CE)
+            if labels is not None and (labels == -100).all():
+                # Run forward without labels to get logits, return differentiable zero
+                batch_without_labels = {k: v for k, v in batch.items() if k != "labels"}
+                outputs = self.model(**batch_without_labels, use_cache=False)
+                # Fake loss calculation - CE would return NaN, but we return differentiable zero
+                # A normal loss_fn upcasts logits to float so match it
+                loss = (outputs.logits.sum() * 0.0).float()
+                return loss
+
+            # Normal path: if model.type=liger is configured - this will use a much more efficient fused
             # logits+loss liger kernel - using significantly less gpu memory and a bit faster
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)
