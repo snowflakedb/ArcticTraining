@@ -51,8 +51,8 @@ class SFTTrainer(Trainer):
             # Check if all labels are masked (would cause NaN loss from CE)
             if labels is not None and (labels == -100).all():
                 # Run forward without labels to get logits, return differentiable zero
-                batch_without_labels = {k: v for k, v in batch.items() if k != "labels"}
-                outputs = self.model(**batch_without_labels, use_cache=False)
+                batch.pop("labels")
+                outputs = self.model(**batch, use_cache=False)
                 # Fake loss calculation - CE would return NaN, but we return differentiable zero
                 # A normal loss_fn upcasts logits to float so match it
                 loss = (outputs.logits.sum() * 0.0).float()
