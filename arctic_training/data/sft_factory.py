@@ -420,7 +420,7 @@ class SFTDataFactory(DataFactory):
 
             # Debug logging for label masking issues
             if DEBUG_LABEL_MASKING:
-                non_masked = sum(1 for l in labels if l != IGNORE_INDEX)
+                non_masked = sum(1 for label in labels if label != IGNORE_INDEX)
                 total = len(labels)
                 if non_masked == 0:
                     logger.warning(
