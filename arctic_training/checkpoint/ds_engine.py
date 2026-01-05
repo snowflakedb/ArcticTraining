@@ -64,6 +64,10 @@ class DSCheckpointEngine(CheckpointEngine):
         return self.checkpoint_dir / "latest"
 
     @property
+    def latest_checkpoint_exists(self) -> bool:
+        return self.latest_checkpoint.exists()
+
+    @property
     def checkpoint_tag(self) -> str:
         return f"epoch_{self.trainer.epoch_idx}_global_step_{self.trainer.global_step}"
 
@@ -94,7 +98,7 @@ class DSCheckpointEngine(CheckpointEngine):
         # logger.info(f"Saved model norm: {norm}, optim norm: {optim_norm}")
 
     def load(self, model) -> None:
-        if not self.latest_checkpoint.exists():
+        if not self.latest_checkpoint_exists:
             return
         _, client_states = model.load_checkpoint(self.checkpoint_dir)
 
