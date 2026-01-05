@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import random
 import re
 from typing import Dict
@@ -39,10 +38,6 @@ from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
 
 IGNORE_INDEX = -100
-
-# Debug flag for detailed logging of label masking issues
-# Set environment variable DEBUG_LABEL_MASKING=1 to enable
-DEBUG_LABEL_MASKING = os.environ.get("DEBUG_LABEL_MASKING", "0") == "1"
 
 
 # this function is modified from TRL trl.trainer.utils.py
@@ -414,25 +409,6 @@ class SFTDataFactory(DataFactory):
             # _ = get_assistant_start_end_indices(messages, conversation_text)
             labels = cls.get_masked_labels(conversation_ids, assistant_ranges)
             conversation_ids["labels"] = labels
-
-            # Debug logging for label masking issues
-            if DEBUG_LABEL_MASKING:
-                non_masked = sum(1 for label in labels if label != IGNORE_INDEX)
-                total = len(labels)
-                if non_masked == 0:
-                    print(
-                        "ALL LABELS MASKED! This will cause NaN loss.\n  conversation_text length:"
-                        f" {len(conversation_text)}\n  assistant_ranges: {assistant_ranges}\n  num_messages:"
-                        f" {len(messages)}\n  assistant_contents:"
-                        f" {[m['content'][:50] + '...' for m in messages if m['role'] == 'assistant']}"
-                    )
-                elif non_masked < 5:
-                    print(
-                        f"Very few non-masked labels ({non_masked}/{total}).\n  assistant_ranges: {assistant_ranges}\n"
-                        "  assistant_contents:"
-                        f" {[m['content'][:50] + '...' for m in messages if m['role'] == 'assistant']}"
-                    )
-
             # compare_messages_with_labels(split_list_by_specific_num(conversation_ids["labels"]), messages, tokenizer)
             del conversation_ids["offset_mapping"]
         else:
@@ -455,7 +431,6 @@ class SFTDataFactory(DataFactory):
         search_start = 0
         for message in messages:
             message_text = message["content"]
-            original_text = message_text  # Keep for debug logging
             if message["role"] == "assistant" and ignore_empty_think:
                 message_text = re.sub(r"^<think>\s*</think>\s*", "", message_text)
             # Find this message starting from current position
@@ -463,32 +438,7 @@ class SFTDataFactory(DataFactory):
             if match_index == -1:
                 # Fallback: try searching from the beginning (original behavior)
                 match_index = conversation_text.find(message_text)
-                if DEBUG_LABEL_MASKING and message["role"] == "assistant":
-                    if match_index == -1:
-                        print(
-                            "Assistant content NOT FOUND in conversation_text!\n"
-                            f"  role: {message['role']}\n"
-                            f"  original_content: {repr(original_text[:100])}...\n"
-                            f"  search_text: {repr(message_text[:100])}...\n"
-                            f"  search_start was: {search_start}\n"
-                            f"  conversation_text length: {len(conversation_text)}"
-                        )
-                    else:
-                        print(
-                            "Assistant content found via fallback (from position 0)!\n"
-                            f"  content: {repr(message_text[:50])}...\n"
-                            f"  found at: {match_index}, search_start was: {search_start}"
-                        )
             end_index = match_index + len(message_text) if match_index != -1 else -1
-
-            if DEBUG_LABEL_MASKING and message["role"] == "assistant":
-                conv_len = len(conversation_text)
-                position_pct = (match_index / conv_len * 100) if match_index != -1 else -1
-                print(
-                    f"Assistant range: ({match_index}, {end_index}) - "
-                    f"{position_pct:.1f}% into conversation (len={conv_len}), "
-                    f"content: {repr(message_text[:30])}..."
-                )
 
             # Only record assistant message ranges
             if message["role"] == "assistant":
