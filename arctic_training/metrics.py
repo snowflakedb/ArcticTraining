@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 
 
 def gather_object(number: Union[float, int, list], world_size: int) -> List[Union[float, int]]:
+    if torch.distributed.get_world_size() == 1:
+        return [number]
     output = [None] * world_size
     torch.distributed.all_gather_object(output, number)
     output = [v for ll in output for v in (ll if isinstance(ll, list) else [ll])]

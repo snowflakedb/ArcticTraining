@@ -78,6 +78,6 @@ def launch():
             sort_key = SortKey.TIME if args.python_profile == "tottime" else SortKey.CUMULATIVE
             cProfile.runctx("train()", None, locals(), sort=sort_key)
 
-    if dist.is_initialized():
+    if dist.is_initialized() and dist.get_world_size() > 1:
         dist.barrier()
         dist.destroy_process_group()

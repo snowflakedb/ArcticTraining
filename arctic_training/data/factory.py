@@ -125,7 +125,8 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
                 tmp_cache_path.rename(cache_path)
 
             try:
-                dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
+                if dist.is_initialized():
+                    pass #dist.barrier()  # Wait for the main process to finish its preprocessing + saving to cache
             except (torch.distributed.DistBackendError, KeyboardInterrupt):
                 exit(1)  # Likely rank 0 ran into an error and exited. Exit quietly to avoid polluting output.
 

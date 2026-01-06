@@ -28,6 +28,7 @@ from typing import List
 from transformers import PreTrainedModel
 
 from arctic_training.optimizer.factory import OptimizerFactory
+from torch.optim import Adam as FusedAdam
 
 
 class FusedAdamOptimizerFactory(OptimizerFactory):
