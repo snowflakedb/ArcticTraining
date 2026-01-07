@@ -78,6 +78,7 @@ all = [
     "arctic_training[testing]",
     "arctic_training[vllm]",
     "arctic_training[cortex]",
+    "arctic_training[snowflake]",
 ]
 
 dev = [
@@ -91,6 +92,7 @@ testing = [
     "pytest-instafail",
     "parameterized",
     "pytest-xdist",
+    "arctic_training[snowflake]",
 ]
 
 formatting = [
@@ -113,6 +115,11 @@ vllm = [
 
 cortex = [
     "snowflake-connector-python==3.12.3",
+]
+
+snowflake = [
+    "snowflake-ml-python>=1.21.0",
+    "numba>=0.63",  # Mitigate uv dependency resolution issue with snowflake-ml-python
 ]
 
 [project.scripts]
