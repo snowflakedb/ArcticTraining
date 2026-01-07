@@ -99,15 +99,18 @@ def main():
         "--launcher",
         type=str,
         choices=["deepspeed", "ray"],
-        default="deepspeed",
-        help="The launcher to use for distributed training.",
+        default=None,
+        help="The launcher to use for distributed training. Defaults to deepspeed.",
     )
     args, deepspeed_args = parser.parse_known_args()
 
     if not args.config.exists():
         raise FileNotFoundError(f"Config file {args.config} not found.")
 
-    if args.launcher == "ray":
+    # CLI --launcher flag takes precedence over USE_RAY environment variable
+    use_ray_env = os.environ.get("USE_RAY", "").lower() in ("1", "true")
+    use_ray = args.launcher == "ray" or (args.launcher is None and use_ray_env)
+    if use_ray:
         if len(deepspeed_args) > 0:
             raise ValueError("DeepSpeed arguments are not supported when using Ray launcher.")
         ray_launch(config_file=str(args.config), mode=args.mode, python_profile=args.python_profile)
