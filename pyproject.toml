@@ -119,7 +119,7 @@ cortex = [
 
 snowflake = [
     "snowflake-ml-python>=1.21.0",
-    "numba>=0.63",  # Mitigate uv dependency resolution issue with snowflake-ml-python
+    "numba",  # Mitigate uv dependency resolution issue with snowflake-ml-python
 ]
 
 [project.scripts]
