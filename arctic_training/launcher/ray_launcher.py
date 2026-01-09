@@ -23,6 +23,7 @@ import ray
 import ray.train
 import yaml
 from ray.train import Checkpoint
+from ray.train import RunConfig
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
 
@@ -157,6 +158,7 @@ def launch(
         arctic_train_func,
         train_loop_config=train_config,
         scaling_config=ScalingConfig(num_workers=num_workers, use_gpu=use_gpu),
+        run_config=RunConfig(worker_runtime_env={"working_dir": str(Path(config_file).parent)}),
     )
 
     return trainer.fit()
