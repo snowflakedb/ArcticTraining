@@ -13,12 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Literal
 from typing import cast
 
+# Enable Ray Train V2 for worker_runtime_env
+os.environ["RAY_TRAIN_V2_ENABLED"] = "true"
+
+# flake8: noqa: E402 (ray needs to be imported after setting the env var)
 import ray
 import ray.train
 import yaml
