@@ -13,17 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Literal
 from typing import cast
 
-# Enable Ray Train V2 for worker_runtime_env
-os.environ["RAY_TRAIN_V2_ENABLED"] = "true"
-
-# flake8: noqa: E402 (ray needs to be imported after setting the env var)
 import ray
 import ray.train
 import yaml
@@ -159,11 +154,21 @@ def launch(
     num_workers = num_gpus if use_gpu else 1
     arctic_train_func = make_arctic_train_func()
 
+    recipe_dir = Path(config_file).parent.absolute()
+    run_config = None
+    if len(list(recipe_dir.iterdir())) > 1:
+        try:
+            run_config = RunConfig(worker_runtime_env={"working_dir": str(recipe_dir)})
+        except TypeError as e:
+            raise RuntimeError(
+                "Ray Train V2 required. Set environment variable RAY_TRAIN_V2_ENABLED=1 to enable."
+            ) from e
+
     trainer = TorchTrainer(
         arctic_train_func,
         train_loop_config=train_config,
         scaling_config=ScalingConfig(num_workers=num_workers, use_gpu=use_gpu),
-        run_config=RunConfig(worker_runtime_env={"working_dir": str(Path(config_file).parent)}),
+        run_config=run_config,
     )
 
     return trainer.fit()
