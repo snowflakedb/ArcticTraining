@@ -23,6 +23,7 @@ from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.sft_factory import SFTDataFactory
+from arctic_training.logging import logger
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
@@ -81,18 +82,36 @@ class SFTTrainer(Trainer):
         #    memory-wise, but which has more compute overhead before backward re-runs forward. The
         #    total memory usage is very similar, but cuda cache flushes earlier if pushing close to
         #    OOM than liger.
-        if self.config.model.type == "liger":
+        #
+        # Note: When in eval mode with SP > 1, liger's fused cross-entropy returns None, so we
+        # fall back to tiled compute for evaluation even when model.type == "liger".
+        # Use model_unwrapped.training because self.model is a DeepSpeed engine wrapper.
+        use_liger_fused_loss = self.config.model.type == "liger" and self.model_unwrapped.training
+
+        if use_liger_fused_loss:
 
             # letting liger do fused logits+loss calculation
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
 
             if loss is None:
-                # XXX: not sure why this happens with SP>1 and eval-enabled, I checked shift_labels contain valid non -100 tokens - disabling fused_linear_cross_entropy=False in AutoLigerKernelForCausalLM.from_pretrained doesn't help. all works when eval is off.
                 raise ValueError(
-                    "Liger-Kernel failed to compute loss (returned None) - it's known to fail with eval enabled along"
-                    " train steps when SP>1."
+                    "Liger-Kernel failed to compute loss (returned None). This is unexpected during training."
                 )
+
+            # Handle NaN loss from Liger (can happen with all-masked batches)
+            if torch.isnan(loss) or torch.isinf(loss):
+                # Check if this is due to all labels being masked
+                good_tokens = ((shift_labels != -100).view(-1)).sum()
+                if good_tokens == 0:
+                    logger.warning(
+                        "Batch has no trainable tokens on this SP rank (all labels are -100). "
+                        "Returning zero loss. This may indicate data issues with too many "
+                        "empty/masked outputs or an unfavorable packing distribution."
+                    )
+                    # Return differentiable zero loss for this rank
+                    loss = loss * 0.0 + 0.0  # Preserves gradient graph but returns 0
+                # If there are good tokens but still NaN, let it propagate (real numerical issue)
 
         else:
             # Currently relying on an automatic num_shards derivation based on the goal that it'll
@@ -157,6 +176,18 @@ class SFTTrainer(Trainer):
         good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
         total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
         total_good_tokens = sum(good_tokens_per_rank)
-        loss = total_loss / total_good_tokens
+
+        # Protect against division by zero when all tokens are masked
+        # This can happen with packed samples that have mostly non-assistant content
+        if total_good_tokens == 0:
+            logger.warning(
+                "Batch has no trainable tokens across all SP ranks (all labels are -100). "
+                "Returning zero loss. This may indicate data issues with too many "
+                "empty/masked outputs or an unfavorable packing distribution."
+            )
+            # Return differentiable zero loss - the batch has no trainable tokens
+            loss = total_loss * 0.0
+        else:
+            loss = total_loss / total_good_tokens
 
         return loss
