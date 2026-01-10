@@ -174,12 +174,24 @@ def launch(
     - Constructs a Ray ``TorchTrainer`` with GPU-based scaling
     - Uses a closure-wrapped ``arctic_train_func`` that Ray can cloudpickle
     """
-    # NOTE: config_file must be accessible by all worker nodes
+    # Assume config_file is accessible by all worker nodes at the same path.
+    config_path = Path(config_file).resolve()
     train_config: dict[str, Any] = {
-        "arctic_config": Path(config_file).absolute(),
+        "arctic_config": config_path,
         "mode": mode,
         "python_profile": python_profile,
     }
+
+    # Validate above assumption by checking for Snowflake ML Job environment
+    # variable that indicates config file is on a shared mount.
+    # If not, attempt to set Ray working_dir to the config directory to trigger
+    # file syncing to worker nodes and load from Ray working directory instead.
+    if not config_path.is_relative_to(os.getenv("MLRS_STAGE_MOUNT_PATH", "")):
+        try:
+            ray.init(address="auto", runtime_env={"working_dir": config_path.parent.as_posix()})
+            train_config["arctic_config"] = config_path.name
+        except RuntimeError:
+            pass
 
     num_gpus = get_available_gpu()
     use_gpu = num_gpus > 0
@@ -190,6 +202,7 @@ def launch(
         arctic_train_func,
         train_loop_config=train_config,
         scaling_config=ScalingConfig(num_workers=num_workers, use_gpu=use_gpu),
+        # Set Ray Train storage path to Snowflake ML Job result path if provided
         run_config=RunConfig(storage_path=os.getenv("MLRS_STAGE_RESULT_PATH")),
     )
 
