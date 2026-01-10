@@ -21,9 +21,7 @@ from typing import cast
 
 import ray
 import ray.train
-import yaml
 from ray.train import Checkpoint
-from ray.train import RunConfig
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
 
@@ -88,7 +86,7 @@ def make_arctic_train_func() -> Callable[[TrainConfig], None]:
     following schema:
 
     {
-        "arctic_config": dict,   # In-memory ArcticTraining config dictionary
+        "arctic_config": str,  # Path to ArcticTraining config yaml file
         "mode": str,           # "train" or "process-data"
         "python_profile": str, # "tottime", "cumtime", or "disable" (optional)
     }
@@ -140,12 +138,9 @@ def launch(
     - Constructs a Ray ``TorchTrainer`` with GPU-based scaling
     - Uses a closure-wrapped ``arctic_train_func`` that Ray can cloudpickle
     """
-    # Load config from file and pass the in-memory dict to workers
-    with open(config_file, "r") as f:
-        arctic_config = yaml.safe_load(f)
-
+    # NOTE: config_file must be accessible by all worker nodes
     train_config: dict[str, Any] = {
-        "arctic_config": arctic_config,
+        "arctic_config": Path(config_file).absolute(),
         "mode": mode,
         "python_profile": python_profile,
     }
@@ -155,21 +150,10 @@ def launch(
     num_workers = num_gpus if use_gpu else 1
     arctic_train_func = make_arctic_train_func()
 
-    recipe_dir = Path(config_file).parent.absolute()
-    run_config = None
-    if len(list(recipe_dir.iterdir())) > 1:
-        try:
-            run_config = RunConfig(worker_runtime_env={"working_dir": str(recipe_dir)})
-        except TypeError as e:
-            raise RuntimeError(
-                "Ray Train V2 required. Set environment variable RAY_TRAIN_V2_ENABLED=1 to enable."
-            ) from e
-
     trainer = TorchTrainer(
         arctic_train_func,
         train_loop_config=train_config,
         scaling_config=ScalingConfig(num_workers=num_workers, use_gpu=use_gpu),
-        run_config=run_config,
     )
 
     return trainer.fit()
