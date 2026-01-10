@@ -45,10 +45,11 @@ def _post_step_ray_report(trainer: Trainer) -> None:
 
 def _post_checkpoint_ray_save(trainer: Trainer) -> None:
     """Upload checkpoints produced by the trainer to Ray Train."""
+    metrics = {k: v for k, v in trainer.metrics.summary_dict.items()}
     for engine in trainer.checkpoint_engines:
         if engine.do_checkpoint:
             checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
-            ray.train.report(checkpoint=checkpoint)
+            ray.train.report(metrics=metrics, checkpoint=checkpoint)
 
 
 def _attach_ray_callbacks(trainer: Trainer) -> None:
