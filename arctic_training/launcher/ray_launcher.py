@@ -61,7 +61,7 @@ def _post_checkpoint_ray_save(trainer: Trainer) -> None:
         report_kwargs = dict(checkpoint=None)
 
         # Only upload checkpoint from rank 0
-        if train_context.get_world_rank() == 0:
+        if trainer.global_rank == 0:
             if any(engine.checkpoint_dir.resolve().is_relative_to(ray_checkpoint_path) for engine in active_engines):
                 # If any engine is writing to a subpath of the Ray checkpoint path,
                 # assume the user is handling checkpoint upload themselves and skip
