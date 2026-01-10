@@ -28,6 +28,7 @@ from ray.train.torch import TorchTrainer
 from arctic_training.callback.callback import Callback
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
+from arctic_training.logging import logger
 from arctic_training.registry import get_registered_trainer
 from arctic_training.trainer.trainer import Trainer
 
@@ -37,17 +38,50 @@ TrainConfig = dict[str, Any]
 def _post_step_ray_report(trainer: Trainer) -> None:
     """Report metrics to Ray Train after each training step."""
     if trainer.gas_boundary and trainer.global_step % trainer.config.train_log_iter_interval == 0:
-        metrics = {k: v for k, v in trainer.metrics.summary_dict.items()}
-        ray.train.report(metrics=metrics)
+        ray.train.report(trainer.metrics.summary_dict)
 
 
 def _post_checkpoint_ray_save(trainer: Trainer) -> None:
     """Upload checkpoints produced by the trainer to Ray Train."""
-    metrics = {k: v for k, v in trainer.metrics.summary_dict.items()}
-    for engine in trainer.checkpoint_engines:
-        if engine.do_checkpoint:
-            checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
-            ray.train.report(metrics=metrics, checkpoint=checkpoint)
+    try:
+        # StorageContext is a developer API and may not be available in all versions of Ray Train.
+        # Check for the existence of the checkpoint path API and skip if it's not available.
+        train_context = ray.train.get_context()
+        ray_checkpoint_path = Path(train_context.get_storage().storage_fs_path).resolve()
+    except AttributeError:
+        logger.warning(
+            "Ray Train StorageContext checkpoint API not available. Skipping checkpoint upload to Ray Train."
+        )
+        return
+
+    active_engines = [engine for engine in trainer.checkpoint_engines if engine.do_checkpoint]
+    if active_engines:
+        report_kwargs = dict(checkpoint=None)
+
+        # Only upload checkpoint from rank 0
+        if train_context.get_world_rank() == 0:
+            if any(engine.checkpoint_dir.resolve().is_relative_to(ray_checkpoint_path) for engine in active_engines):
+                # If any engine is writing to a subpath of the Ray checkpoint path,
+                # assume the user is handling checkpoint upload themselves and skip
+                # automatic upload to Ray Train
+                try:
+                    from ray.train import CheckpointUploadMode  # Only available in Ray Train V2
+
+                    engine = next(
+                        engine
+                        for engine in active_engines
+                        if engine.checkpoint_dir.resolve().is_relative_to(ray_checkpoint_path)
+                    )
+                    report_kwargs["checkpoint"] = Checkpoint.from_directory(engine.checkpoint_dir.as_posix())
+                    report_kwargs["checkpoint_upload_mode"] = CheckpointUploadMode.NO_UPLOAD
+                except ImportError:
+                    pass
+            else:
+                # If no engines are writing to the Ray checkpoint path, upload checkpoint from first engine
+                engine = active_engines[0]
+                report_kwargs["checkpoint"] = Checkpoint.from_directory(engine.checkpoint_dir.as_posix())
+
+        ray.train.report(trainer.metrics.summary_dict, **report_kwargs)
 
 
 def _attach_ray_callbacks(trainer: Trainer) -> None:
