@@ -314,6 +314,24 @@ def _tokenize_marker(marker: str, tokenizer: PreTrainedTokenizerBase) -> List[in
     return tokenizer(marker, add_special_tokens=False).input_ids
 
 
+def _tokenize_marker_without_trailing_whitespace(marker: str, tokenizer: PreTrainedTokenizerBase) -> List[int]:
+    """
+    Tokenize a marker string, stripping trailing whitespace to avoid tokenizer
+    context sensitivity issues.
+
+    Some tokenizers (e.g., Qwen) tokenize "\\n\\n" differently than "\\n" + "\\n".
+    When assistant content starts with "\\n", the marker "assistant\\n" + "\\n" becomes
+    "assistant\\n\\n" which tokenizes differently, causing pattern match failures.
+
+    By stripping trailing whitespace from the marker, we avoid this issue.
+    """
+    if not marker:
+        return []
+    # Strip trailing whitespace (newlines, spaces) to avoid context sensitivity
+    stripped = marker.rstrip()
+    return tokenizer(stripped, add_special_tokens=False).input_ids
+
+
 def get_token_based_labels(
     input_ids: List[int],
     tokenizer: PreTrainedTokenizerBase,
@@ -335,9 +353,10 @@ def get_token_based_labels(
     Returns:
         List of labels where trainable tokens have their token ID and masked tokens have -100
     """
-    # Tokenize the markers
-    user_start_ids = _tokenize_marker(markers.user_start, tokenizer)
-    assistant_start_ids = _tokenize_marker(markers.assistant_start, tokenizer)
+    # Tokenize the markers - strip trailing whitespace to avoid context sensitivity
+    # This handles cases where content starts with newlines causing different tokenization
+    user_start_ids = _tokenize_marker_without_trailing_whitespace(markers.user_start, tokenizer)
+    assistant_start_ids = _tokenize_marker_without_trailing_whitespace(markers.assistant_start, tokenizer)
     turn_end_ids = _tokenize_marker(markers.turn_end, tokenizer)
 
     # Initialize all labels as masked
@@ -419,8 +438,10 @@ def get_token_based_labels_with_ignore_empty_think(
         return labels
 
     # Find and mask empty think patterns that appear at start of assistant responses
-    assistant_start_ids = _tokenize_marker(markers.assistant_start, tokenizer)
-    user_start_ids = _tokenize_marker(markers.user_start, tokenizer)
+    # IMPORTANT: Use the same tokenization as get_token_based_labels() to ensure
+    # content_start positions match where tokens were actually marked as trainable
+    assistant_start_ids = _tokenize_marker_without_trailing_whitespace(markers.assistant_start, tokenizer)
+    user_start_ids = _tokenize_marker_without_trailing_whitespace(markers.user_start, tokenizer)
     turn_end_ids = _tokenize_marker(markers.turn_end, tokenizer)
 
     i = 0

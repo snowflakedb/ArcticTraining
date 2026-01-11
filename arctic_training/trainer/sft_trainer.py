@@ -52,6 +52,25 @@ class SFTTrainer(Trainer):
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
+
+            # Handle NaN loss (can happen with all-masked batches where all labels are -100)
+            if torch.isnan(loss) or torch.isinf(loss):
+                labels = batch.get("labels")
+                if labels is not None:
+                    good_tokens = ((labels != -100).view(-1)).sum()
+                    if good_tokens == 0:
+                        logger.warning(
+                            "Batch has no trainable tokens (all labels are -100). "
+                            "Returning zero loss. This may indicate data issues with "
+                            "chat template marker mismatches or empty outputs."
+                        )
+                        # Create a zero loss connected to the computation graph
+                        if hasattr(outputs, "logits") and outputs.logits is not None:
+                            loss = (outputs.logits.sum() * 0.0).to(loss.dtype)
+                        else:
+                            loss = torch.zeros(1, device=loss.device, dtype=loss.dtype, requires_grad=True)[0]
+                # If there are good tokens but still NaN, let it propagate (real numerical issue)
+
             return loss
 
         # Ulysses SP expectations:
@@ -109,8 +128,15 @@ class SFTTrainer(Trainer):
                         "Returning zero loss. This may indicate data issues with too many "
                         "empty/masked outputs or an unfavorable packing distribution."
                     )
-                    # Return differentiable zero loss for this rank
-                    loss = loss * 0.0 + 0.0  # Preserves gradient graph but returns 0
+                    # We need a zero loss that's still connected to the computation graph
+                    # to ensure proper gradient flow for DeepSpeed. Use outputs.logits if available,
+                    # otherwise fall back to a differentiable zero from the loss tensor.
+                    if hasattr(outputs, "logits") and outputs.logits is not None:
+                        loss = (outputs.logits.sum() * 0.0).to(loss.dtype)
+                    else:
+                        # Fallback: use torch.zeros_like to get correct device/dtype
+                        # and add to a scalar from the loss to maintain some graph connection
+                        loss = torch.zeros(1, device=loss.device, dtype=loss.dtype, requires_grad=True)[0]
                 # If there are good tokens but still NaN, let it propagate (real numerical issue)
 
         else:
@@ -185,8 +211,15 @@ class SFTTrainer(Trainer):
                 "Returning zero loss. This may indicate data issues with too many "
                 "empty/masked outputs or an unfavorable packing distribution."
             )
-            # Return differentiable zero loss - the batch has no trainable tokens
-            loss = total_loss * 0.0
+            # We need a zero loss that's connected to the computation graph.
+            # The 'loss' variable from earlier is connected to the graph, so we use it.
+            # If loss is NaN (from all-masked Liger batch), we use a fallback.
+            if torch.isnan(loss) or torch.isinf(loss):
+                # Fallback: create a zero that's at least on the correct device
+                loss = torch.zeros(1, device=loss.device, dtype=loss.dtype, requires_grad=True)[0]
+            else:
+                # Use the existing loss (which is connected to graph) multiplied by 0
+                loss = loss * 0.0
         else:
             loss = total_loss / total_good_tokens
 
