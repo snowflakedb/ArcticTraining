@@ -209,29 +209,7 @@ def detect_markers_heuristic(tokenizer: PreTrainedTokenizerBase) -> ChatMarkerCo
 
     # Assistant turn = difference between t2 and t1
     # t2 should start with t1's content (possibly without trailing generation prompt)
-    if t2.startswith(t1):
-        asst_turn = t2[len(t1) :]
-    else:
-        # Fallback: find Y in t2 and extract the marker before it
-        # This avoids including the previous turn's end marker
-        y_pos_t2 = t2.find("Y")
-        x_pos_t2 = t2.find("X")
-        if y_pos_t2 > x_pos_t2 >= 0:
-            # Extract from after X's position to Y, then find where assistant marker starts
-            # Look for common assistant markers in the segment between X and Y
-            segment = t2[x_pos_t2 + 1 : y_pos_t2]
-            # Find where a new role marker likely starts (after any turn end token)
-            for end_marker in ["<|im_end|>", "<|eot_id|>", "</s>", "<|end|>", "<end_of_turn>"]:
-                if end_marker in segment:
-                    # Assistant start is everything after the end marker (plus any newline)
-                    marker_end = segment.find(end_marker) + len(end_marker)
-                    asst_turn = segment[marker_end:].lstrip("\n") + "Y"
-                    break
-            else:
-                # No known end marker found, use original fallback
-                asst_turn = segment + "Y"
-        else:
-            asst_turn = t2[t2.find("X") + 1 :]
+    asst_turn = t2[len(t1) :] if t2.startswith(t1) else t2[t2.find("X") + 1 :]
 
     # Find Y in assistant turn
     y_pos_in_asst = asst_turn.find("Y")
@@ -460,10 +438,8 @@ def get_token_based_labels_with_ignore_empty_think(
         return labels
 
     # Find and mask empty think patterns that appear at start of assistant responses
-    # IMPORTANT: Use the same tokenization as get_token_based_labels() to ensure
-    # content_start positions match where tokens were actually marked as trainable
-    assistant_start_ids = _tokenize_marker_without_trailing_whitespace(markers.assistant_start, tokenizer)
-    user_start_ids = _tokenize_marker_without_trailing_whitespace(markers.user_start, tokenizer)
+    assistant_start_ids = _tokenize_marker(markers.assistant_start, tokenizer)
+    user_start_ids = _tokenize_marker(markers.user_start, tokenizer)
     turn_end_ids = _tokenize_marker(markers.turn_end, tokenizer)
 
     i = 0
