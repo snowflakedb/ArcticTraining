@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -21,14 +22,15 @@ from typing import cast
 
 import ray
 import ray.train
-import yaml
 from ray.train import Checkpoint
+from ray.train import RunConfig
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
 
 from arctic_training.callback.callback import Callback
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
+from arctic_training.logging import logger
 from arctic_training.registry import get_registered_trainer
 from arctic_training.trainer.trainer import Trainer
 
@@ -38,16 +40,50 @@ TrainConfig = dict[str, Any]
 def _post_step_ray_report(trainer: Trainer) -> None:
     """Report metrics to Ray Train after each training step."""
     if trainer.gas_boundary and trainer.global_step % trainer.config.train_log_iter_interval == 0:
-        metrics = {k: v for k, v in trainer.metrics.summary_dict.items()}
-        ray.train.report(metrics=metrics)
+        ray.train.report(trainer.metrics.summary_dict)
 
 
 def _post_checkpoint_ray_save(trainer: Trainer) -> None:
     """Upload checkpoints produced by the trainer to Ray Train."""
-    for engine in trainer.checkpoint_engines:
-        if engine.do_checkpoint:
-            checkpoint = Checkpoint.from_directory(str(engine.checkpoint_dir))
-            ray.train.report(checkpoint=checkpoint)
+    try:
+        # StorageContext is a developer API and may not be available in all versions of Ray Train.
+        # Check for the existence of the checkpoint path API and skip if it's not available.
+        train_context = ray.train.get_context()
+        ray_checkpoint_path = Path(train_context.get_storage().storage_fs_path).resolve()
+    except AttributeError:
+        logger.warning(
+            "Ray Train StorageContext checkpoint API not available. Skipping checkpoint upload to Ray Train."
+        )
+        return
+
+    active_engines = [engine for engine in trainer.checkpoint_engines if engine.do_checkpoint]
+    if active_engines:
+        report_kwargs = dict(checkpoint=None)
+
+        # Only upload checkpoint from rank 0
+        if trainer.global_rank == 0:
+            if any(engine.checkpoint_dir.resolve().is_relative_to(ray_checkpoint_path) for engine in active_engines):
+                # If any engine is writing to a subpath of the Ray checkpoint path,
+                # assume the user is handling checkpoint upload themselves and skip
+                # automatic upload to Ray Train
+                try:
+                    from ray.train import CheckpointUploadMode  # Only available in Ray Train V2
+
+                    engine = next(
+                        engine
+                        for engine in active_engines
+                        if engine.checkpoint_dir.resolve().is_relative_to(ray_checkpoint_path)
+                    )
+                    report_kwargs["checkpoint"] = Checkpoint.from_directory(engine.checkpoint_dir.as_posix())
+                    report_kwargs["checkpoint_upload_mode"] = CheckpointUploadMode.NO_UPLOAD
+                except ImportError:
+                    pass
+            else:
+                # If no engines are writing to the Ray checkpoint path, upload checkpoint from first engine
+                engine = active_engines[0]
+                report_kwargs["checkpoint"] = Checkpoint.from_directory(engine.checkpoint_dir.as_posix())
+
+        ray.train.report(trainer.metrics.summary_dict, **report_kwargs)
 
 
 def _attach_ray_callbacks(trainer: Trainer) -> None:
@@ -86,7 +122,7 @@ def make_arctic_train_func() -> Callable[[TrainConfig], None]:
     following schema:
 
     {
-        "arctic_config": dict,   # In-memory ArcticTraining config dictionary
+        "arctic_config": str,  # Path to ArcticTraining config yaml file
         "mode": str,           # "train" or "process-data"
         "python_profile": str, # "tottime", "cumtime", or "disable" (optional)
     }
@@ -138,15 +174,24 @@ def launch(
     - Constructs a Ray ``TorchTrainer`` with GPU-based scaling
     - Uses a closure-wrapped ``arctic_train_func`` that Ray can cloudpickle
     """
-    # Load config from file and pass the in-memory dict to workers
-    with open(config_file, "r") as f:
-        arctic_config = yaml.safe_load(f)
-
+    # Assume config_file is accessible by all worker nodes at the same path.
+    config_path = Path(config_file).resolve()
     train_config: dict[str, Any] = {
-        "arctic_config": arctic_config,
+        "arctic_config": config_path,
         "mode": mode,
         "python_profile": python_profile,
     }
+
+    # Validate above assumption by checking for Snowflake ML Job environment
+    # variable that indicates config file is on a shared mount.
+    # If not, attempt to set Ray working_dir to the config directory to trigger
+    # file syncing to worker nodes and load from Ray working directory instead.
+    if not config_path.is_relative_to(os.getenv("MLRS_STAGE_MOUNT_PATH", "")):
+        try:
+            ray.init(address="auto", runtime_env={"working_dir": config_path.parent.as_posix()})
+            train_config["arctic_config"] = config_path.name
+        except RuntimeError:
+            pass
 
     num_gpus = get_available_gpu()
     use_gpu = num_gpus > 0
@@ -157,6 +202,8 @@ def launch(
         arctic_train_func,
         train_loop_config=train_config,
         scaling_config=ScalingConfig(num_workers=num_workers, use_gpu=use_gpu),
+        # Set Ray Train storage path to Snowflake ML Job result path if provided
+        run_config=RunConfig(storage_path=os.getenv("MLRS_STAGE_RESULT_PATH")),
     )
 
     return trainer.fit()
