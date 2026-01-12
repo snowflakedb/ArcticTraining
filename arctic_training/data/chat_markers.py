@@ -438,8 +438,9 @@ def get_token_based_labels_with_ignore_empty_think(
         return labels
 
     # Find and mask empty think patterns that appear at start of assistant responses
-    assistant_start_ids = _tokenize_marker(markers.assistant_start, tokenizer)
-    user_start_ids = _tokenize_marker(markers.user_start, tokenizer)
+    # Use same tokenization method as get_token_based_labels() for consistency
+    assistant_start_ids = _tokenize_marker_without_trailing_whitespace(markers.assistant_start, tokenizer)
+    user_start_ids = _tokenize_marker_without_trailing_whitespace(markers.user_start, tokenizer)
     turn_end_ids = _tokenize_marker(markers.turn_end, tokenizer)
 
     i = 0
