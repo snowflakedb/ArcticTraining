@@ -424,15 +424,30 @@ class SFTDataFactory(DataFactory):
         ignore_empty_think: bool = False,
     ) -> List[Tuple[int, int]]:
         return_indices = []
+        # Track search position to avoid matching assistant content that appears
+        # earlier in the conversation (e.g., in user context). Process ALL messages
+        # in order to track position, so assistant content is found AFTER the
+        # preceding user message, not at the first occurrence.
+        search_start = 0
         for message in messages:
-            if message["role"] == "assistant":
-                message_text = message["content"]
-                if ignore_empty_think:
-                    message_text = re.sub(r"^<think>\s*</think>\s*", "", message_text)
+            message_text = message["content"]
+            if message["role"] == "assistant" and ignore_empty_think:
+                message_text = re.sub(r"^<think>\s*</think>\s*", "", message_text)
+            # Find this message starting from current position
+            match_index = conversation_text.find(message_text, search_start)
+            if match_index == -1:
+                # Fallback: try searching from the beginning (original behavior)
                 match_index = conversation_text.find(message_text)
-                # start_indices.append(match_index)
-                end_indices = match_index + len(message_text)
-                return_indices.append((match_index, end_indices))
+            end_index = match_index + len(message_text) if match_index != -1 else -1
+
+            # Only record assistant message ranges
+            if message["role"] == "assistant":
+                return_indices.append((match_index, end_index))
+            # Update search position for next message (track all messages in order)
+            # Use max() to ensure we never go backwards - this handles the case where
+            # fallback search finds content at an earlier position (likely a false match)
+            if match_index != -1:
+                search_start = max(search_start, match_index + len(message_text))
         return return_indices
 
     @staticmethod
@@ -446,7 +461,11 @@ class SFTDataFactory(DataFactory):
                 conversation_ids["offset_mapping"],
             )
         ):
-            if any(id_s >= s and id_e <= e for s, e in assistant_ranges):
+            # Check if token OVERLAPS with any assistant range (not fully contained).
+            # This handles short assistant content where tokens span wider than the content.
+            # Overlap condition: token_start < range_end AND token_end > range_start
+            # Also handle edge case where range is invalid (s == -1 means not found)
+            if any(s != -1 and id_s < e and id_e > s for s, e in assistant_ranges):
                 pre_output = id_
                 output.append(id_)
             else:
