@@ -73,15 +73,19 @@ class SFTTrainer(Trainer):
             loss = outputs.loss
 
             # Handle NaN/zero-token cases consistently with SP paths
-            if torch.isnan(loss) or torch.isinf(loss):
-                # Check if this is due to all labels being masked
-                labels = batch.get("labels")
-                if labels is not None:
-                    good_tokens = self._count_trainable_tokens(labels)
+            labels = batch.get("labels")
+            if labels is not None:
+                good_tokens = self._count_trainable_tokens(labels)
+                if torch.isnan(loss) or torch.isinf(loss):
+                    # Check if NaN/Inf is due to all labels being masked
                     if good_tokens.item() == 0:
                         logger.warning(ZERO_TOKENS_WARNING.format(""))
                         loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
-                # If there are good tokens but still NaN, let it propagate (real numerical issue)
+                    # If there are good tokens but still NaN, let it propagate (real numerical issue)
+                elif good_tokens.item() == 0:
+                    # Zero tokens but valid loss value - return zero like SP>1 paths do
+                    logger.warning(ZERO_TOKENS_WARNING.format(""))
+                    loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
 
             return loss
 
@@ -200,7 +204,9 @@ class SFTTrainer(Trainer):
                 if total_good_items.item() == 0:
                     logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
                     # Create fresh zero tensor (NaN * 0 = NaN, so we can't use loss * 0)
-                    loss = torch.tensor(0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True)
+                    loss = torch.tensor(
+                        0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True
+                    )
                 else:
                     # Real numerical issue - let it propagate for debugging
                     loss = total_loss_sum / total_good_items
