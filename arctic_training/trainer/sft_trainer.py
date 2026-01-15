@@ -193,7 +193,7 @@ class SFTTrainer(Trainer):
                 compute_params,
                 output_reduction,
             )
-            total_good_items = (shift_labels != -100).squeeze().sum()
+            total_good_items = self._count_trainable_tokens(shift_labels)
 
             # Check for zero trainable tokens
             if total_good_items.item() == 0:
