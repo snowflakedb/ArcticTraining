@@ -471,11 +471,12 @@ class SFTDataFactory(DataFactory):
         if not isinstance(prompt, str) or not isinstance(response, str):
             raise TypeError(f"prompt and response must be strings, got {type(prompt)} and {type(response)}")
 
-        # Warn if response seems to contain FIM markers (indicates data prep error)
+        # Fail if response contains FIM markers (indicates data prep error)
         if "<|fim_middle|>" in response:
-            logger.warning(
+            raise ValueError(
                 "Found <|fim_middle|> in response column. This token should be in prompt column. "
-                "This may indicate a data preparation error."
+                "This indicates a data preparation error. The FIM markers should separate the "
+                "prompt from the completion in the prompt field only."
             )
 
         # Tokenize prompt separately - no marker detection needed!
