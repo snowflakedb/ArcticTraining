@@ -488,10 +488,22 @@ class SFTDataFactory(DataFactory):
             response_text = response_text + tokenizer.eos_token
 
         # Tokenize response (may be empty string if no response and no EOS)
-        response_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"] if response_text else []
+        if response_text:
+            response_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"]
+        else:
+            response_ids = []
+
+        # Defensive check: some tokenizers might return tokens for empty strings
+        if not response_text and len(response_ids) > 0:
+            logger.warning(
+                f"Tokenizer returned {len(response_ids)} tokens for empty string. "
+                "This is unexpected and may cause training issues."
+            )
 
         # Ensure we have at least one trainable token
-        # If response_ids is empty (no content, no EOS), we cannot train on this example
+        # If response_ids is empty (no content, no EOS), we cannot train on this example.
+        # The loss function will fail with division by zero when computing average loss.
+        # Better to fail early with a clear error message than fail later during training.
         if len(response_ids) == 0:
             raise ValueError(
                 "Cannot create training example with zero trainable tokens. "

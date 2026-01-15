@@ -43,6 +43,18 @@ class SFTTrainer(Trainer):
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 
+    @staticmethod
+    def _count_trainable_tokens(labels: torch.Tensor) -> torch.Tensor:
+        """Count non-masked tokens in labels tensor.
+
+        Args:
+            labels: Labels tensor with -100 for masked positions
+
+        Returns:
+            Scalar tensor with count of non-masked tokens
+        """
+        return ((labels != -100).view(-1)).sum()
+
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
@@ -52,6 +64,22 @@ class SFTTrainer(Trainer):
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
+
+            # Handle NaN/zero-token cases consistently with SP paths
+            if torch.isnan(loss) or torch.isinf(loss):
+                # Check if this is due to all labels being masked
+                labels = batch.get("labels")
+                if labels is not None:
+                    good_tokens = self._count_trainable_tokens(labels)
+                    if good_tokens.item() == 0:
+                        logger.warning(
+                            "Batch has no trainable tokens (all labels are -100). "
+                            "Returning zero loss. This may indicate data issues with too many "
+                            "empty/masked outputs or an unfavorable packing distribution."
+                        )
+                        loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
+                # If there are good tokens but still NaN, let it propagate (real numerical issue)
+
             return loss
 
         # Ulysses SP expectations:
@@ -101,7 +129,7 @@ class SFTTrainer(Trainer):
             # Handle NaN loss from Liger (can happen with all-masked batches)
             if torch.isnan(loss) or torch.isinf(loss):
                 # Check if this is due to all labels being masked
-                good_tokens = ((shift_labels != -100).view(-1)).sum()
+                good_tokens = self._count_trainable_tokens(shift_labels)
                 if good_tokens.item() == 0:
                     logger.warning(
                         "Batch has no trainable tokens on this SP rank (all labels are -100). "
@@ -149,7 +177,7 @@ class SFTTrainer(Trainer):
                     # a normal loss_fn upcasts logits to float so match it
                     loss_sum = (logits.sum() * 0.0).float()
                 else:
-                    good_items = ((shift_labels != -100).squeeze()).sum()
+                    good_items = self._count_trainable_tokens(shift_labels)
                     loss = model_with_head.loss_function(
                         logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
                     )
@@ -181,7 +209,7 @@ class SFTTrainer(Trainer):
 
         # differentiable weighted per-shard-loss aggregation across ranks
         losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
-        good_tokens = ((shift_labels != -100).view(-1)).sum()
+        good_tokens = self._count_trainable_tokens(shift_labels)
         good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
         total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
         total_good_tokens = sum(good_tokens_per_rank)
@@ -195,7 +223,8 @@ class SFTTrainer(Trainer):
                 "empty/masked outputs or an unfavorable packing distribution."
             )
             # Create fresh zero tensor (total_loss may contain NaN, and NaN * 0 = NaN)
-            # Use loss.device/dtype since loss is guaranteed to exist from line 174
+            # Use loss.device/dtype since loss is guaranteed to exist from either
+            # the Liger path or the tiled compute path above
             loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
         else:
             loss = total_loss / total_good_tokens
