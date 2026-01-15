@@ -195,11 +195,21 @@ class SFTTrainer(Trainer):
             )
             total_good_items = self._count_trainable_tokens(shift_labels)
 
-            # Check for zero trainable tokens
-            if total_good_items.item() == 0:
+            # Handle NaN/Inf loss from tiled compute (can happen with all-masked batches)
+            if torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum):
+                if total_good_items.item() == 0:
+                    logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
+                    # Create fresh zero tensor (NaN * 0 = NaN, so we can't use loss * 0)
+                    loss = torch.tensor(0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True)
+                else:
+                    # Real numerical issue - let it propagate for debugging
+                    loss = total_loss_sum / total_good_items
+            elif total_good_items.item() == 0:
+                # Zero tokens but valid loss value
                 logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
                 loss = torch.tensor(0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True)
             else:
+                # Normal case
                 loss = total_loss_sum / total_good_items
 
         # differentiable weighted per-shard-loss aggregation across ranks
