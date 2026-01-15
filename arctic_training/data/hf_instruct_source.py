@@ -101,6 +101,22 @@ class HFDataSourceInstruct(HFDataSource):
     config: HFDataSourceConfigInstruct
 
     def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        # Check if role_mapping should be used:
+        # 1. User explicitly set role_mapping in config, OR
+        # 2. Role_mapping was autofilled for a known dataset
+        user_set_role_mapping = "role_mapping" in self.config.model_fields_set
+        dataset_name = str(self.config.name_or_path).split(":")[0]
+        is_known_dataset = dataset_name in KNOWN_HF_INSTRUCT_DATASETS
+        should_use_role_mapping = user_set_role_mapping or is_known_dataset
+
+        # Check if dataset already has prompt/response format - pass through directly
+        # SFTDataFactory.process() handles this format natively
+        # Only skip conversion if no custom role_mapping should be applied
+        has_prompt_response = "prompt" in dataset.column_names and "response" in dataset.column_names
+        if has_prompt_response and not should_use_role_mapping:
+            # Select only the columns we need to save memory
+            return dataset.select_columns(["prompt", "response"])
+
         def process_example(example: Dict[str, Any]) -> Dict[str, Any]:
             messages = self._extract_messages_from_paths(example)
 
