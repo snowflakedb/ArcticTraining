@@ -72,20 +72,39 @@ class SFTTrainer(Trainer):
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
 
-            # Handle NaN/zero-token cases consistently with SP paths
+            # Handle zero-token cases to avoid NaN loss and ensure consistent behavior.
+            # IMPORTANT: We must maintain gradient connectivity to avoid NCCL hangs.
+            # Creating a disconnected tensor (torch.tensor(0.0)) would cause this rank
+            # to skip gradient computation while other ranks wait in ALLREDUCE.
             labels = batch.get("labels")
             if labels is not None:
                 good_tokens = self._count_trainable_tokens(labels)
-                if torch.isnan(loss) or torch.isinf(loss):
-                    # Check if NaN/Inf is due to all labels being masked
-                    if good_tokens.item() == 0:
-                        logger.warning(ZERO_TOKENS_WARNING.format(""))
-                        loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
-                    # If there are good tokens but still NaN, let it propagate (real numerical issue)
-                elif good_tokens.item() == 0:
-                    # Zero tokens but valid loss value - return zero like SP>1 paths do
+                if good_tokens.item() == 0:
                     logger.warning(ZERO_TOKENS_WARNING.format(""))
-                    loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
+                    # Maintain gradient connectivity by using a tensor connected to model outputs.
+                    # With Liger, outputs.logits is None, so we check alternatives.
+                    if hasattr(outputs, 'logits') and outputs.logits is not None:
+                        # Use logits to maintain gradient flow (same pattern as tiled compute path)
+                        loss = (outputs.logits.sum() * 0.0).to(loss.dtype)
+                    elif hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
+                        # Use hidden states if available
+                        loss = (outputs.hidden_states[-1].sum() * 0.0).to(loss.dtype)
+                    else:
+                        # For Liger: loss IS connected to the graph, but may be NaN.
+                        # We can't use nan_to_num as it breaks gradient flow.
+                        # Instead, check if loss is valid - if so, multiply by 0.
+                        # If NaN/Inf, we need to do a dummy forward to get a connected tensor.
+                        if not (torch.isnan(loss) or torch.isinf(loss)):
+                            loss = loss * 0.0
+                        else:
+                            # NaN case: we need gradients to flow but can't use NaN * 0 = NaN.
+                            # Access the model's first parameter to create a connected zero.
+                            # This ensures gradient buffers are allocated for all parameters.
+                            first_param = next(self.model.parameters())
+                            loss = (first_param.sum() * 0.0).to(loss.dtype)
+                elif torch.isnan(loss) or torch.isinf(loss):
+                    # Has good tokens but NaN/Inf loss - this is a real numerical issue, let it propagate
+                    pass
 
             return loss
 
@@ -133,15 +152,21 @@ class SFTTrainer(Trainer):
                     "Liger-Kernel failed to compute loss (returned None). This is unexpected during training."
                 )
 
-            # Handle NaN loss from Liger (can happen with all-masked batches)
-            if torch.isnan(loss) or torch.isinf(loss):
-                # Check if this is due to all labels being masked
-                good_tokens = self._count_trainable_tokens(shift_labels)
-                if good_tokens.item() == 0:
-                    logger.warning(ZERO_TOKENS_WARNING.format("on this SP rank"))
-                    # Create fresh zero tensor (NaN * 0 = NaN, so we can't use loss * 0)
-                    loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
-                # If there are good tokens but still NaN, let it propagate (real numerical issue)
+            # Handle zero-token and NaN cases from Liger.
+            # IMPORTANT: Must maintain gradient connectivity to avoid NCCL hangs.
+            good_tokens = self._count_trainable_tokens(shift_labels)
+            if good_tokens.item() == 0:
+                logger.warning(ZERO_TOKENS_WARNING.format("on this SP rank"))
+                # Maintain gradient connectivity - check if loss is valid first
+                if not (torch.isnan(loss) or torch.isinf(loss)):
+                    loss = loss * 0.0
+                else:
+                    # NaN case: use model parameter to maintain gradient flow
+                    first_param = next(self.model.parameters())
+                    loss = (first_param.sum() * 0.0).to(loss.dtype)
+            elif torch.isnan(loss) or torch.isinf(loss):
+                # Has good tokens but NaN/Inf loss - real numerical issue, let it propagate
+                pass
 
         else:
             # Currently relying on an automatic num_shards derivation based on the goal that it'll
@@ -199,21 +224,17 @@ class SFTTrainer(Trainer):
             )
             total_good_items = self._count_trainable_tokens(shift_labels)
 
-            # Handle NaN/Inf loss from tiled compute (can happen with all-masked batches)
-            if torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum):
-                if total_good_items.item() == 0:
-                    logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
-                    # Create fresh zero tensor (NaN * 0 = NaN, so we can't use loss * 0)
-                    loss = torch.tensor(
-                        0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True
-                    )
-                else:
-                    # Real numerical issue - let it propagate for debugging
-                    loss = total_loss_sum / total_good_items
-            elif total_good_items.item() == 0:
-                # Zero tokens but valid loss value
+            # Handle NaN/Inf and zero-token cases from tiled compute.
+            # Note: fused_logits_loss_fn already handles all-masked batches with (logits.sum() * 0.0),
+            # so total_loss_sum should be connected to the graph even for all-masked batches.
+            if total_good_items.item() == 0:
                 logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
-                loss = torch.tensor(0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True)
+                # total_loss_sum is connected to the graph via fused_logits_loss_fn's logits.sum() * 0.0
+                # Just ensure we return a proper zero (multiply to handle any edge cases)
+                loss = total_loss_sum * 0.0 if not (torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum)) else (hidden_states.sum() * 0.0).to(total_loss_sum.dtype)
+            elif torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum):
+                # Has good tokens but NaN/Inf loss - real numerical issue, let it propagate
+                loss = total_loss_sum / total_good_items
             else:
                 # Normal case
                 loss = total_loss_sum / total_good_items
@@ -229,10 +250,9 @@ class SFTTrainer(Trainer):
         # This can happen with packed samples that have mostly non-assistant content
         if total_good_tokens.item() == 0:
             logger.warning(ZERO_TOKENS_WARNING.format("across all SP ranks"))
-            # Create fresh zero tensor (total_loss may contain NaN, and NaN * 0 = NaN)
-            # Use loss.device/dtype since loss is guaranteed to exist from either
-            # the Liger path or the tiled compute path above
-            loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
+            # Maintain gradient connectivity by using the per-rank loss (which is connected)
+            # rather than creating a disconnected tensor
+            loss = loss * 0.0
         else:
             loss = total_loss / total_good_tokens
 
