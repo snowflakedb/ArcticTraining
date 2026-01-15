@@ -167,7 +167,17 @@ class SFTTrainer(Trainer):
                 output_reduction,
             )
             total_good_items = (shift_labels != -100).squeeze().sum()
-            loss = total_loss_sum / max(total_good_items, 1)
+
+            # Check for zero trainable tokens
+            if total_good_items.item() == 0:
+                logger.warning(
+                    "Batch has no trainable tokens on this rank (all labels are -100). "
+                    "Returning zero loss. This may indicate data issues with too many "
+                    "empty/masked outputs or an unfavorable packing distribution."
+                )
+                loss = torch.tensor(0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True)
+            else:
+                loss = total_loss_sum / total_good_items
 
         # differentiable weighted per-shard-loss aggregation across ranks
         losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)

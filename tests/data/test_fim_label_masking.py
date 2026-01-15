@@ -330,3 +330,30 @@ class TestEdgeCases:
         # Should still have trainable tokens (whitespace + EOS)
         trainable = [lbl for lbl in result["labels"] if lbl != IGNORE_INDEX]
         assert len(trainable) >= 1, "Should have at least EOS token"
+
+    def test_empty_response_without_eos_token_raises_error(self):
+        """Test that empty response with no EOS token raises ValueError."""
+        from unittest.mock import Mock
+
+        # Create a mock tokenizer without EOS token
+        mock_tokenizer = Mock()
+        mock_tokenizer.eos_token = None
+        mock_tokenizer.eos_token_id = None
+
+        def mock_tokenize(text, add_special_tokens=False):
+            # Return empty list for empty string
+            if not text:
+                return {"input_ids": []}
+            # Return some dummy token IDs for non-empty text
+            return {"input_ids": [1, 2, 3]}
+
+        mock_tokenizer.side_effect = mock_tokenize
+        # Make the mock callable
+        mock_tokenizer.__call__ = mock_tokenize
+
+        prompt = "Complete: "
+        response = ""  # Empty response
+
+        # Should raise ValueError when no EOS token and empty response
+        with pytest.raises(ValueError, match="Cannot create training example with zero trainable tokens"):
+            SFTDataFactory.tokenize_prompt_response(prompt, response, mock_tokenizer)

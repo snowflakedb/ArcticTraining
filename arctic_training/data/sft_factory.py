@@ -471,27 +471,33 @@ class SFTDataFactory(DataFactory):
         # Tokenize prompt separately - no marker detection needed!
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
 
-        # Handle empty response: just EOS token
-        # An empty response is valid - the model learns when "no completion needed"
-        # Note: We concatenate eos_token string before tokenization to ensure
+        # Handle response with EOS token
+        # Note: Always append EOS if available. Even for empty responses, we need
+        # at least one trainable token for the loss function to work correctly.
+        # We concatenate eos_token string before tokenization to ensure
         # context-aware tokenization at the boundary. Most tokenizers recognize
         # special tokens in input text even with add_special_tokens=False.
         if response:
-            if tokenizer.eos_token is not None:
-                response_with_eos = response + tokenizer.eos_token
-            else:
-                response_with_eos = response
+            response_text = response
         else:
-            # Empty response - just EOS token if available
-            if tokenizer.eos_token is not None:
-                response_with_eos = tokenizer.eos_token
-            else:
-                response_with_eos = ""
+            # Empty response: model should learn to predict EOS immediately
+            response_text = ""
 
-        if response_with_eos:
-            response_ids = tokenizer(response_with_eos, add_special_tokens=False)["input_ids"]
-        else:
-            response_ids = []
+        # Append EOS token if tokenizer has one
+        if tokenizer.eos_token is not None:
+            response_text = response_text + tokenizer.eos_token
+
+        # Tokenize response (may be empty string if no response and no EOS)
+        response_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"] if response_text else []
+
+        # Ensure we have at least one trainable token
+        # If response_ids is empty (no content, no EOS), we cannot train on this example
+        if len(response_ids) == 0:
+            raise ValueError(
+                "Cannot create training example with zero trainable tokens. "
+                "This tokenizer has no EOS token and response is empty. "
+                "Either provide a non-empty response or use a tokenizer with an EOS token."
+            )
 
         # Combine input_ids
         input_ids = prompt_ids + response_ids
