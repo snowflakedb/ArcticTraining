@@ -33,6 +33,13 @@ from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.trainer import Trainer
 from arctic_training.trainer.utils import to_device
 
+# Warning message template for zero trainable tokens
+ZERO_TOKENS_WARNING = (
+    "Batch has no trainable tokens {} (all labels are -100). "
+    "Returning zero loss. This may indicate data issues with too many "
+    "empty/masked outputs or an unfavorable packing distribution."
+)
+
 
 class SFTTrainer(Trainer):
     name = "sft"
@@ -72,11 +79,7 @@ class SFTTrainer(Trainer):
                 if labels is not None:
                     good_tokens = self._count_trainable_tokens(labels)
                     if good_tokens.item() == 0:
-                        logger.warning(
-                            "Batch has no trainable tokens (all labels are -100). "
-                            "Returning zero loss. This may indicate data issues with too many "
-                            "empty/masked outputs or an unfavorable packing distribution."
-                        )
+                        logger.warning(ZERO_TOKENS_WARNING.format(""))
                         loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
                 # If there are good tokens but still NaN, let it propagate (real numerical issue)
 
@@ -131,11 +134,7 @@ class SFTTrainer(Trainer):
                 # Check if this is due to all labels being masked
                 good_tokens = self._count_trainable_tokens(shift_labels)
                 if good_tokens.item() == 0:
-                    logger.warning(
-                        "Batch has no trainable tokens on this SP rank (all labels are -100). "
-                        "Returning zero loss. This may indicate data issues with too many "
-                        "empty/masked outputs or an unfavorable packing distribution."
-                    )
+                    logger.warning(ZERO_TOKENS_WARNING.format("on this SP rank"))
                     # Create fresh zero tensor (NaN * 0 = NaN, so we can't use loss * 0)
                     loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
                 # If there are good tokens but still NaN, let it propagate (real numerical issue)
@@ -198,11 +197,7 @@ class SFTTrainer(Trainer):
 
             # Check for zero trainable tokens
             if total_good_items.item() == 0:
-                logger.warning(
-                    "Batch has no trainable tokens on this rank (all labels are -100). "
-                    "Returning zero loss. This may indicate data issues with too many "
-                    "empty/masked outputs or an unfavorable packing distribution."
-                )
+                logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
                 loss = torch.tensor(0.0, device=total_loss_sum.device, dtype=total_loss_sum.dtype, requires_grad=True)
             else:
                 loss = total_loss_sum / total_good_items
@@ -217,11 +212,7 @@ class SFTTrainer(Trainer):
         # Protect against division by zero when all tokens are masked
         # This can happen with packed samples that have mostly non-assistant content
         if total_good_tokens.item() == 0:
-            logger.warning(
-                "Batch has no trainable tokens across all SP ranks (all labels are -100). "
-                "Returning zero loss. This may indicate data issues with too many "
-                "empty/masked outputs or an unfavorable packing distribution."
-            )
+            logger.warning(ZERO_TOKENS_WARNING.format("across all SP ranks"))
             # Create fresh zero tensor (total_loss may contain NaN, and NaN * 0 = NaN)
             # Use loss.device/dtype since loss is guaranteed to exist from either
             # the Liger path or the tiled compute path above

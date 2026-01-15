@@ -392,7 +392,6 @@ class SFTDataFactory(DataFactory):
             # sft based tokenization,
             # we assume the messages are in the format of:
             # {'role': '...', 'content': '...'}
-            dataset = dataset.select(range(len(dataset)))
             return dataset.map(
                 lambda ex: {
                     **self.tokenize_messages(
@@ -468,22 +467,27 @@ class SFTDataFactory(DataFactory):
         Returns:
             Dict with input_ids, labels, and attention_mask.
         """
+        # Validate inputs
+        if not isinstance(prompt, str) or not isinstance(response, str):
+            raise TypeError(f"prompt and response must be strings, got {type(prompt)} and {type(response)}")
+
+        # Warn if response seems to contain FIM markers (indicates data prep error)
+        if "<|fim_middle|>" in response:
+            logger.warning(
+                "Found <|fim_middle|> in response column. This token should be in prompt column. "
+                "This may indicate a data preparation error."
+            )
+
         # Tokenize prompt separately - no marker detection needed!
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
 
-        # Handle response with EOS token
+        # Build response text with EOS token
         # Note: Always append EOS if available. Even for empty responses, we need
         # at least one trainable token for the loss function to work correctly.
         # We concatenate eos_token string before tokenization to ensure
         # context-aware tokenization at the boundary. Most tokenizers recognize
         # special tokens in input text even with add_special_tokens=False.
-        if response:
-            response_text = response
-        else:
-            # Empty response: model should learn to predict EOS immediately
-            response_text = ""
-
-        # Append EOS token if tokenizer has one
+        response_text = response
         if tokenizer.eos_token is not None:
             response_text = response_text + tokenizer.eos_token
 

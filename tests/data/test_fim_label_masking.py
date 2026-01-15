@@ -279,6 +279,79 @@ class TestBackwardsCompatibility:
         assert result["labels"] == result["input_ids"], "With mask_inputs=False, labels should equal input_ids"
 
 
+class TestDatasetProcessingIntegration:
+    """Integration tests for full dataset processing pipeline."""
+
+    @pytest.fixture
+    def tokenizer(self):
+        """Load a tokenizer."""
+        from transformers import AutoTokenizer
+
+        return AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct", trust_remote_code=True)
+
+    def test_process_routes_to_prompt_response_tokenization(self, tokenizer):
+        """Verify process() uses tokenize_prompt_response for prompt/response datasets."""
+        from arctic_training.data.sft_factory import SFTDataConfig
+
+        data = {
+            "prompt": ["Hello ", "How are "],
+            "response": ["world!", "you?"],
+        }
+        dataset = Dataset.from_dict(data)
+
+        config = SFTDataConfig(max_length=1024, num_proc=1)
+        factory = SFTDataFactory(config=config, tokenizer=tokenizer)
+
+        result = factory.process(dataset)
+
+        # Should have tokenized fields
+        assert "input_ids" in result.column_names, "Should have input_ids column"
+        assert "labels" in result.column_names, "Should have labels column"
+        assert "attention_mask" in result.column_names, "Should have attention_mask column"
+        assert len(result) == 2, "Should have 2 examples"
+
+        # Verify first example has masked prompt and trainable response
+        example = result[0]
+        prompt_len = len(tokenizer("Hello ", add_special_tokens=False)["input_ids"])
+        # First prompt_len labels should be -100
+        assert all(lbl == IGNORE_INDEX for lbl in example["labels"][:prompt_len]), "Prompt should be masked"
+        # Response labels should be trainable
+        assert any(lbl != IGNORE_INDEX for lbl in example["labels"][prompt_len:]), "Response should be trainable"
+
+    def test_process_routes_to_messages_tokenization(self, tokenizer):
+        """Verify process() uses tokenize_messages for messages datasets."""
+        from arctic_training.data.sft_factory import SFTDataConfig
+
+        data = {
+            "messages": [
+                [
+                    {"role": "user", "content": "Hello"},
+                    {"role": "assistant", "content": "Hi!"},
+                ],
+                [
+                    {"role": "user", "content": "How are you?"},
+                    {"role": "assistant", "content": "Good!"},
+                ],
+            ],
+        }
+        dataset = Dataset.from_dict(data)
+
+        config = SFTDataConfig(max_length=1024, num_proc=1, mask_inputs=True)
+        factory = SFTDataFactory(config=config, tokenizer=tokenizer)
+
+        result = factory.process(dataset)
+
+        # Should have tokenized fields
+        assert "input_ids" in result.column_names, "Should have input_ids column"
+        assert "labels" in result.column_names, "Should have labels column"
+        assert len(result) == 2, "Should have 2 examples"
+
+        # Verify examples have some trainable tokens (assistant content)
+        for example in result:
+            trainable = [lbl for lbl in example["labels"] if lbl != IGNORE_INDEX]
+            assert len(trainable) > 0, "Should have trainable tokens"
+
+
 class TestEdgeCases:
     """Tests for edge cases in tokenization."""
 
