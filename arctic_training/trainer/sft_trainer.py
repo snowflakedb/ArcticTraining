@@ -23,6 +23,7 @@ from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 from arctic_training.checkpoint.ds_engine import DSCheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.sft_factory import SFTDataFactory
+from arctic_training.logging import logger
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
 from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
@@ -81,18 +82,35 @@ class SFTTrainer(Trainer):
         #    memory-wise, but which has more compute overhead before backward re-runs forward. The
         #    total memory usage is very similar, but cuda cache flushes earlier if pushing close to
         #    OOM than liger.
-        if self.config.model.type == "liger":
+        # Note: When in eval mode with SP > 1, liger's fused cross-entropy returns None, so we
+        # fall back to tiled compute for evaluation even when model.type == "liger".
+        # Use model_unwrapped.training because self.model is a DeepSpeed engine wrapper.
+        use_liger_fused_loss = self.config.model.type == "liger" and self.model_unwrapped.training
+
+        if use_liger_fused_loss:
 
             # letting liger do fused logits+loss calculation
             outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
 
             if loss is None:
-                # XXX: not sure why this happens with SP>1 and eval-enabled, I checked shift_labels contain valid non -100 tokens - disabling fused_linear_cross_entropy=False in AutoLigerKernelForCausalLM.from_pretrained doesn't help. all works when eval is off.
                 raise ValueError(
-                    "Liger-Kernel failed to compute loss (returned None) - it's known to fail with eval enabled along"
-                    " train steps when SP>1."
+                    "Liger-Kernel failed to compute loss (returned None). This is unexpected during training."
                 )
+
+            # Handle NaN loss from Liger (can happen with all-masked batches)
+            if torch.isnan(loss) or torch.isinf(loss):
+                # Check if this is due to all labels being masked
+                good_tokens = ((shift_labels != -100).view(-1)).sum()
+                if good_tokens.item() == 0:
+                    logger.warning(
+                        "Batch has no trainable tokens on this SP rank (all labels are -100). "
+                        "Returning zero loss. This may indicate data issues with too many "
+                        "empty/masked outputs or an unfavorable packing distribution."
+                    )
+                    # Create fresh zero tensor (NaN * 0 = NaN, so we can't use loss * 0)
+                    loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
+                # If there are good tokens but still NaN, let it propagate (real numerical issue)
 
         else:
             # Currently relying on an automatic num_shards derivation based on the goal that it'll
@@ -126,7 +144,7 @@ class SFTTrainer(Trainer):
             def fused_logits_loss_fn(model_with_head=None, hidden_states=None, shift_labels=None):
                 vocab_size = model_with_head.config.vocab_size
                 logits = model_with_head.lm_head(hidden_states)
-                if all((shift_labels == -100).squeeze()):
+                if (shift_labels == -100).all():
                     # fake loss calculation, since CE will return nan, but grads will be set
                     # a normal loss_fn upcasts logits to float so match it
                     loss_sum = (logits.sum() * 0.0).float()
@@ -157,6 +175,19 @@ class SFTTrainer(Trainer):
         good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=self.sp_group)
         total_loss = sum(losses_per_rank[rank] * good_tokens_per_rank[rank] for rank in range(self.sp_world_size))
         total_good_tokens = sum(good_tokens_per_rank)
-        loss = total_loss / total_good_tokens
+
+        # Protect against division by zero when all tokens are masked
+        # This can happen with packed samples that have mostly non-assistant content
+        if total_good_tokens.item() == 0:
+            logger.warning(
+                "Batch has no trainable tokens across all SP ranks (all labels are -100). "
+                "Returning zero loss. This may indicate data issues with too many "
+                "empty/masked outputs or an unfavorable packing distribution."
+            )
+            # Create fresh zero tensor (total_loss may contain NaN, and NaN * 0 = NaN)
+            # Use loss.device/dtype since loss is guaranteed to exist from line 174
+            loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=True)
+        else:
+            loss = total_loss / total_good_tokens
 
         return loss
