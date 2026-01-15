@@ -74,8 +74,12 @@ class TestTokenizePromptResponse:
         ), f"Expected response labels to not be {IGNORE_INDEX}, got: {response_labels}"
 
         # Response labels should be actual token IDs
-        response_with_eos = response + tokenizer.eos_token
-        expected_response_ids = tokenizer(response_with_eos, add_special_tokens=False)["input_ids"]
+        # Note: The implementation tokenizes response separately then appends EOS token ID directly
+        # to avoid BPE tokenization boundary issues with string concatenation.
+        expected_response_ids = tokenizer(response, add_special_tokens=False)["input_ids"]
+        if tokenizer.eos_token_id is not None:
+            if not expected_response_ids or expected_response_ids[-1] != tokenizer.eos_token_id:
+                expected_response_ids.append(tokenizer.eos_token_id)
         assert response_labels == expected_response_ids, "Response labels don't match expected token IDs"
 
     def test_empty_response_only_has_eos(self, tokenizer):
@@ -101,9 +105,13 @@ class TestTokenizePromptResponse:
         result = SFTDataFactory.tokenize_prompt_response(prompt, response, tokenizer)
 
         # Verify input_ids is prompt + response + eos
+        # Note: The implementation tokenizes response separately then appends EOS token ID directly
+        # to avoid BPE tokenization boundary issues with string concatenation.
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        response_with_eos = response + tokenizer.eos_token
-        response_ids = tokenizer(response_with_eos, add_special_tokens=False)["input_ids"]
+        response_ids = tokenizer(response, add_special_tokens=False)["input_ids"]
+        if tokenizer.eos_token_id is not None:
+            if not response_ids or response_ids[-1] != tokenizer.eos_token_id:
+                response_ids.append(tokenizer.eos_token_id)
 
         expected_ids = prompt_ids + response_ids
         assert result["input_ids"] == expected_ids, "input_ids doesn't match expected concatenation"
@@ -440,10 +448,12 @@ class TestEdgeCases:
 
         # Verify all prompt tokens are masked
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        assert all(lbl == IGNORE_INDEX for lbl in result["labels"][:len(prompt_ids)]), "All prompt tokens should be masked"
+        assert all(
+            lbl == IGNORE_INDEX for lbl in result["labels"][: len(prompt_ids)]
+        ), "All prompt tokens should be masked"
 
         # Verify response tokens are trainable
-        trainable = [lbl for lbl in result["labels"][len(prompt_ids):] if lbl != IGNORE_INDEX]
+        trainable = [lbl for lbl in result["labels"][len(prompt_ids) :] if lbl != IGNORE_INDEX]
         assert len(trainable) > 0, "Should have trainable response tokens"
 
     def test_very_long_response(self, tokenizer):
@@ -456,7 +466,9 @@ class TestEdgeCases:
 
         # Verify prompt tokens are masked
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        assert all(lbl == IGNORE_INDEX for lbl in result["labels"][:len(prompt_ids)]), "All prompt tokens should be masked"
+        assert all(
+            lbl == IGNORE_INDEX for lbl in result["labels"][: len(prompt_ids)]
+        ), "All prompt tokens should be masked"
 
         # Verify response tokens are trainable
         response_start = len(prompt_ids)
@@ -466,8 +478,9 @@ class TestEdgeCases:
         # Verify the trainable labels match the input_ids for response portion
         for i, label_idx in enumerate(range(response_start, len(result["labels"]))):
             if result["labels"][label_idx] != IGNORE_INDEX:
-                assert result["labels"][label_idx] == result["input_ids"][label_idx], \
-                    f"Label at position {label_idx} should match input_id"
+                assert (
+                    result["labels"][label_idx] == result["input_ids"][label_idx]
+                ), f"Label at position {label_idx} should match input_id"
 
     def test_combined_long_prompt_and_response(self, tokenizer):
         """Test with both long prompt and response to verify correct boundary."""
@@ -491,7 +504,9 @@ class TestEdgeCases:
         assert len(result["labels"]) == len(result["input_ids"]), "Labels should match input_ids length"
 
         # Verify masking boundary is exact
-        assert all(lbl == IGNORE_INDEX for lbl in result["labels"][:len(prompt_ids)]), \
-            "All prompt tokens should be masked"
-        assert any(lbl != IGNORE_INDEX for lbl in result["labels"][len(prompt_ids):]), \
-            "Response should have trainable tokens"
+        assert all(
+            lbl == IGNORE_INDEX for lbl in result["labels"][: len(prompt_ids)]
+        ), "All prompt tokens should be masked"
+        assert any(
+            lbl != IGNORE_INDEX for lbl in result["labels"][len(prompt_ids) :]
+        ), "Response should have trainable tokens"
