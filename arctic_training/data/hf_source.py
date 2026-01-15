@@ -168,3 +168,40 @@ class UltraFeedbackBinarized(HFDataSource):
             "chosen": example["chosen"][idx:],
             "rejected": example["rejected"][idx:],
         }
+
+
+class HFDataSourcePromptResponse(HFDataSource):
+    """
+    DataSource for datasets with separate prompt/response columns.
+
+    This is used for FIM (Fill-in-the-Middle) training where the dataset
+    has pre-formatted prompt and response columns. The prompt contains
+    everything up to and including special tokens like <|fim_middle|>,
+    and the response contains only the completion to be trained on.
+
+    Expected dataset columns:
+    - prompt: The full prompt (will be masked during training)
+    - response: The response/completion (will be trained on)
+
+    This data source simply validates that the required columns exist
+    and passes them through. The SFTDataFactory will auto-detect this
+    format and use length-based label masking.
+    """
+
+    name = "huggingface_prompt_response"
+    config: HFDataSourceConfig
+
+    def post_load_callback(self, dataset: DatasetType) -> DatasetType:
+        """Validate that required columns exist."""
+        required_columns = ["prompt", "response"]
+        missing = [col for col in required_columns if col not in dataset.column_names]
+
+        if missing:
+            raise ValueError(
+                f"Dataset is missing required columns for prompt_response format: {missing}. "
+                f"Available columns: {dataset.column_names}. "
+                "Use huggingface_instruct for datasets with 'messages' column."
+            )
+
+        # Select only the columns we need
+        return dataset.select_columns(required_columns)
