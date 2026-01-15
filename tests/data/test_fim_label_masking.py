@@ -429,3 +429,69 @@ class TestEdgeCases:
         # Should raise ValueError when no EOS token and empty response
         with pytest.raises(ValueError, match="Cannot create training example with zero trainable tokens"):
             SFTDataFactory.tokenize_prompt_response(prompt, response, mock_tokenizer)
+
+    def test_very_long_prompt(self, tokenizer):
+        """Test with very long prompt to verify label masking alignment."""
+        # Create a long prompt (should produce many tokens)
+        prompt = "SELECT * FROM users WHERE " + " AND ".join([f"field{i} = {i}" for i in range(100)])
+        response = "ORDER BY id"
+
+        result = SFTDataFactory.tokenize_prompt_response(prompt, response, tokenizer)
+
+        # Verify all prompt tokens are masked
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        assert all(lbl == IGNORE_INDEX for lbl in result["labels"][:len(prompt_ids)]), "All prompt tokens should be masked"
+
+        # Verify response tokens are trainable
+        trainable = [lbl for lbl in result["labels"][len(prompt_ids):] if lbl != IGNORE_INDEX]
+        assert len(trainable) > 0, "Should have trainable response tokens"
+
+    def test_very_long_response(self, tokenizer):
+        """Test with very long response to verify label masking alignment."""
+        prompt = "Generate numbers: "
+        # Create a long response (should produce many tokens)
+        response = ", ".join([str(i) for i in range(200)])
+
+        result = SFTDataFactory.tokenize_prompt_response(prompt, response, tokenizer)
+
+        # Verify prompt tokens are masked
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        assert all(lbl == IGNORE_INDEX for lbl in result["labels"][:len(prompt_ids)]), "All prompt tokens should be masked"
+
+        # Verify response tokens are trainable
+        response_start = len(prompt_ids)
+        trainable = [lbl for lbl in result["labels"][response_start:] if lbl != IGNORE_INDEX]
+        assert len(trainable) > 0, "Should have trainable response tokens"
+
+        # Verify the trainable labels match the input_ids for response portion
+        for i, label_idx in enumerate(range(response_start, len(result["labels"]))):
+            if result["labels"][label_idx] != IGNORE_INDEX:
+                assert result["labels"][label_idx] == result["input_ids"][label_idx], \
+                    f"Label at position {label_idx} should match input_id"
+
+    def test_combined_long_prompt_and_response(self, tokenizer):
+        """Test with both long prompt and response to verify correct boundary."""
+        # Create long prompt and response
+        prompt = "Context: " + " ".join([f"word{i}" for i in range(50)]) + " Complete: "
+        response = " ".join([f"output{i}" for i in range(50)])
+
+        result = SFTDataFactory.tokenize_prompt_response(prompt, response, tokenizer)
+
+        # Tokenize separately to find exact boundary
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        response_ids = tokenizer(response, add_special_tokens=False)["input_ids"]
+
+        # Account for EOS token
+        expected_response_len = len(response_ids)
+        if tokenizer.eos_token_id is not None:
+            expected_response_len += 1  # EOS token added
+
+        # Verify lengths
+        assert len(result["input_ids"]) == len(prompt_ids) + expected_response_len, "Total length should match"
+        assert len(result["labels"]) == len(result["input_ids"]), "Labels should match input_ids length"
+
+        # Verify masking boundary is exact
+        assert all(lbl == IGNORE_INDEX for lbl in result["labels"][:len(prompt_ids)]), \
+            "All prompt tokens should be masked"
+        assert any(lbl != IGNORE_INDEX for lbl in result["labels"][len(prompt_ids):]), \
+            "Response should have trainable tokens"
