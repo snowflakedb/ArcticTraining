@@ -36,6 +36,7 @@ from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
+from arctic_training.logging import logger
 
 IGNORE_INDEX = -100
 
@@ -364,30 +365,52 @@ class SFTDataFactory(DataFactory):
     ]
 
     def process(self, dataset: DatasetType) -> DatasetType:
-        if "messages" not in dataset.column_names:
-            raise ValueError("Dataset must have 'messages' column to tokenize for SFTDataFactory.")
-        dataset = dataset.select_columns(["messages"])
-        # sft based tokenization,
-        # we assume the messages are in the format of:
-        # {'role': '...', 'content': '...'}
-        # datasets = datasets.select(range(100, 1100))
-        dataset = dataset.select(range(len(dataset)))
-        # datasets.disable_caching()
-        # tmp = tokenize_messages(datasets[0]["messages"][:2], tokenizer, mask_inputs=mask_inputs)
-        # import pdb; pdb.set_trace()
-        return dataset.map(
-            lambda ex: {
-                **self.tokenize_messages(
-                    ex["messages"],
+        # Auto-detect format based on columns
+        has_prompt_response = "prompt" in dataset.column_names and "response" in dataset.column_names
+        has_messages = "messages" in dataset.column_names
+
+        if has_prompt_response:
+            # NEW PATH: prompt/response format (FIM, auto-complete, etc.)
+            # Uses length-based label masking - simple and deterministic
+            logger.info("Detected prompt/response format - using length-based label masking")
+            dataset = dataset.select_columns(["prompt", "response"])
+            return dataset.map(
+                lambda ex: self.tokenize_prompt_response(
+                    ex["prompt"],
+                    ex["response"],
                     self.tokenizer,
-                    mask_inputs=self.config.mask_inputs,
-                    ignore_empty_think=self.config.ignore_empty_think,
-                )
-            },
-            remove_columns=dataset.column_names,
-            num_proc=self.config.num_proc,
-            desc="Tokenizing messages",
-        )
+                ),
+                remove_columns=dataset.column_names,
+                num_proc=self.config.num_proc,
+                desc="Tokenizing prompt/response",
+            )
+        elif has_messages:
+            # LEGACY PATH: messages format (unchanged behavior)
+            # Uses character-offset based label masking
+            logger.info("Detected messages format - using character-offset label masking")
+            dataset = dataset.select_columns(["messages"])
+            # sft based tokenization,
+            # we assume the messages are in the format of:
+            # {'role': '...', 'content': '...'}
+            dataset = dataset.select(range(len(dataset)))
+            return dataset.map(
+                lambda ex: {
+                    **self.tokenize_messages(
+                        ex["messages"],
+                        self.tokenizer,
+                        mask_inputs=self.config.mask_inputs,
+                        ignore_empty_think=self.config.ignore_empty_think,
+                    )
+                },
+                remove_columns=dataset.column_names,
+                num_proc=self.config.num_proc,
+                desc="Tokenizing messages",
+            )
+        else:
+            raise ValueError(
+                "Dataset must have either 'prompt'+'response' columns or 'messages' column. "
+                f"Found columns: {dataset.column_names}"
+            )
 
     @classmethod
     def tokenize_messages(
@@ -415,6 +438,74 @@ class SFTDataFactory(DataFactory):
             conversation_ids["labels"] = conversation_ids["input_ids"]
 
         return conversation_ids
+
+    @classmethod
+    def tokenize_prompt_response(
+        cls,
+        prompt: str,
+        response: str,
+        tokenizer: PreTrainedTokenizerBase,
+    ) -> Dict[str, List[int]]:
+        """
+        Tokenize prompt and response separately for clean length-based label masking.
+
+        This approach is simpler and more robust than character-offset mapping:
+        - The prompt is tokenized and all its tokens are masked (-100)
+        - The response is tokenized and all its tokens are trainable
+        - Empty response is OK (just adds EOS token)
+
+        This is the recommended approach for FIM (Fill-in-the-Middle) training
+        where the prompt contains everything up to <|fim_middle|> and the
+        response contains only the completion.
+
+        Args:
+            prompt: The full prompt (will be masked during training).
+                    For FIM, includes chat template + FIM tokens up to <|fim_middle|>.
+            response: The response/completion (will be trained on).
+                      For FIM, this is just the OUTPUT after <|fim_middle|>.
+            tokenizer: The tokenizer to use.
+
+        Returns:
+            Dict with input_ids, labels, and attention_mask.
+        """
+        # Tokenize prompt separately - no marker detection needed!
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+
+        # Handle empty response: just EOS token
+        # An empty response is valid - the model learns when "no completion needed"
+        # Note: We concatenate eos_token string before tokenization to ensure
+        # context-aware tokenization at the boundary. Most tokenizers recognize
+        # special tokens in input text even with add_special_tokens=False.
+        if response:
+            if tokenizer.eos_token is not None:
+                response_with_eos = response + tokenizer.eos_token
+            else:
+                response_with_eos = response
+        else:
+            # Empty response - just EOS token if available
+            if tokenizer.eos_token is not None:
+                response_with_eos = tokenizer.eos_token
+            else:
+                response_with_eos = ""
+
+        if response_with_eos:
+            response_ids = tokenizer(response_with_eos, add_special_tokens=False)["input_ids"]
+        else:
+            response_ids = []
+
+        # Combine input_ids
+        input_ids = prompt_ids + response_ids
+
+        # Labels: mask prompt (-100), keep response tokens as labels
+        # This is the key insight: by splitting before tokenization,
+        # the loss boundary is deterministic based on string lengths
+        labels = [IGNORE_INDEX] * len(prompt_ids) + response_ids
+
+        return {
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": [1] * len(input_ids),
+        }
 
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
