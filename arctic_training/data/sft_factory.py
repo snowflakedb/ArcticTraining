@@ -369,6 +369,14 @@ class SFTDataFactory(DataFactory):
         has_prompt_response = "prompt" in dataset.column_names and "response" in dataset.column_names
         has_messages = "messages" in dataset.column_names
 
+        # Warn if dataset has both formats (ambiguous)
+        if has_prompt_response and has_messages:
+            logger.warning(
+                "Dataset has both 'prompt'/'response' AND 'messages' columns. "
+                "Using prompt/response format. To use messages format, remove the "
+                "'prompt' and 'response' columns from your dataset."
+            )
+
         if has_prompt_response:
             # NEW PATH: prompt/response format (FIM, auto-complete, etc.)
             # Uses length-based label masking - simple and deterministic
