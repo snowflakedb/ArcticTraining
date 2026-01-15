@@ -420,8 +420,7 @@ class TestEdgeCases:
             # Return some dummy token IDs for non-empty text
             return {"input_ids": [1, 2, 3]}
 
-        mock_tokenizer.side_effect = mock_tokenize
-        # Make the mock callable
+        # Make the mock callable (no need for side_effect)
         mock_tokenizer.__call__ = mock_tokenize
 
         prompt = "Complete: "
