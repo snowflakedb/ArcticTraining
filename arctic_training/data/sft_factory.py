@@ -481,28 +481,26 @@ class SFTDataFactory(DataFactory):
         # Tokenize prompt separately - no marker detection needed!
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
 
-        # Build response text with EOS token
-        # Note: Always append EOS if available. Even for empty responses, we need
-        # at least one trainable token for the loss function to work correctly.
-        # We concatenate eos_token string before tokenization to ensure
-        # context-aware tokenization at the boundary. Most tokenizers recognize
-        # special tokens in input text even with add_special_tokens=False.
-        response_text = response
-        if tokenizer.eos_token is not None:
-            response_text = response_text + tokenizer.eos_token
-
-        # Tokenize response (may be empty string if no response and no EOS)
-        if response_text:
-            response_ids = tokenizer(response_text, add_special_tokens=False)["input_ids"]
-        else:
-            response_ids = []
+        # Tokenize response first
+        # Note: We tokenize the response without special tokens, then append EOS token ID
+        # directly. This is more reliable than string concatenation which can cause
+        # tokenization boundary issues with BPE tokenizers.
+        response_ids = tokenizer(response, add_special_tokens=False)["input_ids"]
 
         # Defensive check: some tokenizers might return tokens for empty strings
-        if not response_text and len(response_ids) > 0:
+        if not response and len(response_ids) > 0:
             logger.warning(
                 f"Tokenizer returned {len(response_ids)} tokens for empty string. "
                 "This is unexpected and may cause training issues."
             )
+
+        # Append EOS token ID if available and not already present
+        # Always append EOS if available. Even for empty responses, we need
+        # at least one trainable token for the loss function to work correctly.
+        if tokenizer.eos_token_id is not None:
+            # Only add EOS if not already present (prevents duplicate EOS tokens)
+            if not response_ids or response_ids[-1] != tokenizer.eos_token_id:
+                response_ids.append(tokenizer.eos_token_id)
 
         # Ensure we have at least one trainable token
         # If response_ids is empty (no content, no EOS), we cannot train on this example.
