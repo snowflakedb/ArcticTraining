@@ -21,7 +21,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.6.1.dev0"
+version = "0.7.2.dev0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -53,7 +53,7 @@ requires-python = ">= 3.8"
 # Dependencies for the project
 dependencies = [
     "datasets",
-    "deepspeed>=0.18.0",  # TiledMLP for MoE
+    "deepspeed>=0.18.2",  # UlyssesSPAttentionHF.register_with_transformers api change
     "devtools",
     "jsonlines",
     "loguru",
@@ -65,7 +65,7 @@ dependencies = [
     "tabulate",
     "torch",
     "tqdm",
-    "transformers>=4.56", # torch_dtype deprecation
+    "transformers>=4.56,<5.0.0", # torch_dtype deprecation, 5.0 is unstable at the moment
     "wandb",
     "yq",
 ]
@@ -78,6 +78,7 @@ all = [
     "arctic_training[testing]",
     "arctic_training[vllm]",
     "arctic_training[cortex]",
+    "arctic_training[snowflake]",
 ]
 
 dev = [
@@ -91,6 +92,7 @@ testing = [
     "pytest-instafail",
     "parameterized",
     "pytest-xdist",
+    "arctic_training[snowflake]",
 ]
 
 formatting = [
@@ -113,6 +115,11 @@ vllm = [
 
 cortex = [
     "snowflake-connector-python==3.12.3",
+]
+
+snowflake = [
+    "snowflake-ml-python>=1.21.0",
+    "numba",  # Mitigate uv dependency resolution issue with snowflake-ml-python
 ]
 
 [project.scripts]

@@ -148,7 +148,10 @@ class TrainerConfig(BaseConfig):
     """ Iters between eval metric log outputs. `0` is off. """
 
     exit_iteration: int = Field(default=0, ge=0)
-    """ Force exit of training after specified iteration count (useful for debugging). """
+    """ Do not continue training after specified iteration count even if there is still data and epochs to run (useful for debugging and tests). """
+
+    exit_iteration_this_run: int = Field(default=0, ge=0)
+    """ Force exit of training after specified iteration count in this run (but will restart running until `exit_iteration` or running out of data/epochs after resume (useful for debugging and tests). """
 
     min_iterations: HumanInt = Field(default=0, ge=0)
     """ When >0, the training dataset will be replicated until there is enough data to run this many iterations. """
@@ -440,6 +443,12 @@ class TrainerConfig(BaseConfig):
     def mem_profiler_mkdir(self) -> Self:
         if self.mem_profiler is not None:
             self.mem_profiler_dir.mkdir(parents=True, exist_ok=True)
+        return self
+
+    @model_validator(mode="after")
+    def validate_sft_sample_packing(self) -> Self:
+        if hasattr(self.data, "pack_samples") and self.data.pack_samples:
+            assert self.micro_batch_size == 1, "`micro_batch_size` must be 1 if `pack_samples` is enabled."
         return self
 
 
