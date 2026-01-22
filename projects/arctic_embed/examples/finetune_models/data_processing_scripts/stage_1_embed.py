@@ -106,9 +106,10 @@ def embed_texts_to_parquet_files(
     current_file_rowcount = 0
     try:
         num_devices = len(device_embedders)
-        with ThreadPool(num_devices) as embed_pool, tqdm(
-            total=pbar_total, unit="text", desc="embedding texts to parquet"
-        ) as pbar:
+        with (
+            ThreadPool(num_devices) as embed_pool,
+            tqdm(total=pbar_total, unit="text", desc="embedding texts to parquet") as pbar,
+        ):
             # Round robin devices to balance load as we iterate batches and embed
             # the batches in parallel via multi-threading.
             id_vector_batch_iter = embed_pool.imap(_embed_on_device, enumerate(_iter_batches()))
