@@ -31,6 +31,8 @@
 
 from transformers import PretrainedConfig
 
+from arctic_training.debug.utils import print_rank
+
 VALID_CONFIG_TYPE = {
     "llama",
     "qwen2",
@@ -39,6 +41,7 @@ VALID_CONFIG_TYPE = {
     "qwen2_5_vl",
     "qwen3",
     "qwen3_moe",
+    "qwen3_next",
     "qwen3_vl",
     "qwen3_vl_moe",
     "deepseek_v3",
@@ -105,6 +108,7 @@ class FlopsCounter:
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
             "qwen3_moe": self._estimate_qwen2_moe_flops,
+            "qwen3_next": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
@@ -134,13 +138,11 @@ class FlopsCounter:
         delta_time = 1  # noqa not used
 
         def _inner(config, model_size, seq_len):
-            return (
-                self._dense_flops_multiplier(forward_only) * model_size * seq_len
-                + self._attn_flops_multiplier(forward_only)
-                * config.num_hidden_layers
-                * config.hidden_size
-                * seq_len**2
-            ) / 1e12
+            dense = self._dense_flops_multiplier(forward_only) * model_size * seq_len
+            attn = (
+                self._attn_flops_multiplier(forward_only) * config.num_hidden_layers * config.hidden_size * seq_len**2
+            )
+            return (dense + attn) / 1e12
 
         tflos = sum(_inner(self.config, self.model_size, seqlen) for seqlen in batch_seqlens)
 
@@ -163,7 +165,7 @@ class FlopsCounter:
         # Qwen2/LLama use SwiGelu, gate, having up and down linear layer in mlp
         mlp_N = hidden_size * intermediate_size * 3
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
-        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        emd_and_lm_head_N = vocab_size * hidden_size  # embedding flops is 0
         # non-attn all_layer parm
         dense_N = (mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
         # non-attn all_layer & all_token fwd & bwd flops
@@ -218,7 +220,7 @@ class FlopsCounter:
             * self.config.kv_lora_rank
         )
         attn_linear_N += num_query_heads * self.config.v_head_dim * hidden_size
-        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        emd_and_lm_head_N = vocab_size * hidden_size
         # non-attn all_layer parm
         moe_N = (
             (moe_gata_N + moe_expertmlp_N + attn_linear_N) * (num_hidden_layers - first_k_dense_replace)
@@ -241,6 +243,9 @@ class FlopsCounter:
         return flops_achieved
 
     def _estimate_qwen2_moe_flops(self, tokens_sum, batch_seqlens, delta_time, forward_only):
+
+        # print_rank(f"{tokens_sum=} {batch_seqlens=} {delta_time=}", force=True)
+
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers
@@ -255,31 +260,104 @@ class FlopsCounter:
         k_size = num_key_value_heads * head_dim
         v_size = num_key_value_heads * head_dim
 
-        # non-attn per layer parm
-        # gate + moe export
+        # recent model may include either or both attention types: linear and full attention
+        full_attention_interval = getattr(self.config, "full_attention_interval", 1)
+        num_full_attention_layers = num_hidden_layers // full_attention_interval
+        num_linear_attention_layers = num_hidden_layers - num_full_attention_layers
+
+        # non-attn per layer params
+        # moe experts + gate
+        # note this also deals correctly with a fake dense version where we manualy hack in num_experts>0 - the then dense mlp equivalent still gets computed correctly
         moe_mlp_N = hidden_size * moe_topk * moe_intermediate_size * 3 + hidden_size * num_experts
-        attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
-        emd_and_lm_head_N = vocab_size * hidden_size * 2
-        # non-attn all_layer parm
-        dense_N = (moe_mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
+        emd_and_lm_head_N = vocab_size * hidden_size  # embedding flops is 0
+        dense_N = moe_mlp_N * num_hidden_layers + emd_and_lm_head_N
         # non-attn all_layer & all_token fwd & bwd flops
         dense_N_flops = self._dense_flops_multiplier(forward_only) * dense_N * tokens_sum
 
-        # attn all_layer & all_token fwd & bwd flops
-        seqlen_square_sum = 0
-        for seqlen in batch_seqlens:
-            seqlen_square_sum += seqlen * seqlen
-        attn_qkv_flops = (
+        # full attention: attn all_layer & all_token fwd & bwd flops
+        # full attention qkv flops
+        seqlen_square_sum = sum(seqlen**2 for seqlen in batch_seqlens)
+        full_attn_qkv_flops = (
             self._attn_flops_multiplier(forward_only)
             * seqlen_square_sum
             * head_dim
             * num_attention_heads
-            * num_hidden_layers
+            * num_full_attention_layers
         )
+        # full attention linear layers flops
+        full_attn_linear_fwd_per_layer = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
+        full_attn_linear_flops = (
+            self._dense_flops_multiplier(forward_only)
+            * tokens_sum
+            * full_attn_linear_fwd_per_layer
+            * num_full_attention_layers
+        )
+        full_attn_flops = full_attn_qkv_flops + full_attn_linear_flops
+
+        # linear attention (adapted from Megatron-LM)
+        linear_attn_flops = 0
+        if num_linear_attention_layers > 0:
+            # Calculate the FLOPs for the gated delta net attention.
+            linear_key_head_dim = self.config.linear_key_head_dim
+            linear_value_head_dim = self.config.linear_value_head_dim
+            linear_num_key_heads = self.config.linear_num_key_heads
+            linear_num_value_heads = self.config.linear_num_value_heads
+            linear_conv_kernel_dim = self.config.linear_conv_kernel_dim
+            qk_dim = linear_key_head_dim * linear_num_key_heads
+            v_dim = linear_value_head_dim * linear_num_value_heads
+
+            linear_attn_flops_fwd_per_layer = (
+                ## in proj
+                hidden_size * (2 * qk_dim + 2 * v_dim + 2 * linear_num_value_heads)
+                ## conv1d
+                + linear_conv_kernel_dim * (2 * qk_dim + v_dim)
+                ## gated delta rule: KK^T, VK^T, S(a(I-bKK^T)), and SQ
+                + linear_num_value_heads * (linear_value_head_dim**2) * 4
+                ## out proj
+                + hidden_size * v_dim
+            )
+
+            linear_attn_flops = (
+                self._dense_flops_multiplier(forward_only)
+                * tokens_sum
+                * linear_attn_flops_fwd_per_layer
+                * num_linear_attention_layers
+            )
 
         # all_layer & all_token fwd & bwd flops
-        flops_all_token = dense_N_flops + attn_qkv_flops
+        flops_all_token = dense_N_flops + full_attn_flops + linear_attn_flops
+
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+
+        # Do not delete - useful for quick debug when model arch changes
+        if 0:
+            moe_mlp_N_M = round(moe_mlp_N / 1e9, 2)
+            emd_and_lm_head_N_M = round(emd_and_lm_head_N / 1e9, 2)
+            dense_N_M = round(dense_N / 1e9, 2)
+            dense_N_flops_M = round(dense_N_flops / 1e9, 2)
+            full_attn_flops_M = round(full_attn_flops / 1e9, 2)
+            linear_attn_flops_M = round(linear_attn_flops / 1e9, 2)
+            flops_achieved_B = round(flops_achieved, 2)
+
+            print_rank(
+                f"""
+fwd constant per token:
+- {emd_and_lm_head_N_M=}M
+fwd constant per layer per token:
+- {moe_mlp_N_M=}M
+fwd all layers:
+- {dense_N_M=}M
+flos:
+- {dense_N_flops_M=}M
+- {full_attn_flops_M=}M
+- {linear_attn_flops_M=}M
+Total flos:
+- {flops_achieved_B=}B
+""",
+                force=True,
+            )
+
+        # exit()
         return flops_achieved
 
     def estimate_tflos(self, batch_seqlens, delta_time=1, forward_only=False):
