@@ -441,7 +441,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     for idx in range(len(batch["input_ids"]))
                 ]
             self.metrics.seqlens = sample_seqlens
-
+            print(f'AT: {self.global_rank=} {self.train_batch_idx=} {sample_seqlens=} {sum(sample_seqlens[0])=}')
             self.metrics.start_timer("step")
             self.step(batch)
             self.metrics.stop_timer("step")
