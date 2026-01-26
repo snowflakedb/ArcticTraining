@@ -21,7 +21,7 @@ Issues = "https://github.com/snowflakedb/ArcticTraining/issues"
 
 [project]
 name = "arctic_training"
-version = "0.7.1.dev0"
+version = "0.7.3.dev0"
 description = "Snowflake LLM training library"
 authors = [
     {author = "Michael Wyatt", email = "michael.wyatt@snowflake.com"},
@@ -48,7 +48,8 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 
-requires-python = ">= 3.8"
+requires-python = ">=3.10"
+
 
 # Dependencies for the project
 dependencies = [
@@ -78,6 +79,7 @@ all = [
     "arctic_training[testing]",
     "arctic_training[vllm]",
     "arctic_training[cortex]",
+    "arctic_training[snowflake]",
 ]
 
 dev = [
@@ -91,6 +93,7 @@ testing = [
     "pytest-instafail",
     "parameterized",
     "pytest-xdist",
+    "arctic_training[snowflake]",
 ]
 
 formatting = [
@@ -112,7 +115,13 @@ vllm = [
 ]
 
 cortex = [
-    "snowflake-connector-python==3.12.3",
+    "snowflake-connector-python>=3.17.3,<4",
+]
+
+
+snowflake = [
+    "snowflake-ml-python>=1.21.0",
+    "numba",  # Mitigate uv dependency resolution issue with snowflake-ml-python
 ]
 
 [project.scripts]

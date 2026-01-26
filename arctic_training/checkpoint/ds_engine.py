@@ -64,6 +64,10 @@ class DSCheckpointEngine(CheckpointEngine):
         return self.checkpoint_dir / "latest"
 
     @property
+    def latest_checkpoint_exists(self) -> bool:
+        return self.latest_checkpoint.exists()
+
+    @property
     def checkpoint_tag(self) -> str:
         return f"epoch_{self.trainer.epoch_idx}_global_step_{self.trainer.global_step}"
 
@@ -75,6 +79,7 @@ class DSCheckpointEngine(CheckpointEngine):
             "np_random_state": np.random.get_state(),
             "python_random_state": random.getstate(),
             "global_step": self.trainer.global_step,
+            "wandb_run_id": self.trainer.wandb_run_id,
         }
         if self.device != torch.device("cpu"):
             state["torch_cuda_random_state"] = torch.cuda.get_rng_state()
@@ -93,7 +98,7 @@ class DSCheckpointEngine(CheckpointEngine):
         # logger.info(f"Saved model norm: {norm}, optim norm: {optim_norm}")
 
     def load(self, model) -> None:
-        if not self.latest_checkpoint.exists():
+        if not self.latest_checkpoint_exists:
             return
         _, client_states = model.load_checkpoint(self.checkpoint_dir)
 
@@ -106,6 +111,8 @@ class DSCheckpointEngine(CheckpointEngine):
         random.setstate(client_states["python_random_state"])
         if self.device != torch.device("cpu"):
             torch.cuda.set_rng_state(client_states["torch_cuda_random_state"])
+
+        self.trainer.wandb_run_id = client_states["wandb_run_id"]
 
         # Helpful ckpt resume debugging snippet
         # norm = model_norm(model)

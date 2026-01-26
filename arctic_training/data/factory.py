@@ -94,6 +94,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             # If the cache path does not exist, load the data using local/global
             # rank 0 (depending on if file system is shared across nodes).
             if self.is_main_process_by_path and not cache_path.exists():
+                if self.config.fail_on_missing_cache:
+                    raise FileNotFoundError(f"Cache path {cache_path.as_posix()} does not exist.")
+
                 dataset = self.load(data_sources)
 
                 # Repeat the dataset until we have enough samples to run for min_iterations

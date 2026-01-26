@@ -116,6 +116,9 @@ class DataConfig(BaseConfig):
 
     cache_fs_type: Literal["auto", "local", "shared"] = "auto"
 
+    fail_on_missing_cache: bool = False
+    """ Whether to fail if the cache is missing. """
+
     @property
     def factory(self) -> Type["DataFactory"]:
         return get_registered_data_factory(self.type)
