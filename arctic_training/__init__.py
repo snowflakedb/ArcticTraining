@@ -25,10 +25,10 @@ from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.data import DataConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.model import ModelConfig
+from arctic_training.config.on_policy_distillation import OnPolicyDistillationTrainerConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
-from arctic_training.config.on_policy_distillation import OnPolicyDistillationTrainerConfig
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
 from arctic_training.data.causal_factory import CausalDataFactory

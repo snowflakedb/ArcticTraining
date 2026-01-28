@@ -59,9 +59,7 @@ def init_teacher_model(self: "OnPolicyDistillationTrainer") -> None:
     config = self.config
 
     # Create teacher model using the same factory pattern as DPO's ref_model
-    teacher_model_factory = config.teacher_model.factory(
-        trainer=self, model_config=config.teacher_model
-    )
+    teacher_model_factory = config.teacher_model.factory(trainer=self, model_config=config.teacher_model)
     self.teacher_model = teacher_model_factory()
 
     # Wrap with DeepSpeed for efficient inference
@@ -136,7 +134,6 @@ class OnPolicyDistillationTrainer(Trainer):
                 - attention_mask: Attention mask for generated sequence
         """
         num_rollouts = self.config.num_rollouts_per_prompt
-        batch_size = input_ids.size(0)
 
         # Repeat each prompt num_rollouts times for multiple completions per prompt
         # [p1, p2, p3, p4] with num_rollouts=2 -> [p1, p1, p2, p2, p3, p3, p4, p4]
@@ -231,7 +228,7 @@ class OnPolicyDistillationTrainer(Trainer):
         )
 
         # Check if any completions were generated
-        mask = (labels != -100)
+        mask = labels != -100
         num_completion_tokens = mask.sum()
         if num_completion_tokens == 0:
             logger.warning("No completions generated, returning zero loss")
@@ -269,13 +266,9 @@ class OnPolicyDistillationTrainer(Trainer):
 
         # Compute per-token logprobs using fused cross_entropy
         # cross_entropy returns -log_prob, so negate; ignore_index=-100 handles masking
-        student_logprobs = -F.cross_entropy(
-            flat_student_logits, flat_labels, ignore_index=-100, reduction='none'
-        )
+        student_logprobs = -F.cross_entropy(flat_student_logits, flat_labels, ignore_index=-100, reduction="none")
         with torch.no_grad():
-            teacher_logprobs = -F.cross_entropy(
-                flat_teacher_logits, flat_labels, ignore_index=-100, reduction='none'
-            )
+            teacher_logprobs = -F.cross_entropy(flat_teacher_logits, flat_labels, ignore_index=-100, reduction="none")
 
         # Step 5: Compute on-policy distillation loss using policy gradient
         # Reference: https://thinkingmachines.ai/blog/on-policy-distillation/
@@ -284,30 +277,30 @@ class OnPolicyDistillationTrainer(Trainer):
         #
         # reverse_kl = student_logprob - teacher_logprob
         # advantage = -reverse_kl = teacher_logprob - student_logprob
-        # 
+        #
         # Policy gradient loss: loss = -advantage * log_prob
         #   = -(teacher_logprob - student_logprob) * student_logprob
         #
         # This gives correct gradients:
         # - When teacher > student (advantage > 0): increase student_logprob
         # - When teacher < student (advantage < 0): decrease student_logprob
-        
-        shift_mask = (flat_labels != -100)
+
+        shift_mask = flat_labels != -100
         num_tokens = shift_mask.sum()
-        
+
         if num_tokens > 0:
             valid_student_logprobs = student_logprobs[shift_mask]
             valid_teacher_logprobs = teacher_logprobs[shift_mask]
-            
+
             # Advantage = teacher's preference - student's confidence (detached for stable training)
             # Positive advantage: teacher likes this token more than student expects
             # Negative advantage: student is overconfident relative to teacher
-            advantage = (valid_teacher_logprobs - valid_student_logprobs.detach())
-            
+            advantage = valid_teacher_logprobs - valid_student_logprobs.detach()
+
             # Policy gradient loss: maximize student logprob weighted by advantage
             # loss = -E[advantage * log p_student]
             loss = -(advantage * valid_student_logprobs).mean() * self.config.beta
-            
+
             # Track reverse KL for monitoring
             per_token_kl = valid_student_logprobs - valid_teacher_logprobs
         else:
@@ -379,7 +372,7 @@ class OnPolicyDistillationTrainer(Trainer):
 
     def evaluate(self) -> None:
         """Evaluation loop with detailed metrics for on-policy distillation.
-        
+
         Note: We intentionally don't use @callback_wrapper here to avoid
         the base class's evaluate() being called instead of this override.
 
@@ -420,7 +413,7 @@ class OnPolicyDistillationTrainer(Trainer):
                     prompt_lengths=prompt_lengths,
                 )
 
-                mask = (labels != -100)
+                mask = labels != -100
                 num_completion_tokens = mask.sum()
                 if num_completion_tokens == 0:
                     continue
@@ -449,24 +442,24 @@ class OnPolicyDistillationTrainer(Trainer):
                 flat_labels = shift_labels.view(-1)
 
                 student_logprobs = -F.cross_entropy(
-                    flat_student_logits, flat_labels, ignore_index=-100, reduction='none'
+                    flat_student_logits, flat_labels, ignore_index=-100, reduction="none"
                 )
                 teacher_logprobs = -F.cross_entropy(
-                    flat_teacher_logits, flat_labels, ignore_index=-100, reduction='none'
+                    flat_teacher_logits, flat_labels, ignore_index=-100, reduction="none"
                 )
 
-                shift_mask = (flat_labels != -100)
+                shift_mask = flat_labels != -100
                 num_tokens = shift_mask.sum().item()
 
                 if num_tokens > 0:
                     valid_student_logprobs = student_logprobs[shift_mask]
                     valid_teacher_logprobs = teacher_logprobs[shift_mask]
-                    
+
                     # Compute policy gradient loss (same as training)
                     advantage = valid_teacher_logprobs - valid_student_logprobs
                     batch_loss = -(advantage * valid_student_logprobs).mean() * self.config.beta
                     total_loss += batch_loss.item()
-                    
+
                     # Track reverse KL for monitoring
                     per_token_kl = valid_student_logprobs - valid_teacher_logprobs
 
@@ -493,7 +486,9 @@ class OnPolicyDistillationTrainer(Trainer):
             avg_student_logprob = total_student_logprob / total_tokens
             avg_teacher_logprob = total_teacher_logprob / total_tokens
             avg_advantage = total_advantage / total_tokens
-            avg_completion_len = total_completion_len / (num_batches * self.config.micro_batch_size * self.config.num_rollouts_per_prompt)
+            avg_completion_len = total_completion_len / (
+                num_batches * self.config.micro_batch_size * self.config.num_rollouts_per_prompt
+            )
 
             # Perplexity
             student_ppl = torch.exp(torch.tensor(-avg_student_logprob)).item()

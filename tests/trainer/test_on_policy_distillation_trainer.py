@@ -21,11 +21,9 @@ import torch.nn as nn
 
 # Import the modules to register them
 from arctic_training.config.on_policy_distillation import OnPolicyDistillationTrainerConfig
-from arctic_training.data.on_policy_distillation_factory import (
-    DataCollatorForOnPolicyDistillation,
-    OnPolicyDistillationDataFactory,
-    pad_prompts,
-)
+from arctic_training.data.on_policy_distillation_factory import DataCollatorForOnPolicyDistillation
+from arctic_training.data.on_policy_distillation_factory import OnPolicyDistillationDataFactory
+from arctic_training.data.on_policy_distillation_factory import pad_prompts
 from arctic_training.trainer.on_policy_distillation_trainer import OnPolicyDistillationTrainer  # noqa: F401
 from arctic_training.trainer.utils import disable_dropout_in_model
 
@@ -33,7 +31,7 @@ from arctic_training.trainer.utils import disable_dropout_in_model
 @pytest.mark.skip(reason="Config tests require full distributed setup - tested via integration tests")
 class TestOnPolicyDistillationConfig:
     """Tests for OnPolicyDistillationTrainerConfig.
-    
+
     Note: These tests are skipped because they require the full distributed
     setup to properly resolve type hints. The config is tested via the
     integration tests at the end of this file.
@@ -192,11 +190,11 @@ class TestDataCollator:
 
 class TestPolicyGradientLoss:
     """Tests for the policy gradient loss computation.
-    
+
     The on-policy distillation loss uses policy gradient with advantage:
         advantage = teacher_logprob - student_logprob
         loss = -(advantage * student_logprob).mean()
-    
+
     This ensures:
     - When teacher > student: positive advantage -> increase student_logprob
     - When teacher < student: negative advantage -> decrease student_logprob
@@ -206,9 +204,9 @@ class TestPolicyGradientLoss:
         """Test that advantage is computed correctly."""
         student_logprobs = torch.tensor([-1.0, -2.0, -3.0])
         teacher_logprobs = torch.tensor([-0.5, -2.0, -4.0])
-        
+
         advantage = teacher_logprobs - student_logprobs
-        
+
         # Position 0: teacher (-0.5) > student (-1.0) -> positive advantage
         assert advantage[0] > 0
         # Position 1: teacher == student -> zero advantage
@@ -221,14 +219,14 @@ class TestPolicyGradientLoss:
         # Student logprobs (requires grad)
         student_logprobs = torch.tensor([-1.0, -2.0, -3.0], requires_grad=True)
         teacher_logprobs = torch.tensor([-0.5, -2.0, -4.0])
-        
+
         # Compute advantage (detached as in actual implementation)
-        advantage = (teacher_logprobs - student_logprobs.detach())
-        
+        advantage = teacher_logprobs - student_logprobs.detach()
+
         # Policy gradient loss
         loss = -(advantage * student_logprobs).mean()
         loss.backward()
-        
+
         # Check gradient directions
         # Position 0: advantage > 0, so gradient should be negative (to increase logprob)
         # Position 2: advantage < 0, so gradient should be positive (to decrease logprob)
@@ -239,10 +237,10 @@ class TestPolicyGradientLoss:
         """Test that loss is zero when student matches teacher."""
         student_logprobs = torch.tensor([-1.0, -2.0, -3.0])
         teacher_logprobs = torch.tensor([-1.0, -2.0, -3.0])
-        
+
         advantage = teacher_logprobs - student_logprobs
         loss = -(advantage * student_logprobs).mean()
-        
+
         assert torch.isclose(loss, torch.tensor(0.0))
 
     def test_loss_with_masking(self):
@@ -250,19 +248,19 @@ class TestPolicyGradientLoss:
         student_logprobs = torch.tensor([-1.0, -2.0, -999.0])  # Last is padding
         teacher_logprobs = torch.tensor([-0.5, -1.0, -999.0])
         mask = torch.tensor([True, True, False])
-        
+
         # Apply mask
         valid_student = student_logprobs[mask]
         valid_teacher = teacher_logprobs[mask]
-        
+
         advantage = valid_teacher - valid_student
         loss = -(advantage * valid_student).mean()
-        
+
         # Manual calculation for first two positions only
         adv_0 = -0.5 - (-1.0)  # = 0.5
         adv_1 = -1.0 - (-2.0)  # = 1.0
         expected_loss = -((adv_0 * -1.0) + (adv_1 * -2.0)) / 2
-        
+
         assert torch.isclose(loss, torch.tensor(expected_loss))
 
 
@@ -273,19 +271,19 @@ class TestReverseKLMetric:
         """Test that KL is zero when distributions are identical."""
         student_logprobs = torch.tensor([-1.0, -2.0, -3.0])
         teacher_logprobs = torch.tensor([-1.0, -2.0, -3.0])
-        
+
         # Reverse KL: student - teacher
         reverse_kl = (student_logprobs - teacher_logprobs).mean()
-        
+
         assert torch.isclose(reverse_kl, torch.tensor(0.0))
 
     def test_reverse_kl_student_worse(self):
         """Test KL when student is worse (lower logprobs) than teacher."""
         student_logprobs = torch.tensor([-2.0, -3.0, -4.0])  # Lower (worse)
         teacher_logprobs = torch.tensor([-1.0, -2.0, -3.0])  # Higher (better)
-        
+
         reverse_kl = (student_logprobs - teacher_logprobs).mean()
-        
+
         # Student logprobs are lower, so student - teacher is negative
         assert reverse_kl < 0
 
@@ -293,9 +291,9 @@ class TestReverseKLMetric:
         """Test KL when student is overconfident (higher logprobs than teacher)."""
         student_logprobs = torch.tensor([-0.5, -1.0, -1.5])  # Higher (overconfident)
         teacher_logprobs = torch.tensor([-1.0, -2.0, -3.0])  # Lower
-        
+
         reverse_kl = (student_logprobs - teacher_logprobs).mean()
-        
+
         # Student logprobs are higher, so student - teacher is positive
         assert reverse_kl > 0
 
@@ -316,9 +314,7 @@ class TestDataFactoryTokenization:
             {"role": "assistant", "content": "Hi there"},
         ]
 
-        result = OnPolicyDistillationDataFactory.tokenize_prompt(
-            messages, tokenizer, include_system=True
-        )
+        OnPolicyDistillationDataFactory.tokenize_prompt(messages, tokenizer, include_system=True)
 
         # Should only include user message in template call
         call_args = tokenizer.apply_chat_template.call_args
@@ -339,9 +335,7 @@ class TestDataFactoryTokenization:
             {"role": "assistant", "content": "Hi"},
         ]
 
-        OnPolicyDistillationDataFactory.tokenize_prompt(
-            messages, tokenizer, include_system=True
-        )
+        OnPolicyDistillationDataFactory.tokenize_prompt(messages, tokenizer, include_system=True)
 
         call_args = tokenizer.apply_chat_template.call_args
         assert len(call_args[1]["conversation"]) == 2
@@ -360,9 +354,7 @@ class TestDataFactoryTokenization:
             {"role": "assistant", "content": "Hi"},
         ]
 
-        OnPolicyDistillationDataFactory.tokenize_prompt(
-            messages, tokenizer, include_system=False
-        )
+        OnPolicyDistillationDataFactory.tokenize_prompt(messages, tokenizer, include_system=False)
 
         call_args = tokenizer.apply_chat_template.call_args
         assert len(call_args[1]["conversation"]) == 1

@@ -23,7 +23,6 @@ import asyncio
 from dataclasses import dataclass
 from typing import List
 from typing import Optional
-from typing import Tuple
 
 import aiohttp
 import torch
@@ -218,9 +217,7 @@ class TeacherClient:
                 - mask: Tensor of shape (batch_size, max_completion_len)
         """
         # Run async computation
-        logprobs_list = asyncio.run(
-            self._batch_compute_logprobs_async(prompt_tokens, completion_tokens)
-        )
+        logprobs_list = asyncio.run(self._batch_compute_logprobs_async(prompt_tokens, completion_tokens))
 
         # Find max completion length for padding
         max_len = max(len(lp) for lp in logprobs_list) if logprobs_list else 0
@@ -303,9 +300,7 @@ class TeacherClientPool:
             server_urls: List of vLLM server URLs
             timeout: Timeout in seconds for HTTP requests
         """
-        self.clients = [
-            TeacherClient(server_url=url, timeout=timeout) for url in server_urls
-        ]
+        self.clients = [TeacherClient(server_url=url, timeout=timeout) for url in server_urls]
         self._next_client = 0
 
     def get_client(self) -> TeacherClient:
@@ -321,9 +316,7 @@ class TeacherClientPool:
         device: torch.device,
     ) -> TeacherLogprobResult:
         """Compute logprobs using the next available client."""
-        return self.get_client().compute_logprobs(
-            prompt_tokens, completion_tokens, device
-        )
+        return self.get_client().compute_logprobs(prompt_tokens, completion_tokens, device)
 
     def shutdown(self) -> None:
         """Shutdown all clients in the pool."""

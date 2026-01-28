@@ -515,7 +515,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                         if self.wandb_experiment is not None:
                             # Log all eval metrics (those starting with eval/ or ending with /eval)
                             metrics = {
-                                k: v for k, v in self.metrics.summary_dict.items()
+                                k: v
+                                for k, v in self.metrics.summary_dict.items()
                                 if k.startswith("eval/") or k.endswith("/eval")
                             }
                             self.wandb_experiment.log(metrics, step=self.global_step)

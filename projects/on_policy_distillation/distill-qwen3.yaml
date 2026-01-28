@@ -1,5 +1,5 @@
 # On-Policy Distillation Configuration
-# 
+#
 # This config demonstrates training a student model (Qwen3-1.7B) using
 # on-policy distillation from a teacher model (Qwen3-8B) loaded in-memory.
 #
@@ -30,7 +30,7 @@ teacher_model:
   attn_implementation: flash_attention_2
 
 # Disable dropout in teacher for stable distillation signal
-disable_teacher_dropout: true   
+disable_teacher_dropout: true
 
 # On-policy distillation hyperparameters
 num_rollouts_per_prompt: 8      # Number of completions per prompt (increases GPU utilization)

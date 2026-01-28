@@ -22,7 +22,6 @@ prompts that the student model will use to generate trajectories.
 
 from typing import Dict
 from typing import List
-from typing import Optional
 
 import torch
 from pydantic import Field
@@ -32,7 +31,6 @@ from transformers import PreTrainedTokenizerBase
 
 from arctic_training.config.data import DataConfig
 from arctic_training.config.utils import HumanInt
-from arctic_training.logging import logger
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
