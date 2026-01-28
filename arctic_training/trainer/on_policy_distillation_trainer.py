@@ -142,8 +142,6 @@ class OnPolicyDistillationTrainer(Trainer):
             attention_mask = attention_mask.repeat_interleave(num_rollouts, dim=0)
             prompt_lengths = prompt_lengths.repeat_interleave(num_rollouts, dim=0)
 
-        expanded_batch_size = input_ids.size(0)  # batch_size * num_rollouts
-
         # Put model in eval mode for generation (no dropout)
         self.model.eval()
 
@@ -177,24 +175,32 @@ class OnPolicyDistillationTrainer(Trainer):
         pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         gen_attention_mask = (generated_ids != pad_token_id).long()
 
-        # Fill in completion tokens (after prompt) for each sequence
-        for i in range(expanded_batch_size):
-            # Completion starts after the padded prompt
-            comp_start = padded_prompt_len
+        # Fill in completion tokens (after prompt) using vectorized operations
+        # Create position indices [1, gen_seq_len] broadcast to [batch, gen_seq_len]
+        positions = torch.arange(gen_seq_len, device=generated_ids.device).unsqueeze(0)
 
-            # Find completion end (first padding or EOS after prompt)
-            comp_end = gen_seq_len
-            for j in range(comp_start, gen_seq_len):
-                if generated_ids[i, j] == pad_token_id:
-                    comp_end = j
-                    break
-                if generated_ids[i, j] == self.tokenizer.eos_token_id:
-                    comp_end = j + 1  # Include EOS token
-                    break
+        # Mask for completion region (after prompt)
+        in_completion = positions >= padded_prompt_len
 
-            # Set labels for completion tokens (non -100)
-            if comp_end > comp_start:
-                labels[i, comp_start:comp_end] = generated_ids[i, comp_start:comp_end]
+        # Find pad and EOS positions in completion region
+        is_pad = (generated_ids == pad_token_id) & in_completion
+        is_eos = (generated_ids == self.tokenizer.eos_token_id) & in_completion
+
+        # Find first occurrence of each (use gen_seq_len as "not found" sentinel)
+        pad_positions = torch.where(is_pad, positions.expand_as(generated_ids), gen_seq_len)
+        first_pad = pad_positions.min(dim=1).values  # [batch_size]
+
+        eos_positions = torch.where(is_eos, positions.expand_as(generated_ids), gen_seq_len)
+        first_eos = eos_positions.min(dim=1).values  # [batch_size]
+
+        # comp_end = min(first_pad, first_eos + 1) - EOS is included, pad is not
+        comp_end = torch.minimum(first_pad, first_eos + 1)  # [batch_size]
+
+        # Create completion mask: True where padded_prompt_len <= position < comp_end
+        completion_mask = in_completion & (positions < comp_end.unsqueeze(1))
+
+        # Set labels using the mask (vectorized assignment)
+        labels = torch.where(completion_mask, generated_ids, labels)
 
         return generated_ids, labels, gen_attention_mask
 
