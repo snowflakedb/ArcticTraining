@@ -14,12 +14,10 @@
 # limitations under the License.
 
 import random
-import re
 from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
-from typing import Tuple
 
 import numpy as np
 import torch
@@ -33,6 +31,9 @@ from typing_extensions import Self
 
 from arctic_training.config.data import DataConfig
 from arctic_training.config.utils import HumanInt
+from arctic_training.data.chat_markers import KNOWN_CHAT_MARKERS
+from arctic_training.data.chat_markers import get_chat_markers
+from arctic_training.data.chat_markers import get_token_based_labels_with_ignore_empty_think
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
@@ -265,6 +266,14 @@ class SFTDataConfig(DataConfig):
     ignore_empty_think: bool = False
     """ Whether to mask the empty think tokens preventing the loss of thinking ability."""
 
+    chat_template_family: Optional[str] = None
+    """
+    Explicitly specify the chat template family for label masking.
+    If None, auto-detection is used based on model name and special tokens.
+    Available options: chatml, llama3, llama2, mistral_v3, phi3, gemma,
+    deepseek, deepseek_v2, vicuna, zephyr, command_r
+    """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -277,6 +286,16 @@ class SFTDataConfig(DataConfig):
                     f" config or set `max_length` to {lower_val} or {higher_val}, the two closest values divisible by"
                     f" {self.div_length}.max_length ({self.max_length}) must be divisible by div_length"
                     f" ({self.div_length}) when pad_to is 'max_length'"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_chat_template_family(self) -> Self:
+        if self.chat_template_family is not None:
+            if self.chat_template_family not in KNOWN_CHAT_MARKERS:
+                raise ValueError(
+                    f"Unknown chat_template_family: {self.chat_template_family}. "
+                    f"Available options: {list(KNOWN_CHAT_MARKERS.keys())}"
                 )
         return self
 
@@ -375,6 +394,12 @@ class SFTDataFactory(DataFactory):
         # datasets.disable_caching()
         # tmp = tokenize_messages(datasets[0]["messages"][:2], tokenizer, mask_inputs=mask_inputs)
         # import pdb; pdb.set_trace()
+
+        # Get chat markers once for the entire dataset processing
+        chat_markers = None
+        if self.config.mask_inputs:
+            chat_markers = get_chat_markers(self.tokenizer, self.config.chat_template_family)
+
         return dataset.map(
             lambda ex: {
                 **self.tokenize_messages(
@@ -382,6 +407,7 @@ class SFTDataFactory(DataFactory):
                     self.tokenizer,
                     mask_inputs=self.config.mask_inputs,
                     ignore_empty_think=self.config.ignore_empty_think,
+                    chat_markers=chat_markers,
                 )
             },
             remove_columns=dataset.column_names,
@@ -396,74 +422,49 @@ class SFTDataFactory(DataFactory):
         tokenizer: PreTrainedTokenizerBase,
         mask_inputs: bool = True,
         ignore_empty_think: bool = False,
+        chat_markers=None,
     ) -> BatchEncoding:
+        """
+        Tokenize messages and create labels for SFT training.
+
+        Uses token-based pattern matching to identify assistant turns, which:
+        1. Correctly includes end-of-turn tokens in the training signal
+        2. Is more robust to tokenizer variations
+        3. Works with any chat template format
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            tokenizer: The tokenizer to use
+            mask_inputs: Whether to mask non-assistant tokens (set to -100)
+            ignore_empty_think: Whether to mask empty <think></think> patterns
+            chat_markers: Pre-computed chat markers (optional, will be detected if None)
+
+        Returns:
+            BatchEncoding with input_ids, attention_mask, and labels
+        """
         conversation_text = tokenizer.apply_chat_template(conversation=messages, tokenize=False)
         conversation_ids = tokenizer(
             conversation_text,
-            return_offsets_mapping=mask_inputs,
             add_special_tokens=False,
         )
 
         if mask_inputs:
-            assistant_ranges = cls.get_assistant_start_end_indices(messages, conversation_text, ignore_empty_think)
-            # _ = get_assistant_start_end_indices(messages, conversation_text)
-            labels = cls.get_masked_labels(conversation_ids, assistant_ranges)
+            # Get chat markers if not provided
+            if chat_markers is None:
+                chat_markers = get_chat_markers(tokenizer)
+
+            # Use token-based label masking
+            labels = get_token_based_labels_with_ignore_empty_think(
+                input_ids=conversation_ids["input_ids"],
+                tokenizer=tokenizer,
+                markers=chat_markers,
+                ignore_empty_think=ignore_empty_think,
+            )
             conversation_ids["labels"] = labels
-            # compare_messages_with_labels(split_list_by_specific_num(conversation_ids["labels"]), messages, tokenizer)
-            del conversation_ids["offset_mapping"]
         else:
             conversation_ids["labels"] = conversation_ids["input_ids"]
 
         return conversation_ids
-
-    @staticmethod
-    # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
-    def get_assistant_start_end_indices(
-        messages: List[Dict[str, str]],
-        conversation_text: str,
-        ignore_empty_think: bool = False,
-    ) -> List[Tuple[int, int]]:
-        return_indices = []
-        for message in messages:
-            if message["role"] == "assistant":
-                message_text = message["content"]
-                if ignore_empty_think:
-                    message_text = re.sub(r"^<think>\s*</think>\s*", "", message_text)
-                match_index = conversation_text.find(message_text)
-                # start_indices.append(match_index)
-                end_indices = match_index + len(message_text)
-                return_indices.append((match_index, end_indices))
-        return return_indices
-
-    @staticmethod
-    def get_masked_labels(conversation_ids: BatchEncoding, assistant_ranges: List[Tuple[int, int]]) -> List[int]:
-        pre_output = IGNORE_INDEX
-        output = []
-
-        for id_, (id_s, id_e) in list(
-            zip(
-                conversation_ids["input_ids"],
-                conversation_ids["offset_mapping"],
-            )
-        ):
-            if any(id_s >= s and id_e <= e for s, e in assistant_ranges):
-                pre_output = id_
-                output.append(id_)
-            else:
-                # the if-else here is to include the eos token in the loss.
-                # for instance, the asistent answer is
-                # <|assistant|> I am good <eos> <|user|> xxx
-                #      -100     1 2   3     4     -100       -100
-                # after the shift, input_ids = input_ids[:-1], labels = labels[1:]
-                #        1      2 3   4     -100  -100
-                # now the prediction is correct, and the model will be able to predict <eos> token
-                if pre_output != IGNORE_INDEX:
-                    pre_output = IGNORE_INDEX
-                    output.append(id_)
-                else:
-                    pre_output = IGNORE_INDEX
-                    output.append(IGNORE_INDEX)
-        return output
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         dataloader = super().create_dataloader(dataset)
