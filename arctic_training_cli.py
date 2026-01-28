@@ -26,8 +26,23 @@ def deepspeed_launch(config_file: str, mode: str, python_profile: str, deepspeed
     from deepspeed.launcher.runner import main as ds_runner
 
     deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + [
-        "WANDB"
-    ]  # Make sure WANDB_* env vars are passed for multinode execution
+        "WANDB",
+    ]
+
+    # If CUDA_VISIBLE_DEVICES is set and --num_gpus is not specified,
+    # automatically set --num_gpus to match the visible devices.
+    # NOTE: CUDA_VISIBLE_DEVICES must start from GPU 0 (e.g., 0,1,2) because
+    # DeepSpeed's launcher always remaps to 0-indexed GPUs. If you need to
+    # reserve GPU 0 for another process (like a vLLM teacher), put that process
+    # on the LAST GPU instead (e.g., teacher on GPU 3, training on GPUs 0,1,2).
+    cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    has_num_gpus = any(arg.startswith("--num_gpus") or arg == "-n" for arg in deepspeed_args)
+    has_include = any(arg.startswith("--include") for arg in deepspeed_args)
+    has_exclude = any(arg.startswith("--exclude") for arg in deepspeed_args)
+
+    if cuda_visible and not has_num_gpus and not has_include and not has_exclude:
+        num_visible_gpus = len([g for g in cuda_visible.split(",") if g.strip()])
+        deepspeed_args = ["--num_gpus", str(num_visible_gpus)] + list(deepspeed_args)
 
     runner_name = "arctic_training_run"
     exe_path = shutil.which(runner_name)

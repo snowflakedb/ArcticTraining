@@ -28,6 +28,7 @@ from arctic_training.config.model import ModelConfig
 from arctic_training.config.optimizer import OptimizerConfig
 from arctic_training.config.scheduler import SchedulerConfig
 from arctic_training.config.tokenizer import TokenizerConfig
+from arctic_training.config.on_policy_distillation import OnPolicyDistillationTrainerConfig
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.config.trainer import get_config
 from arctic_training.data.causal_factory import CausalDataFactory
@@ -36,6 +37,7 @@ from arctic_training.data.factory import DataFactory
 from arctic_training.data.hf_causal_source import HFDataSourceCausal
 from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.hf_source import HFDataSource
+from arctic_training.data.on_policy_distillation_factory import OnPolicyDistillationDataFactory
 from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.data.snowflake_source import SnowflakeDataSource
 from arctic_training.data.source import DataSource
@@ -53,5 +55,6 @@ from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
 from arctic_training.trainer.causal_trainer import CausalTrainer
 from arctic_training.trainer.dpo_trainer import DPOTrainer
 from arctic_training.trainer.dpo_trainer import DPOTrainerConfig
+from arctic_training.trainer.on_policy_distillation_trainer import OnPolicyDistillationTrainer
 from arctic_training.trainer.sft_trainer import SFTTrainer
 from arctic_training.trainer.trainer import Trainer
