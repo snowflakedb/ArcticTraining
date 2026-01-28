@@ -25,9 +25,7 @@ def deepspeed_launch(config_file: str, mode: str, python_profile: str, deepspeed
     import deepspeed
     from deepspeed.launcher.runner import main as ds_runner
 
-    deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + [
-        "WANDB",
-    ]
+    deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + ["WANDB"]
 
     runner_name = "arctic_training_run"
     exe_path = shutil.which(runner_name)
