@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import deepspeed
+import torch.nn as nn
 from peft import get_peft_model
 from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
@@ -58,6 +60,53 @@ class HFModelFactory(ModelFactory):
         return model
 
     def post_create_model_callback(self, model):
+        if self.config.fp8_recipe is not None:
+            import transformer_engine.pytorch as te
+
+            replace_module_count = 0
+
+            def replace_linears(module):
+                for name, child in module.named_children():
+                    if any(tm in name for tm in self.config.fp8_target_modules):
+                        if not isinstance(child, nn.Linear):
+                            logger.warning(f"Module {name} matched for FP8 conversion but is not nn.Linear, skipping.")
+                        else:
+                            te_linear = te.Linear(
+                                in_features=child.in_features,
+                                out_features=child.out_features,
+                                bias=child.bias is not None,
+                                device=child.weight.device,
+                            )
+
+                            if hasattr(child.weight, "ds_id"):
+                                # Parameter is managed by DeepSpeed Zero-3
+                                params_to_fetch = [child.weight]
+                                if child.bias is not None:
+                                    params_to_fetch.append(child.bias)
+
+                                with deepspeed.zero.GatheredParameters(params_to_fetch, modifier_rank=None):
+                                    te_linear.weight.data.copy_(child.weight.data)
+                                    if child.bias is not None:
+                                        te_linear.bias.data.copy_(child.bias.data)
+                            else:
+                                # Regular parameter, copy directly
+                                te_linear.weight.data.copy_(child.weight.data)
+                                if child.bias is not None:
+                                    te_linear.bias.data.copy_(child.bias.data)
+
+                            setattr(module, name, te_linear)
+
+                            nonlocal replace_module_count
+                            replace_module_count += 1
+
+                    replace_linears(child)
+
+            replace_linears(model)
+            if replace_module_count == 0:
+                raise ValueError(
+                    "FP8 recipe specified but no modules were replaced. Please check `fp8_target_modules`."
+                )
+
         if self.config.peft_config is not None:
             model = get_peft_model(model, self.config.peft_config_obj)
             trainable_params, all_params = model.get_nb_trainable_parameters()
