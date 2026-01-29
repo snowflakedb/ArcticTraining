@@ -173,6 +173,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
+
         if mode == "process-data":
             return
 
@@ -471,13 +472,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if "packed_sample_seqlens" in batch and "flash_attention" in self.config.model.attn_implementation:
                 # deal correctly with packed samples under FA2/FA3, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
+                packed_sort_index = batch.pop("packed_sort_index")
+                packed_seqlens_square_sum = float(batch.pop("packed_seqlens_square_sum")[0])
             else:
                 sample_seqlens = [
                     [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
                     for idx in range(len(batch["input_ids"]))
                 ]
             self.metrics.seqlens = sample_seqlens
-            print(f'AT: {self.global_rank=} {self.train_batch_idx=} {sample_seqlens=} {sum(sample_seqlens[0])=}')
+
             self.metrics.start_timer("step")
             self.step(batch)
             self.metrics.stop_timer("step")
