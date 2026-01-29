@@ -173,7 +173,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         data_factory = self.config.data.factory(self)
         self.train_dataloader, self.eval_dataloader = data_factory()
-
         if mode == "process-data":
             return
 
