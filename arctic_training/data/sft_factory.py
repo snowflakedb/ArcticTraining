@@ -209,7 +209,7 @@ def pack_sft_batch_balance_length(
     rng = random.Random(seed)
 
     # Best-fit-decreasing bin packing to maximize utilization of `max_length`.
-    # This reorders the samples within the provided batch for denser packing.
+    # This packs multiple short samples within the provided batch into larger samples each trying to be as close as possible to max_length.
     samples = list(zip(batch["input_ids"], batch["labels"], batch["attention_mask"]))
     # Sort by length descending; tie-breaker is deterministic to keep runs reproducible.
     sorted_indices = sorted(range(len(samples)), key=lambda i: len(samples[i][0]), reverse=True)
