@@ -471,8 +471,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if "packed_sample_seqlens" in batch and "flash_attention" in self.config.model.attn_implementation:
                 # deal correctly with packed samples under FA2/FA3, by calculating each seqlen tflos separately
                 sample_seqlens = batch.pop("packed_sample_seqlens")
-                packed_sort_index = batch.pop("packed_sort_index")
-                packed_seqlens_square_sum = float(batch.pop("packed_seqlens_square_sum")[0])
+                batch.pop("packed_seqlens_square_sum")
             else:
                 sample_seqlens = [
                     [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]

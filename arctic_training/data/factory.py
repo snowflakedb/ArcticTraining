@@ -232,7 +232,9 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         return DataLoader(
             dataset,
             batch_size=self.micro_batch_size,
-            sampler=DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank, shuffle=sampler_shuffle),
+            sampler=DistributedSampler(
+                dataset, num_replicas=self.world_size, rank=self.global_rank, shuffle=sampler_shuffle
+            ),
             num_workers=self.config.dl_num_workers,
             persistent_workers=True,
             drop_last=True,

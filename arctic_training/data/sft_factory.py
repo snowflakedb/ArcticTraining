@@ -20,6 +20,7 @@ from typing import List
 from typing import Literal
 from typing import Optional
 from typing import Tuple
+from typing import Union
 
 import numpy as np
 import torch
@@ -38,7 +39,16 @@ from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
 
 IGNORE_INDEX = -100
-PACKING_KEYS = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask", "packed_sort_index", "packed_seqlens_square_sum")
+PACKING_KEYS = (
+    "input_ids",
+    "labels",
+    "position_ids",
+    "packed_sample_seqlens",
+    "attention_mask",
+)
+
+Packed_Data_Type = Dict[str, List[Union[List[int], int]]]
+
 
 # this function is modified from TRL trl.trainer.utils.py
 def pad(
@@ -139,16 +149,13 @@ class DataCollatorForCausalLM:
         #     torch.tensor(example["attention_mask"]) for example in instances
         # ]
 
-
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
             packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
-            packed_sort_index = [example["packed_sort_index"] for example in instances]
             packed_seqlens_square_sum = [example["packed_seqlens_square_sum"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
             packed_sample_seqlens = [[len(example["input_ids"])] for example in instances]
-            packed_sort_index = [-1 for example in instances]
             packed_seqlens_square_sum = [-1 for example in instances]
 
         fake_unpacked_long_seq = False
@@ -183,7 +190,6 @@ class DataCollatorForCausalLM:
             "labels": labels,
             "position_ids": position_ids,
             "packed_sample_seqlens": packed_sample_seqlens,
-            "packed_sort_index": packed_sort_index,
             "packed_seqlens_square_sum": packed_seqlens_square_sum,
         }
 
@@ -195,22 +201,18 @@ def pack_sft_batch_balance_length(
     drop_last: bool,
     fuse_positions_prob: float,
     seed: int,
-) -> Dict[str, List[List[int]]]:
+) -> Packed_Data_Type:
     keys = PACKING_KEYS
-    packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
-    current_sample: Dict[str, List[int]] = {k: [] for k in keys}
+    packed_batch: Packed_Data_Type = {k: [] for k in keys}
+    packed_batch["packed_seqlens_square_sum"] = []
 
     rng = random.Random(seed)
 
     # Best-fit-decreasing bin packing to maximize utilization of `max_length`.
     # This reorders the samples within the provided batch for denser packing.
-    samples = list(
-        zip(batch["input_ids"], batch["labels"], batch["attention_mask"])
-    )
+    samples = list(zip(batch["input_ids"], batch["labels"], batch["attention_mask"]))
     # Sort by length descending; tie-breaker is deterministic to keep runs reproducible.
     sorted_indices = sorted(range(len(samples)), key=lambda i: len(samples[i][0]), reverse=True)
-
-    print(f"pack_sft_batch: packing batch of {len(samples)=}")
 
     bins: List[Dict[str, List[int]]] = []
     bin_lengths: List[int] = []
@@ -263,29 +265,16 @@ def pack_sft_batch_balance_length(
         if fuse_positions_prob and rng.random() <= fuse_positions_prob:
             packed["position_ids"] = list(range(len(packed["input_ids"])))
 
-        packed["packed_sort_index"] = bin_idx
-        packed["packed_seqlens_square_sum"] = sum([len * len for len in packed["packed_sample_seqlens"]])
+        # Add sum(seqlen^2) field
+        packed_batch["packed_seqlens_square_sum"].append(
+            sum([seqlen**2 for seqlen in packed["packed_sample_seqlens"]])
+        )
 
         for k in keys:
             packed_batch[k].append(packed[k])
 
     return packed_batch
 
-
-def pack_analysis(dataset: DatasetType):
-
-    def dump_stats(input_stats, tag):
-        min_value = min(input_stats)
-        max_value = max(input_stats)
-        avg_value = sum(input_stats)/len(input_stats)
-
-        print(f"pack_analysis {tag}: {min_value=} {max_value=} {avg_value=}")
-
-    attention_compute = [sum([(len * len)/1e9 for len in batch['packed_sample_seqlens']]) for batch in dataset]
-    packed_len = [sum([len for len in batch['packed_sample_seqlens']]) for batch in dataset]
-
-    dump_stats(attention_compute, "attention_compute_billions")
-    dump_stats(packed_len, "packed_lengths")
 
 def pack_sft_batch_naive(
     batch: Dict[str, List[List[int]]],
@@ -294,10 +283,12 @@ def pack_sft_batch_naive(
     drop_last: bool,
     fuse_positions_prob: float,
     seed: int,
-) -> Dict[str, List[List[int]]]:
+) -> Packed_Data_Type:
     keys = PACKING_KEYS
-    packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
+    packed_batch: Packed_Data_Type = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
+
+    packed_batch["packed_seqlens_square_sum"] = []
 
     rng = random.Random(seed)
 
@@ -310,8 +301,14 @@ def pack_sft_batch_naive(
             if fuse_positions_prob and rng.random() <= fuse_positions_prob:
                 current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
 
-            current_sample["packed_sort_index"] = len(packed_batch["packed_sort_index"])
-            current_sample["packed_seqlens_square_sum"] = sum([len * len for len in current_sample["packed_sample_seqlens"]])
+            # current_sample["packed_seqlens_square_sum"] = sum(
+            #     [len * len for len in current_sample["packed_sample_seqlens"]]
+            # )
+
+            # Add sum(seqlen^2) field
+            packed_batch["packed_seqlens_square_sum"].append(
+                sum([seqlen**2 for seqlen in current_sample["packed_sample_seqlens"]])
+            )
 
             for k in keys:
                 packed_batch[k].append(current_sample[k])
@@ -365,7 +362,7 @@ class SFTDataConfig(DataConfig):
 
     sort_packed_samples: bool = False
     """ Whether to sort packed samples. """
-    
+
     sort_packed_samples_order: Literal["ascend", "descend"] = "descend"
     """ Sorting order for packed samples. """
 
@@ -449,7 +446,6 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     if not self.config.pack_samples:
         return dataset
 
-
     if self.config.repeat_to_pack_max_length:
         dataset = repeat_dataset(dataset=dataset, max_length=self.config.max_length, num_proc=self.config.num_proc)
 
@@ -479,7 +475,9 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     )
 
     if self.config.sort_packed_samples:
-        dataset = dataset.sort("packed_seqlens_square_sum", reverse=(self.config.sort_packed_samples_order=="descend"))
+        dataset = dataset.sort(
+            "packed_seqlens_square_sum", reverse=(self.config.sort_packed_samples_order == "descend")
+        )
 
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")

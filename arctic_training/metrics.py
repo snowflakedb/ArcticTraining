@@ -134,9 +134,9 @@ class Metrics:
                 / self.trainer.config.sequence_parallel_size
             )
             self.values["seqlen_total"] = seqlen_subtotal
-            
+
             # self.seqlens is list[list[int]]
-            self.values["seqlen_square_sum"] = sum([sum([len*len for len in seqlens]) for seqlens in self.seqlens])
+            self.values["seqlen_square_sum"] = sum([sum([len * len for len in seqlens]) for seqlens in self.seqlens])
 
         if "loss" in self.values:
             loss = sum(gather_object(self.values["loss"], self.trainer.world_size)) / self.trainer.world_size
@@ -166,7 +166,7 @@ class Metrics:
             self.summary_dict["seqlen"] = seq_len_total / self.trainer.world_size
 
             seqlen_square_sum_total = sum(gather_object(self.values["seqlen_square_sum"], self.trainer.world_size))
-            self.summary_dict["seqlen_square_sum"] = seqlen_square_sum_total  / self.trainer.world_size
+            self.summary_dict["seqlen_square_sum"] = seqlen_square_sum_total / self.trainer.world_size
 
         if "step_time" in self.values:
             step_time_total = sum(gather_object(self.values["step_time"], self.trainer.world_size))
@@ -193,7 +193,9 @@ class Metrics:
         if "seqlen" in self.summary_dict:
             summary_str += f" | seqlen: {human_format_base10_number(self.summary_dict['seqlen'])}"
         if "seqlen_square_sum" in self.summary_dict:
-            summary_str += f" | seqlen_square_sum: {human_format_base10_number(self.summary_dict['seqlen_square_sum'])}"
+            summary_str += (
+                f" | seqlen_square_sum: {human_format_base10_number(self.summary_dict['seqlen_square_sum'])}"
+            )
         if "step_time" in self.summary_dict:
             summary_str += f" | step time: {human_format_secs(self.summary_dict['step_time'])}"
         if "step_tflops" in self.summary_dict:
