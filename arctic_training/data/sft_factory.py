@@ -20,6 +20,7 @@ from typing import List
 from typing import Literal
 from typing import Optional
 from typing import Tuple
+from typing import Union
 
 import numpy as np
 import torch
@@ -38,6 +39,15 @@ from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
 
 IGNORE_INDEX = -100
+PACKING_KEYS = (
+    "input_ids",
+    "labels",
+    "position_ids",
+    "packed_sample_seqlens",
+    "attention_mask",
+)
+
+Packed_Data_Type = Dict[str, List[Union[List[int], int]]]
 
 
 # this function is modified from TRL trl.trainer.utils.py
@@ -142,9 +152,11 @@ class DataCollatorForCausalLM:
         if "position_ids" in instances[0]:
             position_ids = [torch.tensor(example["position_ids"]) for example in instances]
             packed_sample_seqlens = [example["packed_sample_seqlens"] for example in instances]
+            packed_seqlens_square_sum = [example["packed_seqlens_square_sum"] for example in instances]
         else:
             position_ids = [torch.tensor(list(range(len(example["input_ids"])))) for example in instances]
             packed_sample_seqlens = [[len(example["input_ids"])] for example in instances]
+            packed_seqlens_square_sum = [-1 for example in instances]
 
         fake_unpacked_long_seq = False
         # fake_unpacked_long_seq = True
@@ -178,20 +190,105 @@ class DataCollatorForCausalLM:
             "labels": labels,
             "position_ids": position_ids,
             "packed_sample_seqlens": packed_sample_seqlens,
+            "packed_seqlens_square_sum": packed_seqlens_square_sum,
         }
 
 
-def pack_sft_batch(
+def pack_sft_batch_balance_length(
     batch: Dict[str, List[List[int]]],
     max_length: int,
     always_max_length: bool,
     drop_last: bool,
     fuse_positions_prob: float,
     seed: int,
-) -> Dict[str, List[List[int]]]:
-    keys = ("input_ids", "labels", "position_ids", "packed_sample_seqlens", "attention_mask")
-    packed_batch: Dict[str, List[List[int]]] = {k: [] for k in keys}
+) -> Packed_Data_Type:
+    keys = PACKING_KEYS
+    packed_batch: Packed_Data_Type = {k: [] for k in keys}
+    packed_batch["packed_seqlens_square_sum"] = []
+
+    rng = random.Random(seed)
+
+    # Best-fit-decreasing bin packing to maximize utilization of `max_length`.
+    # This packs multiple short samples within the provided batch into larger samples each trying to be as close as possible to max_length.
+    samples = list(zip(batch["input_ids"], batch["labels"], batch["attention_mask"]))
+    # Sort by length descending; tie-breaker is deterministic to keep runs reproducible.
+    sorted_indices = sorted(range(len(samples)), key=lambda i: len(samples[i][0]), reverse=True)
+
+    bins: List[Dict[str, List[int]]] = []
+    bin_lengths: List[int] = []
+
+    def start_new_bin() -> int:
+        bins.append({k: [] for k in keys})
+        bin_lengths.append(0)
+        return len(bins) - 1
+
+    for idx in sorted_indices:
+        input_ids, labels, attention_mask = samples[idx]
+        sample_len = len(input_ids)
+
+        # Find the bin that leaves the least remaining space after insertion.
+        best_bin = None
+        best_remaining = None
+        for bin_idx, current_len in enumerate(bin_lengths):
+            remaining = max_length - current_len
+            if remaining <= 0:
+                continue
+            if not always_max_length and sample_len > remaining:
+                continue
+            take_len = min(sample_len, remaining)
+            remaining_after = remaining - take_len
+            if best_remaining is None or remaining_after < best_remaining:
+                best_remaining = remaining_after
+                best_bin = bin_idx
+
+        if best_bin is None:
+            best_bin = start_new_bin()
+
+        target_bin = bins[best_bin]
+        remaining = max_length - bin_lengths[best_bin]
+        if remaining <= 0:
+            continue  # should not happen, but guard against negative remaining
+        take_len = min(sample_len, remaining) if always_max_length else sample_len
+        take_len = min(take_len, remaining)
+
+        target_bin["input_ids"].extend(input_ids[:take_len])
+        target_bin["labels"].extend(labels[:take_len])
+        target_bin["attention_mask"].extend(attention_mask[:take_len])
+        target_bin["position_ids"].extend(range(take_len))
+        target_bin["packed_sample_seqlens"].append(take_len)
+        bin_lengths[best_bin] += take_len
+
+    for bin_idx, packed in enumerate(bins):
+        total_len = bin_lengths[bin_idx]
+        if drop_last and total_len < max_length:
+            continue
+        if fuse_positions_prob and rng.random() <= fuse_positions_prob:
+            packed["position_ids"] = list(range(len(packed["input_ids"])))
+
+        # Add sum(seqlen^2) field
+        packed_batch["packed_seqlens_square_sum"].append(
+            sum([seqlen**2 for seqlen in packed["packed_sample_seqlens"]])
+        )
+
+        for k in keys:
+            packed_batch[k].append(packed[k])
+
+    return packed_batch
+
+
+def pack_sft_batch_naive(
+    batch: Dict[str, List[List[int]]],
+    max_length: int,
+    always_max_length: bool,
+    drop_last: bool,
+    fuse_positions_prob: float,
+    seed: int,
+) -> Packed_Data_Type:
+    keys = PACKING_KEYS
+    packed_batch: Packed_Data_Type = {k: [] for k in keys}
     current_sample: Dict[str, List[int]] = {k: [] for k in keys}
+
+    packed_batch["packed_seqlens_square_sum"] = []
 
     rng = random.Random(seed)
 
@@ -203,6 +300,12 @@ def pack_sft_batch(
         if len(current_sample["input_ids"]) > 0:
             if fuse_positions_prob and rng.random() <= fuse_positions_prob:
                 current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
+
+            # Add sum(seqlen^2) field
+            packed_batch["packed_seqlens_square_sum"].append(
+                sum([seqlen**2 for seqlen in current_sample["packed_sample_seqlens"]])
+            )
+
             for k in keys:
                 packed_batch[k].append(current_sample[k])
                 current_sample[k] = []
@@ -247,6 +350,17 @@ class SFTDataConfig(DataConfig):
 
     pack_samples: bool = False
     """ Whether to pack multiple samples into samples up to size `max_length`. """
+
+    pack_samples_mode: Literal["naive", "balance_length"] = "naive"
+
+    dl_shuffle_samples: bool = True
+    """ Whether dataloader should shuffles samples. """
+
+    sort_packed_samples: bool = False
+    """ Whether to sort packed samples. """
+
+    sort_packed_samples_order: Literal["ascend", "descend"] = "descend"
+    """ Sorting order for packed samples. """
 
     drop_last: bool = False
     """ Whether to drop the last packed sample, which might be shorter than `max_length`. """
@@ -333,10 +447,15 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
 
     batch_size = len(dataset) // self.config.num_proc + 1
     # for huge datasets keep the bs to a sane size to avoid cpu-oom
-    batch_size = int(min(batch_size, 1e3))
+    batch_size = int(min(batch_size, 1e4))
     dataset = dataset.shuffle(seed=self.config.seed)
+    if self.config.pack_samples_mode == "balance_length":
+        packing_fn = pack_sft_batch_balance_length
+    else:
+        packing_fn = pack_sft_batch_naive
+
     dataset = dataset.map(
-        lambda x: pack_sft_batch(
+        lambda x: packing_fn(
             x,
             max_length=self.config.max_length,
             always_max_length=self.config.always_max_length,
@@ -349,6 +468,12 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
         num_proc=self.config.num_proc,
         desc="Packing dataset",
     )
+
+    if self.config.sort_packed_samples:
+        dataset = dataset.sort(
+            "packed_seqlens_square_sum", reverse=(self.config.sort_packed_samples_order == "descend")
+        )
+
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
     return dataset
@@ -466,6 +591,10 @@ class SFTDataFactory(DataFactory):
         return output
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        dataloader = super().create_dataloader(dataset)
+        dataloader = (
+            super().create_dataloader(dataset)
+            if self.config.dl_shuffle_samples
+            else super().create_dataloader_no_shuffle(dataset)
+        )
         dataloader.collate_fn = DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config)
         return dataloader
