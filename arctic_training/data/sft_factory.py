@@ -363,7 +363,7 @@ class SFTDataConfig(DataConfig):
     sort_packed_samples: bool = False
     """ Whether to sort packed samples. """
 
-    sort_packed_samples_order: Literal["ascend", "descend"] = "descend"
+    sort_packed_samples_order: Literal["ascend", "descend"] = "descend"  
     """ Sorting order for packed samples. """
 
     drop_last: bool = False
