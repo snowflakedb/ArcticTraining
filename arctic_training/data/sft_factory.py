@@ -301,10 +301,6 @@ def pack_sft_batch_naive(
             if fuse_positions_prob and rng.random() <= fuse_positions_prob:
                 current_sample["position_ids"] = list(range(len(current_sample["input_ids"])))
 
-            # current_sample["packed_seqlens_square_sum"] = sum(
-            #     [len * len for len in current_sample["packed_sample_seqlens"]]
-            # )
-
             # Add sum(seqlen^2) field
             packed_batch["packed_seqlens_square_sum"].append(
                 sum([seqlen**2 for seqlen in current_sample["packed_sample_seqlens"]])
@@ -357,8 +353,8 @@ class SFTDataConfig(DataConfig):
 
     pack_samples_mode: Literal["naive", "balance_length"] = "naive"
 
-    shuffle_samples: bool = True
-    """ Whether to use a sampler that shuffles indices. """
+    dl_shuffle_samples: bool = True
+    """ Whether dataloader should shuffles samples. """
 
     sort_packed_samples: bool = False
     """ Whether to sort packed samples. """
@@ -451,7 +447,6 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
 
     batch_size = len(dataset) // self.config.num_proc + 1
     # for huge datasets keep the bs to a sane size to avoid cpu-oom
-    # batch_size = int(min(batch_size, 1e3))
     batch_size = int(min(batch_size, 1e4))
     dataset = dataset.shuffle(seed=self.config.seed)
     if self.config.pack_samples_mode == "balance_length":
@@ -598,7 +593,7 @@ class SFTDataFactory(DataFactory):
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
         dataloader = (
             super().create_dataloader(dataset)
-            if self.config.shuffle_samples
+            if self.config.dl_shuffle_samples
             else super().create_dataloader_no_shuffle(dataset)
         )
         dataloader.collate_fn = DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config)
