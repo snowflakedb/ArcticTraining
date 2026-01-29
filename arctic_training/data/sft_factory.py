@@ -596,6 +596,10 @@ class SFTDataFactory(DataFactory):
         return output
 
     def create_dataloader(self, dataset: DatasetType) -> DataLoader:
-        dataloader = super().create_dataloader(dataset, sampler_shuffle=self.config.shuffle_samples)
+        dataloader = (
+            super().create_dataloader(dataset)
+            if self.config.shuffle_samples
+            else super().create_dataloader_no_shuffle(dataset)
+        )
         dataloader.collate_fn = DataCollatorForCausalLM(tokenizer=self.tokenizer, config=self.config)
         return dataloader

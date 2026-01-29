@@ -73,6 +73,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
         _validate_class_method(cls, "process", ["self", "dataset"])
         _validate_class_method(cls, "split_data", ["self", "training_data"])
         _validate_class_method(cls, "create_dataloader", ["self", "dataset"])
+        _validate_class_method(cls, "create_dataloader_no_shuffle", ["self", "dataset"])
 
     def __init__(self, trainer: "Trainer", config: Optional[DataConfig] = None) -> None:
         if config is None:
@@ -226,8 +227,7 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         return training_data, evaluation_data
 
-    @callback_wrapper("create_dataloader")
-    def create_dataloader(self, dataset: DatasetType, sampler_shuffle: bool = True) -> DataLoader:
+    def _create_dataloader(self, dataset: DatasetType, sampler_shuffle: bool = True) -> DataLoader:
         """Create a torch DataLoader from the dataset."""
         return DataLoader(
             dataset,
@@ -239,3 +239,13 @@ class DataFactory(ABC, CallbackMixin, metaclass=RegistryMeta):
             persistent_workers=True,
             drop_last=True,
         )
+
+    @callback_wrapper("create_dataloader")
+    def create_dataloader(self, dataset: DatasetType) -> DataLoader:
+        """Create a torch DataLoader from the dataset."""
+        return self._create_dataloader(dataset)
+
+    @callback_wrapper("create_dataloader_no_shuffle")
+    def create_dataloader_no_shuffle(self, dataset: DatasetType) -> DataLoader:
+        """Create a torch DataLoader from the dataset."""
+        return self._create_dataloader(dataset, sampler_shuffle=False)
