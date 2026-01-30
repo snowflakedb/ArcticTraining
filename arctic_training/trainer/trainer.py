@@ -559,8 +559,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         Evaluation loop. Measures the model's performance on the evaluation dataset.
         """
         self.model.eval()
+        losses = []
         with torch.no_grad():
-            losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
+            for eval_batch in self.eval_batches:
+                loss = self.loss(eval_batch)
+                losses.append(loss.item())
+                # Explicitly delete tensors and clear cache to prevent OOM
+                del loss, eval_batch
+                torch.cuda.empty_cache()
         self.metrics.record("loss/eval", losses)  # type: ignore
 
     @callback_wrapper("checkpoint")

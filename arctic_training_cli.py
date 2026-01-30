@@ -26,8 +26,10 @@ def deepspeed_launch(config_file: str, mode: str, python_profile: str, deepspeed
     from deepspeed.launcher.runner import main as ds_runner
 
     deepspeed.launcher.runner.EXPORT_ENVS = deepspeed.launcher.runner.EXPORT_ENVS + [
-        "WANDB"
-    ]  # Make sure WANDB_* env vars are passed for multinode execution
+        "WANDB",  # Make sure WANDB_* env vars are passed for multinode execution
+        "NCCL",  # Pass NCCL_* env vars (NCCL_TIMEOUT, NCCL_DEBUG, etc.)
+        "TORCH_NCCL",  # Pass TORCH_NCCL_* env vars (TORCH_NCCL_ASYNC_ERROR_HANDLING, etc.)
+    ]
 
     runner_name = "arctic_training_run"
     exe_path = shutil.which(runner_name)

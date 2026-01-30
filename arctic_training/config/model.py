@@ -87,12 +87,19 @@ class ModelConfig(BaseConfig):
         if value in ["flash_attention_2", "flash_attention_3"]:
             try:
                 import flash_attn  # noqa: F401
-            except (ImportError, ModuleNotFoundError):
+            except (ImportError, ModuleNotFoundError) as e:
                 raise ValueError(
                     f"{value} requires the flash_attn package. Install with"
                     " `pip install flash_attn`. Please refer to documentation at"
                     " https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2."
                     " For FA3 build from the github source: git clone https://github.com/Dao-AILab/flash-attention;"
-                    " cd flash-attention/hopper; pip install . --no-build-isolation --no-clean"
+                    f" cd flash-attention/hopper; pip install . --no-build-isolation --no-clean. Original error: {e}"
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"{value} flash_attn package is installed but failed to import. This may be due to"
+                    " CUDA version or GPU architecture incompatibility. Ensure your flash_attn package"
+                    " is built for your GPU architecture (e.g., sm_100 for B200 GPUs requires a compatible build)."
+                    f" Original error: {e}"
                 )
         return value

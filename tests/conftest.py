@@ -89,4 +89,4 @@ def helpers_code_path() -> None:
 
 @pytest.fixture(scope="session")
 def model_name() -> str:
-    return "hf-internal-testing/tiny-random-Olmo2ForCausalLM"
+    return "Qwen/Qwen3-4B-Instruct-2507"

@@ -62,10 +62,132 @@ class SFTTrainer(Trainer):
         """
         return ((labels != -100).view(-1)).sum()
 
+    def _compute_sample_weighted_loss(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        packed_sample_seqlens: list,
+    ) -> torch.Tensor:
+        """
+        Compute sample-weighted loss for packed sequences.
+
+        Instead of averaging loss over all tokens (which biases toward longer responses),
+        this computes the loss for each sample separately and averages the per-sample losses.
+        This ensures each sample contributes equally regardless of response length.
+
+        Args:
+            logits: Model logits, shape (batch_size, seq_len, vocab_size)
+            labels: Labels with -100 for masked positions, shape (batch_size, seq_len)
+            packed_sample_seqlens: List of lists, each inner list contains sequence lengths
+                                   of samples packed into that batch element
+
+        Returns:
+            Scalar loss tensor (average of per-sample losses)
+        """
+        import torch.nn.functional as F
+
+        batch_size = logits.shape[0]
+        # Use float32 for loss accumulation to match F.cross_entropy behavior
+        # (cross_entropy internally upcasts to float32 for numerical stability)
+        total_loss = torch.tensor(0.0, device=logits.device, dtype=torch.float32)
+        total_samples = 0
+
+        for batch_idx in range(batch_size):
+            sample_seqlens = packed_sample_seqlens[batch_idx]
+            pos = 0
+
+            for sample_len in sample_seqlens:
+                # Extract this sample's logits and labels
+                sample_logits = logits[batch_idx, pos : pos + sample_len - 1]  # shift for causal LM
+                sample_labels = labels[batch_idx, pos + 1 : pos + sample_len]  # shift for causal LM
+
+                # Count trainable tokens in this sample
+                mask = sample_labels != -100
+                num_trainable = mask.sum()
+
+                if num_trainable > 0:
+                    # Compute loss for this sample (mean over its trainable tokens)
+                    sample_loss = F.cross_entropy(
+                        sample_logits.reshape(-1, sample_logits.shape[-1]),
+                        sample_labels.reshape(-1),
+                        ignore_index=-100,
+                        reduction="mean",
+                    )
+                    total_loss = total_loss + sample_loss
+                    total_samples += 1
+
+                pos += sample_len
+
+        # Average over samples (not tokens!)
+        if total_samples > 0:
+            return total_loss / total_samples
+        else:
+            # No trainable samples - return zero loss connected to logits for gradient flow
+            # Cast to float32 for consistency with F.cross_entropy output dtype
+            return (logits.sum() * 0.0).to(torch.float32)
+
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
 
         if self.config.sequence_parallel_size == 1:
+            # Check if we have packed samples and need sample-weighted loss
+            packed_sample_seqlens = batch.pop("packed_sample_seqlens", None)
+            use_sample_weighted_loss = (
+                packed_sample_seqlens is not None
+                and getattr(self.config.data, "pack_samples", False)
+                and getattr(self.config.data, "sample_weighted_loss", False)
+            )
+
+            # For sample-weighted loss, we need access to logits to compute per-sample losses.
+            # With Liger models, calling model(**batch) with labels triggers fused loss computation
+            # which doesn't return logits. To get logits, we must call the model WITHOUT labels.
+            # This bypasses Liger's memory-efficient fused loss but enables sample weighting.
+            if use_sample_weighted_loss:
+                # Pop labels from batch - we'll compute loss manually
+                labels = batch.pop("labels")
+
+                # Log warning about memory trade-off (only once per training run)
+                if not hasattr(self, "_sample_weighted_loss_warned"):
+                    self._sample_weighted_loss_warned = True
+                    if self.config.model.type == "liger":
+                        logger.warning(
+                            "sample_weighted_loss=True with Liger model: bypassing fused cross-entropy "
+                            "to access logits. This uses more GPU memory than default Liger behavior. "
+                            "Each sample will contribute equally to the gradient regardless of length."
+                        )
+                    else:
+                        logger.info(
+                            "sample_weighted_loss=True: each sample contributes equally to the gradient "
+                            "regardless of response length."
+                        )
+
+                # Call model WITHOUT labels to get logits (works with both Liger and HF models)
+                outputs = self.model(**batch, use_cache=False)
+
+                # Defensive check: ensure logits are available
+                if not hasattr(outputs, "logits") or outputs.logits is None:
+                    raise RuntimeError(
+                        "sample_weighted_loss=True requires access to model logits, but the model "
+                        "returned None or missing logits. This can happen if: (1) the model architecture "
+                        "doesn't support returning logits, or (2) labels were accidentally passed to the "
+                        "model. Ensure labels are removed from the batch before calling the model."
+                    )
+                logits = outputs.logits
+
+                # Handle zero-token cases
+                good_tokens = self._count_trainable_tokens(labels)
+                if good_tokens.item() == 0:
+                    logger.warning(ZERO_TOKENS_WARNING.format(""))
+                    # Maintain gradient connectivity; cast to float32 for consistency with
+                    # F.cross_entropy which internally upcasts for numerical stability
+                    loss = (logits.sum() * 0.0).to(torch.float32)
+                else:
+                    # Compute sample-weighted loss
+                    loss = self._compute_sample_weighted_loss(logits, labels, packed_sample_seqlens)
+
+                return loss
+
+            # Default path: use HF/Liger's built-in loss computation
             # if model.type=liger is configured - this will use a much more efficient fused
             # logits+loss liger kernel - using significantly less gpu memory and a bit faster
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
@@ -83,10 +205,10 @@ class SFTTrainer(Trainer):
                     logger.warning(ZERO_TOKENS_WARNING.format(""))
                     # Maintain gradient connectivity by using a tensor connected to model outputs.
                     # With Liger, outputs.logits is None, so we check alternatives.
-                    if hasattr(outputs, 'logits') and outputs.logits is not None:
+                    if hasattr(outputs, "logits") and outputs.logits is not None:
                         # Use logits to maintain gradient flow (same pattern as tiled compute path)
                         loss = (outputs.logits.sum() * 0.0).to(loss.dtype)
-                    elif hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
+                    elif hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
                         # Use hidden states if available
                         loss = (outputs.hidden_states[-1].sum() * 0.0).to(loss.dtype)
                     else:
@@ -231,7 +353,11 @@ class SFTTrainer(Trainer):
                 logger.warning(ZERO_TOKENS_WARNING.format("on this rank"))
                 # total_loss_sum is connected to the graph via fused_logits_loss_fn's logits.sum() * 0.0
                 # Just ensure we return a proper zero (multiply to handle any edge cases)
-                loss = total_loss_sum * 0.0 if not (torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum)) else (hidden_states.sum() * 0.0).to(total_loss_sum.dtype)
+                loss = (
+                    total_loss_sum * 0.0
+                    if not (torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum))
+                    else (hidden_states.sum() * 0.0).to(total_loss_sum.dtype)
+                )
             elif torch.isnan(total_loss_sum) or torch.isinf(total_loss_sum):
                 # Has good tokens but NaN/Inf loss - real numerical issue, let it propagate
                 loss = total_loss_sum / total_good_items

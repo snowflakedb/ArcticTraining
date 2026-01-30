@@ -533,9 +533,10 @@ def convert_to_hf_fim_dataset(
     # Show sample
     print("\nSample entry:")
     sample = hf_dataset[0]
-    prompt_preview = sample["prompt"][:500] if len(sample["prompt"]) > 500 else sample["prompt"]
-    print(f"  Prompt (first 500 chars): {prompt_preview}...")
+    prompt_preview = sample["prompt"]
+    print(f"  Prompt: {prompt_preview}")
     print(f"  Response: {sample['response']}")
+    print(f"  Complete_Message: {sample}")
 
     # Save the dataset
     print(f"\nSaving dataset to: {output_dir}")

@@ -266,6 +266,19 @@ class SFTDataConfig(DataConfig):
     ignore_empty_think: bool = False
     """ Whether to mask the empty think tokens preventing the loss of thinking ability."""
 
+    sample_weighted_loss: bool = False
+    """
+    When True and pack_samples is enabled, compute loss per sample and average
+    the per-sample losses instead of averaging over all tokens. This ensures each
+    sample contributes equally to the gradient regardless of response length.
+
+    Without this (default), longer responses dominate the gradient because HuggingFace's
+    CrossEntropyLoss averages over all tokens. For FIM/autocomplete tasks with variable
+    response lengths, enabling this can improve training dynamics.
+
+    Note: Only works with non-Liger models as it requires access to logits.
+    """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -503,13 +516,34 @@ class SFTDataFactory(DataFactory):
                 "This is unexpected and may cause training issues."
             )
 
-        # Append EOS token ID if available and not already present
-        # Always append EOS if available. Even for empty responses, we need
+        # Determine the correct end-of-turn token for the model
+        # For chat/instruct models, we need the chat-template end token (e.g., <|im_end|>)
+        # NOT the generic eos_token (e.g., <|endoftext|>) which is different for Qwen models.
+        # This is critical for sample packing to work correctly.
+        end_token_id = None
+
+        # Try common chat end-of-turn tokens in order of preference
+        # - <|im_end|>: Qwen, Qwen2, Qwen3 Instruct models
+        # - <|eot_id|>: Llama-3 Instruct models
+        # - </s>: Llama-2, Mistral, and many other models
+        for end_token in ["<|im_end|>", "<|eot_id|>", "</s>"]:
+            token_id = tokenizer.convert_tokens_to_ids(end_token)
+            # Check if token exists in vocab (not mapped to unk_token)
+            if token_id is not None and token_id != getattr(tokenizer, "unk_token_id", None):
+                end_token_id = token_id
+                break
+
+        # Fallback to eos_token_id for base models without chat tokens
+        if end_token_id is None:
+            end_token_id = tokenizer.eos_token_id
+
+        # Append end token if available and not already present
+        # Always append if available. Even for empty responses, we need
         # at least one trainable token for the loss function to work correctly.
-        if tokenizer.eos_token_id is not None:
-            # Only add EOS if not already present (prevents duplicate EOS tokens)
-            if not response_ids or response_ids[-1] != tokenizer.eos_token_id:
-                response_ids.append(tokenizer.eos_token_id)
+        if end_token_id is not None:
+            # Only add if not already present (prevents duplicate end tokens)
+            if not response_ids or response_ids[-1] != end_token_id:
+                response_ids.append(end_token_id)
 
         # Ensure we have at least one trainable token
         # If response_ids is empty (no content, no EOS), we cannot train on this example.
