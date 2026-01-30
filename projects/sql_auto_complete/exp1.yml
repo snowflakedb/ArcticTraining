@@ -1,0 +1,50 @@
+type: sft
+micro_batch_size: 1
+epochs: 2
+activation_checkpoint_cpu_offload: true
+
+model:
+  type: liger
+  name_or_path: /home/yak/model1
+  attn_implementation: flash_attention_2
+data:
+  sources:
+    - name_or_path: /data/aponnusamy/0115
+  eval_sources:
+    - name_or_path: /data/aponnusamy/0115_val
+  num_proc: 16
+  max_length: 32768
+  cache_dir: /checkpoint/aponnusamy/data-cache
+  pack_samples: true
+  sample_weighted_loss: true
+  ignore_empty_think: true
+eval_interval: 100
+
+checkpoint:
+  - type: huggingface
+    save_end_of_training: true
+    save_every_n_steps: 100
+    output_dir: /modeling-checkpoints/aponnusamy/checkpoints/ac-sft-v5-32b-0115
+deepspeed:
+  zero_optimization:
+    stage: 2
+    allgather_bucket_size: 500000000
+    reduce_bucket_size: 250000000
+    memory_efficient_linear: true
+optimizer:
+  weight_decay: 0.1
+  lr: 1e-5
+scheduler:
+  type: huggingface
+  name: cosine_with_min_lr
+  warmup_ratio: 0.1
+  scheduler_specific_kwargs:
+    min_lr_rate: 0.1
+wandb:
+  enable: true
+  project: snowflakesql_sft_training
+  name: ac-sft-v5-32b-0115
+logger:
+  level: WARNING
+  output_dir: logs
+  print_output_ranks: [0]
