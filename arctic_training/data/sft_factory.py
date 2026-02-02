@@ -34,6 +34,7 @@ from typing_extensions import Self
 from arctic_training.config.data import DataConfig
 from arctic_training.config.utils import HumanInt
 from arctic_training.data.factory import DataFactory
+from arctic_training.data.hf_input_output_source import HFDataSourceInputOutput
 from arctic_training.data.hf_instruct_source import HFDataSourceInstruct
 from arctic_training.data.utils import DatasetType
 
@@ -265,6 +266,9 @@ class SFTDataConfig(DataConfig):
     ignore_empty_think: bool = False
     """ Whether to mask the empty think tokens preventing the loss of thinking ability."""
 
+    data_format: Literal["messages", "input_output"] = "messages"
+    """ The format of the input data: 'messages' for chat format, 'input_output' for INPUT/OUTPUT format. """
+
     @model_validator(mode="after")
     def validate_padding(self) -> Self:
         if self.pad_to == "max_length" and "div_length" in self.model_fields_set:
@@ -357,37 +361,65 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
 class SFTDataFactory(DataFactory):
     name = "sft"
     config: SFTDataConfig
-    default_source_cls = HFDataSourceInstruct
     callbacks = [
         ("post-load", filter_dataset_length),
         ("post-load", pack_dataset),
     ]
 
+    @property
+    def default_source_cls(self):
+        """Return the appropriate data source class based on data_format config."""
+        if self.config.data_format == "input_output":
+            return HFDataSourceInputOutput
+        else:
+            return HFDataSourceInstruct
+
     def process(self, dataset: DatasetType) -> DatasetType:
-        if "messages" not in dataset.column_names:
-            raise ValueError("Dataset must have 'messages' column to tokenize for SFTDataFactory.")
-        dataset = dataset.select_columns(["messages"])
-        # sft based tokenization,
-        # we assume the messages are in the format of:
-        # {'role': '...', 'content': '...'}
-        # datasets = datasets.select(range(100, 1100))
-        dataset = dataset.select(range(len(dataset)))
-        # datasets.disable_caching()
-        # tmp = tokenize_messages(datasets[0]["messages"][:2], tokenizer, mask_inputs=mask_inputs)
-        # import pdb; pdb.set_trace()
-        return dataset.map(
-            lambda ex: {
-                **self.tokenize_messages(
-                    ex["messages"],
-                    self.tokenizer,
-                    mask_inputs=self.config.mask_inputs,
-                    ignore_empty_think=self.config.ignore_empty_think,
-                )
-            },
-            remove_columns=dataset.column_names,
-            num_proc=self.config.num_proc,
-            desc="Tokenizing messages",
-        )
+        if self.config.data_format == "messages":
+            if "messages" not in dataset.column_names:
+                raise ValueError("Dataset must have 'messages' column to tokenize for SFTDataFactory with 'messages' format.")
+            dataset = dataset.select_columns(["messages"])
+            # sft based tokenization,
+            # we assume the messages are in the format of:
+            # {'role': '...', 'content': '...'}
+            # datasets = datasets.select(range(100, 1100))
+            dataset = dataset.select(range(len(dataset)))
+            # datasets.disable_caching()
+            # tmp = tokenize_messages(datasets[0]["messages"][:2], tokenizer, mask_inputs=mask_inputs)
+            # import pdb; pdb.set_trace()
+            return dataset.map(
+                lambda ex: {
+                    **self.tokenize_messages(
+                        ex["messages"],
+                        self.tokenizer,
+                        mask_inputs=self.config.mask_inputs,
+                        ignore_empty_think=self.config.ignore_empty_think,
+                    )
+                },
+                remove_columns=dataset.column_names,
+                num_proc=self.config.num_proc,
+                desc="Tokenizing messages",
+            )
+        elif self.config.data_format == "input_output":
+            if "input" not in dataset.column_names or "output" not in dataset.column_names:
+                raise ValueError("Dataset must have 'input' and 'output' columns to tokenize for SFTDataFactory with 'input_output' format.")
+            dataset = dataset.select_columns(["input", "output"])
+            dataset = dataset.select(range(len(dataset)))
+            return dataset.map(
+                lambda ex: {
+                    **self.tokenize_input_output(
+                        ex["input"],
+                        ex["output"],
+                        self.tokenizer,
+                        mask_inputs=self.config.mask_inputs,
+                    )
+                },
+                remove_columns=dataset.column_names,
+                num_proc=self.config.num_proc,
+                desc="Tokenizing input/output",
+            )
+        else:
+            raise ValueError(f"Unknown data_format: {self.config.data_format}. Valid values are 'messages' and 'input_output'.")
 
     @classmethod
     def tokenize_messages(
@@ -415,6 +447,55 @@ class SFTDataFactory(DataFactory):
             conversation_ids["labels"] = conversation_ids["input_ids"]
 
         return conversation_ids
+
+    @classmethod
+    def tokenize_input_output(
+        cls,
+        input_text: str,
+        output_text: str,
+        tokenizer: PreTrainedTokenizerBase,
+        mask_inputs: bool = True,
+    ) -> BatchEncoding:
+        """
+        Tokenize INPUT and OUTPUT format where only OUTPUT is trained.
+        
+        Args:
+            input_text: The input/instruction text (will be masked in labels)
+            output_text: The output/response text (will be trained)
+            tokenizer: The tokenizer to use
+            mask_inputs: Whether to mask the input portion in labels
+        
+        Returns:
+            BatchEncoding with input_ids, attention_mask, and labels
+        """
+        # Tokenize INPUT and OUTPUT separately to avoid boundary issues
+        input_encoding = tokenizer(
+            input_text,
+            add_special_tokens=False,
+        )
+        output_encoding = tokenizer(
+            output_text,
+            add_special_tokens=False,
+        )
+        
+        # Concatenate input_ids from both encodings
+        input_ids = input_encoding["input_ids"] + output_encoding["input_ids"]
+        
+        # Concatenate attention_mask from both encodings
+        attention_mask = input_encoding["attention_mask"] + output_encoding["attention_mask"]
+        
+        if mask_inputs:
+            # Create labels: mask INPUT portion, keep OUTPUT portion
+            labels = [IGNORE_INDEX] * len(input_encoding["input_ids"]) + output_encoding["input_ids"]
+        else:
+            # Train on the full sequence
+            labels = input_ids
+        
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
 
     @staticmethod
     # this code is adpoted from https://github.com/huggingface/trl/issues/632 (user: Peter-Devine )
