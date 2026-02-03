@@ -483,10 +483,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if self.gas_boundary:
-                if self.config.train_log_iter_interval != 0:
-                    self.metrics.print_summary()
+            if self.config.train_log_iter_interval != 0:
+                self.metrics.print_summary(print_output=self.gas_boundary)
 
+            if self.gas_boundary:
                 if (
                     self.global_rank == 0
                     and self.config.train_log_iter_interval != 0
