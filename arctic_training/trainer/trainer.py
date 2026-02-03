@@ -364,8 +364,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.config.train_iters:
             return self.config.train_iters
 
-        # XXX: this was incorrect for GAS
-        return self.config.epochs * len(self.train_dataloader)  # // self.config.gradient_accumulation_steps
+        return self.config.epochs * len(self.train_dataloader) // self.config.gradient_accumulation_steps
 
     @callback_wrapper("loss")
     @abstractmethod
@@ -484,10 +483,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             self.metrics.restart_timer("iter")
 
-            if self.config.train_log_iter_interval != 0:
-                self.metrics.print_summary()
-
             if self.gas_boundary:
+                if self.config.train_log_iter_interval != 0:
+                    self.metrics.print_summary()
+
                 if (
                     self.global_rank == 0
                     and self.config.train_log_iter_interval != 0
