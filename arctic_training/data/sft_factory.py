@@ -194,6 +194,28 @@ class DataCollatorForCausalLM:
         }
 
 
+def sort_packed_sft_batch(batch: Packed_Data_Type, reverse: bool) -> Packed_Data_Type:
+    packed_list = []
+    packed_keys = list(batch.keys())
+
+    for idx in range(len(batch["input_ids"])):
+        packed_dict = {key: batch[key][idx] for key in packed_keys}
+        packed_list.append(packed_dict)
+
+    def sum_square_compare(packed_sample):
+        return sum([seqlen**2 for seqlen in packed_sample["packed_sample_seqlens"]])
+
+    packed_list.sort(key=sum_square_compare, reverse=reverse)
+
+    packed_batch: Packed_Data_Type = {k: [] for k in packed_keys}
+
+    for packed_sample in packed_list:
+        for key in packed_keys:
+            packed_batch[key].append(packed_sample[key])
+
+    return packed_batch
+
+
 def pack_sft_batch_balance_length(
     batch: Dict[str, List[List[int]]],
     max_length: int,
@@ -352,6 +374,10 @@ class SFTDataConfig(DataConfig):
     """ Whether to pack multiple samples into samples up to size `max_length`. """
 
     pack_samples_mode: Literal["naive", "balance_length"] = "naive"
+    """ What packing algorithm to use. The default is a greedy packing algorithm"""
+
+    max_pack_batch_size: int = 10**4
+    """ Maximum batch/chunk size for packing samples. Helps to avoid CPU OOM"""
 
     dl_shuffle_samples: bool = True
     """ Whether dataloader should shuffles samples. """
@@ -360,6 +386,9 @@ class SFTDataConfig(DataConfig):
     """ Whether to sort packed samples. """
 
     sort_packed_samples_order: Literal["ascend", "descend"] = "descend"
+    """ Sorting order for packed samples. """
+
+    sort_packed_samples_scope: Literal["local", "global"] = "local"
     """ Sorting order for packed samples. """
 
     drop_last: bool = False
@@ -446,8 +475,10 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
         dataset = repeat_dataset(dataset=dataset, max_length=self.config.max_length, num_proc=self.config.num_proc)
 
     batch_size = len(dataset) // self.config.num_proc + 1
+
     # for huge datasets keep the bs to a sane size to avoid cpu-oom
-    batch_size = int(min(batch_size, 1e4))
+    batch_size = int(min(batch_size, self.config.max_pack_batch_size))
+
     dataset = dataset.shuffle(seed=self.config.seed)
     if self.config.pack_samples_mode == "balance_length":
         packing_fn = pack_sft_batch_balance_length
@@ -470,9 +501,18 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     )
 
     if self.config.sort_packed_samples:
-        dataset = dataset.sort(
-            "packed_seqlens_square_sum", reverse=(self.config.sort_packed_samples_order == "descend")
-        )
+        if self.config.sort_packed_samples_scope == "local":
+            dataset = dataset.map(
+                lambda x: sort_packed_sft_batch(x, reverse=(self.config.sort_packed_samples_order == "descend")),
+                batched=True,
+                batch_size=batch_size,
+                num_proc=self.config.num_proc,
+                desc="Local sorting dataset",
+            )
+        else:
+            dataset = dataset.sort(
+                "packed_seqlens_square_sum", reverse=(self.config.sort_packed_samples_order == "descend")
+            )
 
     if len(dataset) < 1:
         raise ValueError(f"No data left after packing dataset samples in {self.__class__.__name__}")
