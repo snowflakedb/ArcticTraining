@@ -152,6 +152,38 @@ class Metrics:
             losses = gather_object(self.values["loss/eval"], self.trainer.world_size)
             self.summary_dict["loss/eval"] = sum(losses) / len(losses)
 
+        # On-policy distillation metrics (average across ranks)
+        # Named with / prefix for W&B panel grouping
+        distillation_metrics = [
+            # logprob group
+            "logprob/student",
+            "logprob/teacher",
+            "logprob/gap",
+            # perplexity group
+            "perplexity/student",
+            "perplexity/teacher",
+            # distill group
+            "distill/reverse_kl",
+            "distill/prob_ratio",
+            "distill/advantage",
+            # generation group
+            "generation/avg_length",
+            # Eval versions (eval/ prefix for W&B grouping)
+            "eval/logprob_student",
+            "eval/logprob_teacher",
+            "eval/logprob_gap",
+            "eval/perplexity_student",
+            "eval/perplexity_teacher",
+            "eval/reverse_kl",
+            "eval/prob_ratio",
+            "eval/advantage",
+            "eval/avg_completion_length",
+        ]
+        for metric_name in distillation_metrics:
+            if metric_name in self.values:
+                values = gather_object(self.values[metric_name], self.trainer.world_size)
+                self.summary_dict[metric_name] = sum(values) / len(values)
+
         if "iter_time" in self.values:
             iter_time_total = sum(gather_object(self.values["iter_time"], self.trainer.world_size))
             self.summary_dict["iter_time"] = iter_time_total / self.trainer.world_size
