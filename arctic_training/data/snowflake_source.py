@@ -23,6 +23,7 @@ from pydantic import Field
 from pydantic import model_validator
 from typing_extensions import Self
 
+from arctic_training import snowflake_connection
 from arctic_training.config.data import DataSourceConfig
 from arctic_training.data.source import DataSource
 from arctic_training.data.utils import DatasetType
@@ -31,52 +32,6 @@ if TYPE_CHECKING:
     from snowflake.snowpark import Session
 
 _DATASET_URI_PATTERN = re.compile(r"^snow://dataset/([^/]+)/versions/([^/]+)$")
-
-
-def _check_snowflake_ml_installed() -> None:
-    """Check if snowflake-ml-python is installed."""
-    try:
-        import snowflake.ml  # noqa: F401
-    except ImportError:
-        raise ImportError(
-            "snowflake-ml-python is required for Snowflake data sources. "
-            "Install with: pip install 'arctic_training[snowflake]'"
-        )
-
-
-def get_default_snowflake_session() -> "Session":
-    """
-    Get or create a default Snowflake Session.
-
-    This function attempts to get an active Snowpark session. If none exists,
-    it creates a new session using default connection parameters.
-
-    The session can be configured via:
-    - Environment variables (SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, etc.)
-    - A Snowflake connection configuration file (~/.snowflake/connections.toml)
-    - The SNOWFLAKE_DEFAULT_CONNECTION_NAME environment variable
-
-    Returns:
-        A Snowpark Session object.
-
-    Raises:
-        ImportError: If snowflake-snowpark-python is not installed.
-        Exception: If session creation fails due to missing or invalid credentials.
-    """
-    _check_snowflake_ml_installed()
-
-    from snowflake.snowpark import Session
-
-    try:
-        # Get an existing active session or create a new one using default connection
-        # This will use environment variables or ~/.snowflake/connections.toml
-        return Session.builder.getOrCreate()
-    except Exception:
-        from snowflake.ml._internal.utils.connection_params import SnowflakeLoginOptions
-
-        # Fall back to SnowML's connection parameters
-        config = SnowflakeLoginOptions()
-        return Session.builder.configs(config).getOrCreate()  # noqa: F841
 
 
 class SnowflakeSourceConfig(DataSourceConfig):
@@ -176,9 +131,7 @@ class SnowflakeDataSource(DataSource):
 
         Routes to the appropriate loading method based on config.
         """
-        _check_snowflake_ml_installed()
-
-        session = self.session or get_default_snowflake_session()
+        session = self.session or snowflake_connection.get_default_snowflake_session()
 
         if config.dataset_uri:
             return self._load_from_dataset(config, session=session)
