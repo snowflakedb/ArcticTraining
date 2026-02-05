@@ -373,7 +373,7 @@ class SFTDataConfig(DataConfig):
     pack_samples: bool = False
     """ Whether to pack multiple samples into samples up to size `max_length`. """
 
-    pack_samples_mode: Literal["naive", "balance_length"] = "naive"
+    pack_samples_mode: Literal["greedy", "balance_length"] = "greedy"
     """ What packing algorithm to use. The default is a greedy packing algorithm"""
 
     max_pack_batch_size: int = 10**4
@@ -388,7 +388,7 @@ class SFTDataConfig(DataConfig):
     sort_packed_samples_order: Literal["ascend", "descend"] = "descend"
     """ Sorting order for packed samples. """
 
-    sort_packed_samples_scope: Literal["local", "global"] = "local"
+    sort_packed_samples_scope: Literal["batch", "all"] = "batch"
     """ Sorting order for packed samples. """
 
     drop_last: bool = False
@@ -501,7 +501,7 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
     )
 
     if self.config.sort_packed_samples:
-        if self.config.sort_packed_samples_scope == "local":
+        if self.config.sort_packed_samples_scope == "batch":
             dataset = dataset.map(
                 lambda x: sort_packed_sft_batch(x, reverse=(self.config.sort_packed_samples_order == "descend")),
                 batched=True,
