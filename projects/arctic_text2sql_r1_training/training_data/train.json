@@ -1,0 +1,602 @@
+[
+  {
+    "prompt": "",
+    "gold_sql": "WITH PerformanceRankCTE AS (\n  SELECT\n    p.player_name,\n    SUM(ps.ppg) AS total_points,\n    SUM(ps.rpg) AS total_rebounds,\n    RANK() OVER (ORDER BY SUM(ps.ppg) DESC) AS points_rank,\n    RANK() OVER (ORDER BY SUM(ps.rpg) DESC) AS rebounds_rank\n  FROM\n    players p\n  INNER JOIN\n    performance_stats ps ON p.player_id = ps.player_id\n  GROUP BY\n    p.player_name\n)\nSELECT\n  player_name,\n  total_points\nFROM\n  PerformanceRankCTE\nWHERE\n  points_rank = 1 OR rebounds_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "sports_performance_and_statistics_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH UserTopCategoryCTE AS (\n  SELECT \n    up.user_id,\n    up.category_id,\n    up.correct_attempts,\n    ROW_NUMBER() OVER (PARTITION BY up.user_id ORDER BY up.correct_attempts DESC) AS category_rank\n  FROM \n    user_progress up\n)\nSELECT \n  AVG(CASE WHEN utc.category_rank = 1 THEN 1.0 ELSE 0.0 END) AS average_top_category_performance\nFROM \n  UserTopCategoryCTE utc;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "logical_statements_and_misconceptions_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT d.device_name, i2c.parameter_name, dp.validated\nFROM device_parameters dp\nINNER JOIN devices d ON dp.device_id = d.device_id\nINNER JOIN i2c_parameters i2c ON dp.parameter_id = i2c.parameter_id\nINNER JOIN parameter_versions pv ON i2c.parameter_id = pv.parameter_id\nWHERE pv.version_number > 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "i2c_protocol_timing_parameters"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH BankMetricsCTE AS (\n    SELECT \n        b.bank_name, \n        i.industry_name,\n        fm.metric_name,\n        bid.value AS metric_value,\n        bid.year\n    FROM bank_industry_data bid\n    INNER JOIN banks b ON bid.bank_id = b.bank_id\n    INNER JOIN industries i ON bid.industry_id = i.industry_id\n    INNER JOIN financial_metrics fm ON bid.metric_id = fm.metric_id\n),\nTopInvestorsCTE AS (\n    SELECT \n        inv.investor_name,\n        ip.investment_type,\n        SUM(ip.investment_value) AS total_investment\n    FROM investor_portfolio ip\n    INNER JOIN investors inv ON ip.investor_id = inv.investor_id\n    GROUP BY inv.investor_id\n    HAVING SUM(ip.investment_value) > (SELECT AVG(total_investment) \n                                       FROM (SELECT SUM(ip.investment_value) AS total_investment\n                                             FROM investor_portfolio ip\n                                             GROUP BY ip.investor_id))\n),\nCombinedDataCTE AS (\n    SELECT \n        bm.bank_name,\n        bm.industry_name,\n        bm.metric_name,\n        bm.metric_value,\n        bm.year,\n        ti.investor_name,\n        ti.investment_type,\n        ti.total_investment\n    FROM BankMetricsCTE bm\n    CROSS JOIN TopInvestorsCTE ti\n)\nSELECT \n    c.bank_name,\n    c.industry_name,\n    c.metric_name,\n    c.metric_value,\n    c.year,\n    c.investor_name,\n    c.investment_type,\n    c.total_investment,\n    COUNT(*) OVER () AS total_records\nFROM CombinedDataCTE c;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "financial_metrics_and_analysis_for_banking_and_finance_sectors"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH LatestActionCTE AS (\n    SELECT\n        a.committee_id,\n        a.action_date,\n        a.action_details,\n        r.result_name,\n        m.meeting_date,\n        m.meeting_time,\n        m.meeting_location,\n        ROW_NUMBER() OVER (PARTITION BY a.committee_id ORDER BY a.action_date DESC) AS rn\n    FROM\n        actions a\n    JOIN\n        results r ON a.result_id = r.result_id\n    LEFT JOIN\n        meetings m ON a.related_meeting_id = m.meeting_id\n)\nSELECT\n    c.committee_name,\n    la.action_date,\n    la.action_details,\n    la.result_name,\n    la.meeting_date,\n    la.meeting_time,\n    la.meeting_location\nFROM\n    LatestActionCTE la\nJOIN\n    committees c ON la.committee_id = c.committee_id\nWHERE\n    la.rn = 1\nORDER BY\n    la.action_date DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "government_legislative_and_regulatory_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH DiseaseGeneCount AS (\n    SELECT \n        d.disease_id,\n        d.disease_name,\n        d.category,\n        COUNT(g.gene_id) AS gene_count\n    FROM \n        diseases d\n    INNER JOIN \n        genes g ON d.disease_id = g.disease_id\n    GROUP BY \n        d.disease_id, d.disease_name, d.category\n),\nRankedDiseases AS (\n    SELECT \n        dgc.disease_id,\n        dgc.disease_name,\n        dgc.category,\n        dgc.gene_count,\n        ROW_NUMBER() OVER (PARTITION BY dgc.category ORDER BY dgc.gene_count DESC) AS rank\n    FROM \n        DiseaseGeneCount dgc\n)\nSELECT \n    rd.category,\n    rd.disease_name,\n    GROUP_CONCAT(g.gene_symbol, ', ') AS associated_genes\nFROM \n    RankedDiseases rd\nINNER JOIN \n    genes g ON rd.disease_id = g.disease_id\nWHERE \n    rd.rank <= 3\nGROUP BY \n    rd.category, rd.disease_name\nORDER BY \n    rd.category, rd.rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "genetic_disease_annotation_and_classification"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT p.product_name, AVG(r.rating) AS average_rating\nFROM products p\nJOIN reviews r ON p.product_id = r.product_id\nGROUP BY p.product_name\nORDER BY average_rating DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "product_reviews_and_ratings_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH CommitsByCommitter AS (\n    SELECT \n        c.committer_id,\n        COUNT(c.commit_id) AS commit_count,\n        COUNT(DISTINCT cp.project_id) AS project_count\n    FROM \n        commits c\n    INNER JOIN \n        commit_projects cp ON c.commit_id = cp.commit_id\n    GROUP BY \n        c.committer_id\n),\nRankedCommitters AS (\n    SELECT \n        committer_id,\n        commit_count,\n        project_count,\n        ROW_NUMBER() OVER (ORDER BY commit_count DESC, project_count DESC) AS rank\n    FROM \n        CommitsByCommitter\n)\nSELECT \n    c.committer_name,\n    r.commit_count,\n    r.project_count\nFROM \n    RankedCommitters r\nINNER JOIN \n    committer c ON r.committer_id = c.committer_id\nWHERE \n    r.rank <= 5\nORDER BY \n    r.rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "test_management_and_code_analysis_for_software_development"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT COUNT(DISTINCT al.user_id) AS unique_users_last_month\nFROM access_logs al\nINNER JOIN simulation_parameters sp ON al.simulation_id = sp.simulation_id\nINNER JOIN users u ON al.user_id = u.user_id\nWHERE sp.parameter_name = 'population_size' \n  AND sp.parameter_value = '100'\n  AND u.last_login >= DATE('now', '-1 month');",
+    "database_path": "data/databases/sample.db",
+    "db_id": "crowd_simulation_and_pedestrian_movement_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH AveragePovertyThreshold AS (\n    SELECT\n        year_id,\n        AVG(value) AS avg_poverty_threshold\n    FROM\n        poverty_thresholds\n    GROUP BY\n        year_id\n),\nMedianHousePrices AS (\n    SELECT\n        year_id,\n        value AS median_house_price\n    FROM\n        median_house_prices\n)\nSELECT\n    y.year_name\nFROM\n    AveragePovertyThreshold apt\nJOIN\n    MedianHousePrices mhp ON apt.year_id = mhp.year_id\nJOIN\n    years y ON apt.year_id = y.year_id\nWHERE\n    mhp.median_house_price > apt.avg_poverty_threshold\nORDER BY\n    y.year_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "us_economic_indicators_and_trends"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH UserApplicationCount AS (\n    SELECT \n        user_id, \n        COUNT(*) AS total_applications\n    FROM \n        job_applications\n    GROUP BY \n        user_id\n    HAVING \n        total_applications >= 5\n),\nTopApplicants AS (\n    SELECT \n        ja.user_id, \n        COUNT(*) AS job_applications\n    FROM \n        job_applications ja\n    WHERE \n        ja.job_id = 1  -- Specify the specific job_id here\n    GROUP BY \n        ja.user_id\n    ORDER BY \n        job_applications DESC\n    LIMIT 3\n)\nSELECT \n    u.first_name, \n    u.last_name, \n    u.current_job_title, \n    tac.job_applications\nFROM \n    TopApplicants tac\nJOIN \n    users u ON tac.user_id = u.user_id\nJOIN \n    UserApplicationCount uac ON u.user_id = uac.user_id\nORDER BY \n    tac.job_applications DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "professional_networking_and_career_development"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    dt.disability_type_name, \n    s.state_name, \n    d.district_name, \n    dd.total_persons, \n    dd.total_males, \n    dd.total_females\nFROM \n    disability_types dt\nJOIN \n    disability_data_details ddd ON dt.disability_type_id = ddd.disability_type_id\nJOIN \n    disability_data dd ON ddd.data_id = dd.data_id\nJOIN \n    states s ON dd.state_id = s.state_id\nJOIN \n    districts d ON dd.district_id = d.district_id\nWHERE \n    dd.total_males <> dd.total_females;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "disability_data_management_for_state_level_reporting"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    p.participant_id,\n    AVG(pt.response_time) AS avg_response_time\nFROM \n    participants p\nJOIN \n    political_trials pt ON p.participant_id = pt.participant_id\nJOIN \n    demographics d ON p.participant_id = d.participant_id\nJOIN \n    personality_traits per ON p.participant_id = per.participant_id\nWHERE \n    d.education_level IN ('Bachelor''s', 'Master''s', 'PhD')\n    AND per.trait_name = 'extraversion'\nGROUP BY \n    p.participant_id\nORDER BY \n    avg_response_time DESC\nLIMIT 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "behavioral_psychology_and_cognitive_science_research"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH CourseEnrollmentCTE AS (\n    SELECT \n        c.course_id, \n        c.course_name, \n        c.department_id, \n        COUNT(e.enrollment_id) AS enrollment_count,\n        ROW_NUMBER() OVER (PARTITION BY c.department_id ORDER BY COUNT(e.enrollment_id) DESC) AS rank\n    FROM \n        courses c\n    LEFT JOIN \n        enrollments e ON c.course_id = e.course_id\n    GROUP BY \n        c.course_id, c.course_name, c.department_id\n)\nSELECT \n    ce.course_id, \n    ce.course_name, \n    d.department_name, \n    ce.enrollment_count, \n    ce.rank\nFROM \n    CourseEnrollmentCTE ce\nJOIN \n    departments d ON ce.department_id = d.department_id\nWHERE \n    ce.rank <= 3\nORDER BY \n    d.department_name, \n    ce.rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "university_course_management_and_prerequisite_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH SubareaHealthRank AS (\n    SELECT \n        f.farm_id,\n        f.farm_name,\n        s.subarea_id,\n        s.subarea_name,\n        s.soil_health_index,\n        ROW_NUMBER() OVER (PARTITION BY f.farm_id ORDER BY s.soil_health_index DESC) AS rank\n    FROM \n        farms f\n    INNER JOIN \n        subareas s ON f.farm_id = s.farm_id\n)\nSELECT \n    sh.farm_name,\n    sh.subarea_name,\n    sh.soil_health_index\nFROM \n    SubareaHealthRank sh\nWHERE \n    sh.rank <= 3\nORDER BY \n    sh.farm_id, \n    sh.rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "agricultural_land_management_and_soil_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    s.city\nFROM \n    stores s\nJOIN \n    sales sa ON s.store_id = sa.store_id\nJOIN \n    products p ON sa.product_id = p.product_id\nWHERE \n    p.product_status = 'active'\nGROUP BY \n    s.city\nORDER BY \n    SUM(sa.total) DESC\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "retail_liquor_sales_data_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH \n\n  SalesPersonRevenueCTE AS (\n    SELECT \n      sp.sales_person_id,\n      sp.sales_person_name,\n      SUM(so.total_order_value) AS total_revenue\n    FROM \n      sales_persons sp\n    JOIN \n      sales_orders so ON sp.sales_person_id = so.sales_person_id\n    GROUP BY \n      sp.sales_person_id, sp.sales_person_name\n  ),\n  \n  RankedSalesPersonCTE AS (\n    SELECT \n      sales_person_id,\n      sales_person_name,\n      total_revenue,\n      RANK() OVER (ORDER BY total_revenue DESC) AS revenue_rank\n    FROM \n      SalesPersonRevenueCTE\n  )\n\nSELECT \n  sales_person_name AS top_selling_sales_person\nFROM \n  RankedSalesPersonCTE\nWHERE \n  revenue_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "sales_and_inventory_management_878745"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH \n  WeaknessCTE AS (\n    SELECT \n      w.weakness_name,\n      w.description,\n      COUNT(DISTINCT l.location_id) AS num_locations\n    FROM weaknesses w\n    JOIN best_fixes bf ON w.category_id = bf.category_id\n    JOIN locations l ON bf.best_fix_id = l.best_fix_id\n    GROUP BY w.weakness_name, w.description\n  ),\n  WeaknessRankCTE AS (\n    SELECT \n      weakness_name,\n      description,\n      num_locations,\n      RANK() OVER (ORDER BY num_locations DESC) AS rank\n    FROM WeaknessCTE\n  )\nSELECT \n  weakness_name,\n  description,\n  num_locations\nFROM WeaknessRankCTE\nWHERE rank <= 2;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "web_application_security_threats_and_vulnerabilities"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH PropertyRecommendations AS (\n  SELECT \n    p.property_id, \n    p.property_type, \n    p.sale_price, \n    p.lot_area, \n    p.overall_qual,\n    r.score,\n    ROW_NUMBER() OVER (PARTITION BY p.property_type ORDER BY r.score DESC) AS recommendation_rank\n  FROM \n    properties p\n  INNER JOIN \n    recommendations r ON p.property_id = r.property_id\n  WHERE \n    r.score > 0.9\n),\nRecentAccessCounts AS (\n  SELECT \n    property_id, \n    COUNT(*) AS num_accesses\n  FROM \n    access_logs\n  WHERE \n    access_date >= '2023-01-01'\n  GROUP BY \n    property_id\n)\nSELECT \n  pr.property_type, \n  pr.property_id, \n  pr.sale_price, \n  pr.lot_area, \n  pr.overall_qual, \n  COALESCE(rac.num_accesses, 0) AS num_accesses\nFROM \n  PropertyRecommendations pr\n  LEFT JOIN RecentAccessCounts rac ON pr.property_id = rac.property_id\nWHERE \n  pr.recommendation_rank <= 3\nORDER BY \n  pr.score DESC\nLIMIT 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "real_estate_property_sales_data"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH PlayerPerformance AS (\n    SELECT \n        ps.player_id,\n        p.name AS player_name,\n        p.position,\n        s.season_name,\n        ps.goals,\n        ps.assists,\n        ps.points,\n        ROW_NUMBER() OVER (PARTITION BY s.season_id ORDER BY ps.points DESC) AS performance_rank\n    FROM \n        player_season_stats ps\n    INNER JOIN \n        players p ON ps.player_id = p.player_id\n    INNER JOIN \n        seasons s ON ps.season_id = s.season_id\n)\nSELECT \n    player_name,\n    position,\n    season_name,\n    goals,\n    assists,\n    points\nFROM \n    PlayerPerformance\nWHERE \n    performance_rank = 1\nORDER BY \n    season_name, points DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "hockey_player_statistics_and_performance_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    T1.user_name, \n    COUNT(T2.account_id) AS number_of_accounts, \n    MAX(T3.last_used) AS last_account_access\nFROM \n    users T1\nINNER JOIN \n    user_web_accounts T2 ON T1.user_id = T2.user_id\nINNER JOIN \n    web_accounts T3 ON T2.account_id = T3.account_id\nWHERE \n    T1.status = 'active'\nGROUP BY \n    T1.user_id, T1.user_name\nHAVING \n    COUNT(T2.account_id) > 0\nORDER BY \n    number_of_accounts DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "web_account_management_and_credential_storage"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH InteractionCounts AS (\n    SELECT\n        category,\n        sub_category,\n        is_first_time_user,\n        COUNT(*) AS interaction_count\n    FROM user_interactions\n    WHERE\n        timestamp BETWEEN '2023-10-01T00:00:00Z' AND '2023-10-02T23:59:59Z'\n    GROUP BY\n        category,\n        sub_category,\n        is_first_time_user\n),\nRankedInteractions AS (\n    SELECT\n        category,\n        sub_category,\n        is_first_time_user,\n        interaction_count,\n        ROW_NUMBER() OVER (PARTITION BY is_first_time_user ORDER BY interaction_count DESC) AS rank\n    FROM InteractionCounts\n)\nSELECT\n    category,\n    sub_category,\n    CASE is_first_time_user\n        WHEN 0 THEN 'Returning User'\n        WHEN 1 THEN 'First-Time User'\n    END AS user_type,\n    interaction_count\nFROM RankedInteractions\nWHERE rank <= 3\nORDER BY is_first_time_user, interaction_count DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "user_interaction_and_behavior_tracking_for_e_commerce"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n  c.collection_name,\n  AVG(card.value) AS average_card_value\nFROM \n  collections c\nJOIN \n  collection_cards cc ON c.collection_id = cc.collection_id\nJOIN \n  cards card ON cc.card_id = card.card_id\nWHERE \n  c.collection_value > 500\nGROUP BY \n  c.collection_id, c.collection_name\nORDER BY \n  average_card_value DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "sports_card_collection_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT ur.user_id, AVG(ur.rating) AS avg_rating, COUNT(ur.rating) AS rating_count\nFROM movie_ratings ur\nGROUP BY ur.user_id\nORDER BY avg_rating DESC\nLIMIT 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "user_preferences_and_movie_genre_ratings"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n  u.user_name, \n  COUNT(utc.test_case_id) AS test_case_count\nFROM \n  users u\nJOIN \n  user_test_cases utc ON u.user_id = utc.user_id\nGROUP BY \n  u.user_id\nORDER BY \n  test_case_count DESC\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "test_case_management_and_execution"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH UserContributionsCTE AS (\n    SELECT user_id, COUNT(*) AS contribution_count\n    FROM user_contributions\n    WHERE verified = 1\n    GROUP BY user_id\n),\nCommentCountsCTE AS (\n    SELECT uc.user_id, COUNT(c.comment_id) AS comment_count\n    FROM user_contributions uc\n    JOIN comments c ON uc.event_id = c.event_id\n    WHERE uc.verified = 1\n    GROUP BY uc.user_id\n),\nMediaCountsCTE AS (\n    SELECT uc.user_id, COUNT(m.media_id) AS media_count\n    FROM user_contributions uc\n    JOIN media m ON uc.event_id = m.event_id\n    WHERE uc.verified = 1\n    GROUP BY uc.user_id\n)\nSELECT u.username,\n       uc.contribution_count,\n       COALESCE(SUM(cc.comment_count), 0) AS total_comments,\n       AVG(mc.media_count) AS average_media_count\nFROM UserContributionsCTE uc\nJOIN users u ON uc.user_id = u.user_id\nLEFT JOIN CommentCountsCTE cc ON uc.user_id = cc.user_id\nLEFT JOIN MediaCountsCTE mc ON uc.user_id = mc.user_id\nGROUP BY u.username, uc.contribution_count\nORDER BY uc.contribution_count DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "historical_events_and_cultural_heritage_documentation"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH TopPerformingTeams AS (\n    SELECT \n        gt.game_id,\n        t.team_name,\n        gt.points_scored,\n        ROW_NUMBER() OVER (PARTITION BY gt.game_id ORDER BY gt.points_scored DESC) AS team_rank\n    FROM \n        game_teams gt\n    INNER JOIN \n        teams t ON gt.team_id = t.team_id\n),\nTopScoringPlayers AS (\n    SELECT \n        gs.game_id,\n        p.player_name,\n        gs.game_score,\n        ROW_NUMBER() OVER (PARTITION BY gs.game_id ORDER BY gs.game_score DESC) AS player_rank\n    FROM \n        game_statistics gs\n    INNER JOIN \n        players p ON gs.player_id = p.player_id\n)\nSELECT \n    T.team_name, \n    P.player_name\nFROM \n    TopPerformingTeams T\nINNER JOIN \n    TopScoringPlayers P ON T.game_id = P.game_id\nWHERE \n    T.team_rank = 1 AND P.player_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "nba_basketball_game_statistics_330065"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH DiabetesPatientCTE AS (\n    SELECT p.patient_id, p.first_name, p.last_name, p.age, p.gender,\n           d.condition_name, d.diagnosis_date, d.status AS condition_status,\n           vs.sysbp, vs.diabp, vs.heart_rate, vs.respiratory_rate, vs.body_temperature, vs.glucose,\n           ds.death_date, ds.cause_of_death,\n           ps.any_chd, ps.death AS death_status, ps.heart_disease_risk, ps.diabetes_risk, ps.obesity_status,\n           \n           ROW_NUMBER() OVER (ORDER BY CASE \n                                        WHEN vs.blood_pressure_status = 'Hypertension' AND vs.glucose_status = 'Diabetes' THEN 1\n                                        WHEN vs.glucose_status = 'Diabetes' THEN 2\n                                        WHEN vs.blood_pressure_status = 'Hypertension' THEN 3\n                                        ELSE 4\n                                      END) AS severity_rank\n    FROM patients p\n    INNER JOIN health_conditions d ON p.patient_id = d.patient_id\n    INNER JOIN vital_signs vs ON p.patient_id = vs.patient_id\n    LEFT JOIN deaths ds ON p.patient_id = ds.patient_id\n    INNER JOIN patients_statistics ps ON p.patient_id = ps.patient_id\n    WHERE d.condition_name = 'Diabetes'\n)\n\nSELECT dp.first_name, dp.last_name, dp.age, dp.gender,\n       dp.condition_name, dp.diagnosis_date, dp.condition_status,\n       dp.sysbp, dp.diabp, dp.heart_rate, dp.respiratory_rate, dp.body_temperature, dp.glucose,\n       dp.death_date, dp.cause_of_death,\n       dp.any_chd, dp.death_status, dp.heart_disease_risk, dp.diabetes_risk, dp.obesity_status,\n       dp.severity_rank\nFROM DiabetesPatientCTE dp\nORDER BY dp.severity_rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "cardiovascular_health_and_patient_data_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH device_status_summary AS (\n  SELECT \n    d.location_id,\n    COUNT(CASE WHEN d.device_status = 'active' THEN 1 ELSE NULL END) AS active_devices,\n    COUNT(CASE WHEN d.device_status = 'inactive' THEN 1 ELSE NULL END) AS inactive_devices,\n    COUNT(CASE WHEN d.device_status = 'under repair' THEN 1 ELSE NULL END) AS under_repair_devices\n  FROM devices d\n  GROUP BY d.location_id\n)\nSELECT \n  l.location_name,\n  COALESCE(dss.active_devices, 0) AS active_devices,\n  COALESCE(dss.inactive_devices, 0) AS inactive_devices,\n  COALESCE(dss.under_repair_devices, 0) AS under_repair_devices\nFROM locations l\nLEFT JOIN device_status_summary dss ON l.location_id = dss.location_id\nORDER BY active_devices DESC, inactive_devices DESC, under_repair_devices DESC\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "industrial_automation_and_alarm_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH CompliantBatteries AS (\n    SELECT battery_id\n    FROM battery_standards\n    WHERE standard_name = 'UL 2054' AND compliance_level = 'Compliant'\n),\nHighRatedBatteries AS (\n    SELECT battery_id\n    FROM battery_reviews\n    WHERE rating > 4\n)\nSELECT DISTINCT b.model\nFROM batteries b\nJOIN CompliantBatteries cb ON b.battery_id = cb.battery_id\nJOIN HighRatedBatteries hr ON b.battery_id = hr.battery_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "battery_specifications_and_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH ProteinDetails AS (\n    SELECT \n        p.protein_id, \n        p.protein_accession, \n        t.taxonomy_science_name,\n        t.kingdom\n    FROM \n        proteins p\n    INNER JOIN \n        taxonomy t ON p.taxonomy_id = t.taxonomy_id\n),\nDomainDetails AS (\n    SELECT \n        d.domain_id, \n        d.protein_id, \n        d.method_id, \n        d.pos_from AS domain_pos_from, \n        d.pos_to AS domain_pos_to, \n        d.match_score AS domain_match_score, \n        d.domain_type, \n        d.domain_description, \n        d.domain_source,\n        m.method_name AS domain_method_name\n    FROM \n        domains d\n    INNER JOIN \n        methods m ON d.method_id = m.method_id\n),\nBindingSiteDetails AS (\n    SELECT \n        bs.binding_site_id, \n        bs.protein_id, \n        bs.method_id, \n        bs.pos_from AS binding_site_pos_from, \n        bs.pos_to AS binding_site_pos_to, \n        bs.match_score AS binding_site_match_score, \n        bs.binding_site_type, \n        bs.binding_site_description, \n        bs.binding_site_source,\n        m.method_name AS binding_site_method_name\n    FROM \n        binding_sites bs\n    INNER JOIN \n        methods m ON bs.method_id = m.method_id\n)\nSELECT \n    pd.protein_id, \n    pd.protein_accession, \n    pd.taxonomy_science_name, \n    pd.kingdom, \n    dd.domain_id, \n    dd.method_id AS domain_method_id, \n    dd.domain_pos_from, \n    dd.domain_pos_to, \n    dd.domain_match_score, \n    dd.domain_type, \n    dd.domain_description, \n    dd.domain_source,\n    dd.domain_method_name,\n    bs.binding_site_id,\n    bs.method_id AS binding_site_method_id,\n    bs.binding_site_pos_from,\n    bs.binding_site_pos_to,\n    bs.binding_site_match_score,\n    bs.binding_site_type,\n    bs.binding_site_description,\n    bs.binding_site_source,\n    bs.binding_site_method_name\nFROM \n    ProteinDetails pd\nLEFT JOIN \n    DomainDetails dd ON pd.protein_id = dd.protein_id\nLEFT JOIN \n    BindingSiteDetails bs ON pd.protein_id = bs.protein_id\nWHERE \n    pd.protein_id = 0;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "protein_sequence_analysis_and_taxonomy"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH TeamPerformanceCTE AS (\n    SELECT \n        t.team_name,\n        s.year,\n        ss.wins,\n        ss.losses,\n        ss.runs_scored,\n        ss.runs_allowed,\n        ss.playoff_appearances,\n        RANK() OVER (PARTITION BY s.year ORDER BY ss.wins DESC, ss.runs_scored DESC) AS rank_within_season\n    FROM \n        teams t\n    INNER JOIN \n        season_statistics ss ON t.team_id = ss.team_id\n    INNER JOIN \n        seasons s ON ss.season_id = s.season_id\n    WHERE \n        s.year >= 2020\n)\nSELECT \n    tp.team_name,\n    tp.year,\n    tp.wins,\n    tp.losses,\n    tp.runs_scored,\n    tp.runs_allowed,\n    tp.playoff_appearances,\n    tp.rank_within_season\nFROM \n    TeamPerformanceCTE tp\nINNER JOIN \n    access_logs al ON tp.year = CAST(SUBSTR(al.access_date, 1, 4) AS INTEGER)\nWHERE \n    al.access_type = 'edit'\nAND \n    tp.rank_within_season <= 5\nORDER BY \n    tp.year DESC, tp.rank_within_season ASC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "baseball_team_performance_statistics_953852"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n  u.user_name, \n  COUNT(DISTINCT na.action_type) AS distinct_action_types\nFROM \n  users u\n  INNER JOIN notification_preferences np ON u.user_id = np.user_id\n  INNER JOIN notification_actions na ON u.user_id = na.user_id\nWHERE \n  np.is_enabled = 1\nGROUP BY \n  u.user_name\nORDER BY \n  distinct_action_types DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "social_media_notification_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT c.category_name, AVG(p.price) AS avg_price\nFROM products p\nINNER JOIN product_sizes ps ON p.product_id = ps.product_id\nINNER JOIN categories c ON p.category_id = c.category_id\nWHERE ps.available_stock > 0 AND c.category_type = 'Everyday'\nGROUP BY c.category_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "apparel_size_measurement_and_product_catalog"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedStocks AS (\n    SELECT \n        s.stock_name,\n        se.exchange_name,\n        s.sector,\n        s.market_cap,\n        ROW_NUMBER() OVER (PARTITION BY s.sector ORDER BY s.market_cap DESC) AS rank\n    FROM \n        stocks s\n    JOIN \n        stock_exchanges se ON s.exchange_id = se.exchange_id\n)\nSELECT \n    stock_name, \n    exchange_name\nFROM \n    RankedStocks\nWHERE \n    rank <= 3\nORDER BY \n    sector, \n    rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "stock_market_and_financial_data_analysis_667202"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RecentAlerts AS (\n    SELECT\n        a.user_id,\n        a.stock_id,\n        a.alert_type,\n        a.threshold,\n        a.alert_frequency,\n        a.alert_status,\n        ROW_NUMBER() OVER (PARTITION BY a.user_id ORDER BY a.alert_id DESC) AS rn\n    FROM alerts a\n),\nStockComments AS (\n    SELECT\n        c.stock_id,\n        COUNT(c.comment_id) AS comment_count\n    FROM comments c\n    GROUP BY c.stock_id\n)\nSELECT\n    ra.user_id,\n    ra.stock_id,\n    s.stock_name,\n    s.last_updated,\n    sc.comment_count,\n    ra.alert_type,\n    ra.threshold,\n    ra.alert_frequency,\n    ra.alert_status\nFROM RecentAlerts ra\nJOIN stocks s ON ra.stock_id = s.stock_id\nJOIN StockComments sc ON ra.stock_id = sc.stock_id\nWHERE ra.rn = 1\nORDER BY ra.user_id, ra.stock_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "stock_market_data_and_analytics"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH TeamPerformance AS (\n    SELECT\n        ps.team_id,\n        t.team_name,\n        ps.season,\n        ps.points,\n        DENSE_RANK() OVER (PARTITION BY ps.season ORDER BY ps.points DESC) AS rank_in_season\n    FROM\n        performance_stats ps\n    JOIN\n        teams t ON ps.team_id = t.team_id\n    WHERE\n        ps.season = '2023/2024'\n)\nSELECT \n    tp.team_name\nFROM \n    TeamPerformance tp\nJOIN \n    games g ON tp.team_id = g.team_id\nWHERE \n    g.season = tp.season\n    AND g.game_date = (\n        SELECT MAX(game_date) \n        FROM games \n        WHERE team_id = tp.team_id AND season = tp.season\n    )\n    AND tp.rank_in_season = 1\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "sports_team_performance_and_statistics_tracking_379335"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH UserSpendingRanking AS (\n    SELECT\n        r.role_name,\n        ps.total_spent,\n        ps.average_purchase_amount,\n        ROW_NUMBER() OVER (ORDER BY ps.total_spent DESC) AS rank\n    FROM\n        purchase_summary ps\n    JOIN\n        users u ON ps.user_id = u.user_id\n    JOIN\n        roles r ON u.role_id = r.role_id\n)\nSELECT\n    role_name,\n    total_spent,\n    average_purchase_amount\nFROM\n    UserSpendingRanking\nWHERE\n    rank <= 3;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "user_purchase_tracking_and_group_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT t.technician_id, t.technician_name, t.contact_number, t.email\nFROM technicians t\nWHERE t.technician_id IN (\n  SELECT mr.technician_id\n  FROM maintenance_records mr\n  JOIN performance_metrics pm ON mr.machine_id = pm.machine_id\n  WHERE pm.machine_reliability_score > 0.8\n);",
+    "database_path": "data/databases/sample.db",
+    "db_id": "pinball_machine_performance_metrics"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH SevereAllergyPatients AS (\n    SELECT p.patient_id, p.first_name, p.last_name\n    FROM patients p\n    INNER JOIN patient_allergies pa ON p.patient_id = pa.patient_id\n    WHERE pa.reaction = 'anaphylaxis'\n),\nContraindicatingMedications AS (\n    SELECT m.medication_id, m.medication_name\n    FROM medications m\n    INNER JOIN medication_interactions mi ON m.medication_id = mi.medication_id\n    WHERE mi.interaction_type = 'contraindication' AND mi.severity = 'severe'\n),\nPatientsTakingContraindicatingMedications AS (\n    SELECT pmh.patient_id, m.medication_name\n    FROM patient_medication_history pmh\n    INNER JOIN ContraindicatingMedications m ON pmh.medication_id = m.medication_id\n)\nSELECT DISTINCT sap.first_name, sap.last_name\nFROM SevereAllergyPatients sap\nINNER JOIN PatientsTakingContraindicatingMedications ptc ON sap.patient_id = ptc.patient_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "healthcare_and_medication_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH LatestPinUsage AS (\n    SELECT\n        pu.design_id,\n        pu.pin_id,\n        pu.usage_date,\n        ROW_NUMBER() OVER (PARTITION BY pu.design_id, pu.pin_id ORDER BY pu.usage_date DESC) AS rank\n    FROM pin_usage pu\n),\nLatestComments AS (\n    SELECT\n        c.pin_id,\n        c.user_id,\n        c.comment_date,\n        c.comment_text,\n        ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY c.comment_date DESC) AS rank\n    FROM comments c\n)\nSELECT\n    d.design_name,\n    p.pin_name,\n    lc.comment_text\nFROM\n    designs d\nJOIN\n    pin_usage pu ON d.design_id = pu.design_id\nJOIN\n    pins p ON pu.pin_id = p.pin_id\nLEFT JOIN\n    LatestComments lc ON p.pin_id = lc.pin_id AND lc.rank = 1\nJOIN\n    LatestPinUsage lpu ON d.design_id = lpu.design_id AND pu.pin_id = lpu.pin_id AND lpu.rank = 1\nORDER BY\n    d.design_name, p.pin_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "electronic_component_pin_configuration_and_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT DISTINCT h.house_type, h.location, h.energy_efficiency_rating\nFROM houses h\nINNER JOIN energy_efficiency ee ON h.house_id = ee.house_id\nWHERE ee.efficiency_rating > 80.0;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "house_energy_consumption_and_production"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT driver_name\nFROM drivers\nORDER BY career_wins DESC\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "nascar_driver_standings_and_statistics"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedBooks AS (\n    SELECT\n        b.title,\n        a.name AS author_name,\n        g.genre_name,\n        b.average_rating,\n        ROW_NUMBER() OVER (PARTITION BY b.genre_id ORDER BY b.average_rating DESC) AS genre_rank\n    FROM\n        books b\n    JOIN\n        authors a ON b.author_id = a.author_id\n    JOIN\n        genres g ON b.genre_id = g.genre_id\n    WHERE\n        b.rating_count >= 10\n)\nSELECT\n    rb.title,\n    rb.author_name,\n    rb.genre_name,\n    rb.average_rating\nFROM\n    RankedBooks rb\nWHERE\n    rb.genre_rank <= 5\nORDER BY\n    rb.genre_name,\n    rb.average_rating DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "book_information_and_rating_platform"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH ActiveMappings AS (\n    SELECT \n        m.mapping_id,\n        mv.mapping_version_id,\n        m.created_by AS user_id,\n        dl.lineage_id\n    FROM \n        mappings m\n    JOIN \n        mapping_versions mv ON m.mapping_version_id = mv.mapping_version_id\n    JOIN \n        data_lineage dl ON m.variable_id = dl.variable_id\n    WHERE \n        mv.version_status = 'active' AND \n        dl.source_table = 'ORA_C_COND_IOVSEQUENCE' AND \n        dl.target_table = 'ORA_C_COND_IOVSEQUENCE'\n),\nUserMappingCounts AS (\n    SELECT \n        user_id,\n        COUNT(*) AS mapping_count\n    FROM \n        ActiveMappings\n    GROUP BY \n        user_id\n)\nSELECT \n    user_id\nFROM \n    UserMappingCounts\nORDER BY \n    mapping_count DESC\nLIMIT 3;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "data_mapping_and_variable_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedCollections AS (\n    SELECT\n        c.nickname,\n        c.level,\n        c.experience_points,\n        ROW_NUMBER() OVER (ORDER BY c.level DESC, c.experience_points DESC) AS rank\n    FROM collections c\n    WHERE c.user_id = 1\n)\nSELECT nickname\nFROM RankedCollections\nWHERE rank <= 3\nORDER BY rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "pok\u00e9mon_information_and_evolution_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH TechStocks AS (\n  SELECT \n    stock_id\n  FROM \n    stocks\n  WHERE \n    sector = 'Technology'\n),\nAverageMonthlyMovingAvgCTE AS (\n  SELECT \n    s.stock_id,\n    AVG(h.monthly_moving_avg) AS avg_monthly_moving_avg\n  FROM \n    TechStocks s\n  INNER JOIN \n    historical_prices h ON s.stock_id = h.stock_id\n  GROUP BY \n    s.stock_id\n),\nAnalystStrategies AS (\n  SELECT \n    ts.strategy_id,\n    ts.strategy_name\n  FROM \n    trading_strategies ts\n  INNER JOIN \n    users u ON ts.user_id = u.user_id\n  WHERE \n    u.role = 'analyst'\n)\nSELECT \n  asp.strategy_name, \n  ama.avg_monthly_moving_avg\nFROM \n  AverageMonthlyMovingAvgCTE ama\nINNER JOIN \n  lags l ON ama.stock_id = l.stock_id\nINNER JOIN \n  AnalystStrategies asp ON l.stock_id = asp.strategy_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "financial_market_data_analysis_and_forecasting"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    a.author_name\nFROM \n    authors a\nJOIN (\n    SELECT \n        p.author_id, \n        COUNT(p.post_id) AS post_count\n    FROM \n        posts p\n    GROUP BY \n        p.author_id\n    ORDER BY \n        post_count DESC\n    LIMIT 3\n) t ON a.author_id = t.author_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "academic_and_mental_health_discussion_on_reddit"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH AverageRatings AS (\n    SELECT \n        u.mod_id,\n        AVG(r.rating) AS avg_rating\n    FROM \n        uploads u\n    JOIN \n        reviews r ON u.upload_id = r.upload_id\n    WHERE \n        u.upload_type = 'mod'  -- Ensure we only consider mod uploads\n    GROUP BY \n        u.mod_id\n),\nRankedDownloads AS (\n    SELECT \n        md.mod_id,\n        md.download_count,\n        ROW_NUMBER() OVER (ORDER BY md.download_count DESC) AS download_rank\n    FROM \n        mod_downloads md\n    LEFT JOIN \n        AverageRatings ar ON md.mod_id = ar.mod_id\n)\nSELECT \n    rd.mod_id,\n    rd.download_count,\n    COALESCE(ar.avg_rating, 0) AS avg_rating  -- Use COALESCE to handle mods with no reviews\nFROM \n    RankedDownloads rd\nLEFT JOIN \n    AverageRatings ar ON rd.mod_id = ar.mod_id\nWHERE \n    rd.download_rank <= 10\nORDER BY \n    rd.download_count DESC;  -- Ensure the output is ordered by download count",
+    "database_path": "data/databases/sample.db",
+    "db_id": "gaming_database_with_modification_and_customization_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT p.patient_name\nFROM patients p\nJOIN bed_transfers bt ON p.patient_id = bt.patient_id\nWHERE bt.transfer_date <= DATE('now', '-30 days')",
+    "database_path": "data/databases/sample.db",
+    "db_id": "healthcare_resource_management_and_bed_availability_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedRevenueCTE AS (\n  SELECT c.company_name, ar.region, r.revenue_million_usd,\n         RANK() OVER (PARTITION BY ar.region ORDER BY r.revenue_million_usd DESC) AS revenue_rank\n  FROM companies c\n  JOIN annual_rankings ar ON c.company_id = ar.company_id\n  JOIN revenue r ON c.company_id = r.company_id AND ar.year = r.year\n  WHERE ar.region != 'Global'\n)\nSELECT company_name\nFROM RankedRevenueCTE\nWHERE revenue_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "semiconductor_industry_rankings_and_revenue_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT d.device_id, a.version_id, os.os_id, SUM(dau.active_users) AS total_active_users\nFROM daily_active_users AS dau\nJOIN devices AS d ON dau.device_id = d.device_id\nJOIN app_versions AS a ON dau.app_id = a.app_id\nJOIN os_versions AS os ON dau.os_id = os.os_id\nGROUP BY d.device_id, a.version_id, os.os_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "mobile_application_user_retention_and_engagement_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH TotalSalesByType AS (\n    SELECT \n        a.type,\n        SUM(s.total_sales) AS total_sales\n    FROM \n        accounts a\n    JOIN \n        sales_analytics s ON a.account_id = s.account_id\n    GROUP BY \n        a.type\n)\nSELECT \n    type\nFROM \n    TotalSalesByType\nORDER BY \n    total_sales DESC\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "customer_relationship_management_and_account_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RecentGDP AS (\n    SELECT\n        country_id,\n        year,\n        gdp,\n        growth_rate\n    FROM\n        gdp_data\n    WHERE\n        year >= (SELECT MAX(year) FROM gdp_data) - 5\n),\nRankedGDP AS (\n    SELECT\n        c.continent_id,\n        co.name AS country_name,\n        cz.name AS climate_zone_name,\n        c.name AS continent_name,\n        rg.year,\n        rg.gdp,\n        rg.growth_rate,\n        ROW_NUMBER() OVER (PARTITION BY c.continent_id, cz.name ORDER BY rg.growth_rate DESC) AS rn\n    FROM\n        RecentGDP rg\n    JOIN\n        countries co ON rg.country_id = co.country_id\n    JOIN\n        continents c ON co.continent_id = c.continent_id\n    JOIN\n        climate_zones cz ON co.climate_zone_id = cz.climate_zone_id\n)\nSELECT\n    continent_id,\n    continent_name,\n    climate_zone_name,\n    country_name,\n    year,\n    gdp,\n    growth_rate\nFROM\n    RankedGDP\nWHERE\n    rn <= 3\nORDER BY\n    continent_name,\n    climate_zone_name,\n    growth_rate DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "geographical_and_demographic_data_management_953761"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH AccessRank AS (\n    SELECT\n        uf.feature_id,\n        uf.feature_type,\n        uf.address,\n        uf.city,\n        uf.state,\n        COUNT(fa.access_id) AS access_count,\n        RANK() OVER (ORDER BY COUNT(fa.access_id) DESC) AS rank\n    FROM\n        urban_features uf\n    INNER JOIN\n        feature_access fa ON uf.feature_id = fa.feature_id\n    GROUP BY\n        uf.feature_id, uf.feature_type, uf.address, uf.city, uf.state\n)\nSELECT\n    ar.feature_id,\n    ar.feature_type,\n    ar.address,\n    ar.city,\n    ar.state,\n    ar.access_count,\n    ar.rank,\n    (SELECT json_group_array(DISTINCT fa.access_type)\n     FROM feature_access fa\n     WHERE fa.feature_id = ar.feature_id) AS distinct_access_types,\n    (SELECT json_group_array(DISTINCT fa.access_reason)\n     FROM feature_access fa\n     WHERE fa.feature_id = ar.feature_id) AS distinct_access_reasons\nFROM\n    AccessRank ar\nWHERE\n    ar.rank <= 5\nORDER BY\n    ar.rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "urban_planning_and_geo_spatial_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT AVG(T1.sentiment_score) AS average_positive_sentiment_score\nFROM tweets AS T1\nINNER JOIN tweet_interactions AS T3 ON T1.tweet_id = T3.tweet_id\nWHERE T1.sentiment_score > 0\n  AND T3.interaction_type = 'comment'\n  AND T3.interaction_content IS NOT NULL; -- Ensuring the comment has content",
+    "database_path": "data/databases/sample.db",
+    "db_id": "social_media_tweet_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH StudentScoreCTE AS (\n    SELECT \n        al.student_id,\n        a.subject_id,\n        SUM(al.score) AS total_score\n    FROM \n        activity_logs al\n    INNER JOIN \n        activities a ON al.activity_id = a.activity_id\n    GROUP BY \n        al.student_id, a.subject_id\n),\nRankedScoresCTE AS (\n    SELECT \n        student_id,\n        subject_id,\n        total_score,\n        ROW_NUMBER() OVER (PARTITION BY subject_id ORDER BY total_score DESC) AS rank\n    FROM \n        StudentScoreCTE\n)\nSELECT \n    s.subject_name\nFROM \n    RankedScoresCTE rs\nINNER JOIN \n    subjects s ON rs.subject_id = s.subject_id\nWHERE \n    rs.rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "educational_resources_and_activity_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedStocksCTE AS (\n    SELECT \n        stock_name,\n        sector_id,\n        industry_id,\n        ROW_NUMBER() OVER (\n            PARTITION BY sector_id, industry_id \n            ORDER BY CAST(REPLACE(market_cap, ',', '') AS REAL) DESC\n        ) AS rank\n    FROM stocks\n)\nSELECT stock_name\nFROM RankedStocksCTE\nWHERE rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "stock_market_data_and_analysis_293794"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    e.experiment_name,\n    c.condition_name,\n    AVG(o.data_value) AS average_data_value\nFROM \n    observations o\nJOIN \n    experiments e ON o.experiment_id = e.experiment_id\nJOIN \n    conditions c ON o.condition_id = c.condition_id\nGROUP BY \n    e.experiment_name, \n    c.condition_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "biological_experiment_data_tracking_and_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedProjects AS (\n  SELECT \n    p.project_name,\n    fg.goal_name,\n    (p.funding_collected * 100.0 / p.funding_goal) AS funding_percentage,\n    ROW_NUMBER() OVER (PARTITION BY fg.goal_name ORDER BY (p.funding_collected * 100.0 / p.funding_goal) DESC) AS rank\n  FROM \n    projects p\n  INNER JOIN \n    funding_goals fg ON p.goal_id = fg.goal_id\n)\nSELECT \n  project_name AS \"Project Name\",\n  goal_name AS \"Funding Goal Category\",\n  funding_percentage AS \"Funding Percentage (%)\"\nFROM \n  RankedProjects\nWHERE \n  rank <= 3\nORDER BY \n  goal_name, funding_percentage DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "project_management_and_success_rate_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH PortfolioReturnsCTE AS (\n    SELECT p.portfolio_id, p.portfolio_name, \n           AVG(sr.return) AS avg_daily_return, \n           SUM(sr.return) AS total_return\n    FROM portfolios p\n    INNER JOIN positions pos ON p.portfolio_id = pos.portfolio_id\n    INNER JOIN financial_instruments fi ON pos.instrument_id = fi.instrument_id\n    INNER JOIN stock_returns sr ON fi.instrument_id = sr.stock_id\n    GROUP BY p.portfolio_id, p.portfolio_name\n),\nRiskAssessmentCTE AS (\n    SELECT portfolio_id, MAX(risk_value) AS max_risk_value\n    FROM risk_assessments\n    GROUP BY portfolio_id\n),\nSimulationResultsCTE AS (\n    SELECT portfolio_id, AVG(result_value) AS avg_simulation_result\n    FROM simulation_results\n    GROUP BY portfolio_id\n)\nSELECT \n    pr.portfolio_name, \n    pr.avg_daily_return, \n    pr.total_return, \n    ra.max_risk_value, \n    sr.avg_simulation_result\nFROM PortfolioReturnsCTE pr\nLEFT JOIN RiskAssessmentCTE ra ON pr.portfolio_id = ra.portfolio_id\nLEFT JOIN SimulationResultsCTE sr ON pr.portfolio_id = sr.portfolio_id\nORDER BY pr.total_return DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "financial_market_analysis_and_simulation"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RidingResultsCTE AS (\n    SELECT \n        r.riding_name,\n        er.vote_percentage,\n        ROW_NUMBER() OVER (PARTITION BY er.riding_id ORDER BY er.vote_percentage DESC) AS rank\n    FROM \n        election_results er\n    INNER JOIN \n        ridings r ON er.riding_id = r.riding_id\n)\n\nSELECT \n    riding_name \nFROM \n    RidingResultsCTE\nWHERE \n    rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "canadian_election_results"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH CountyLandUseCTE AS (\n  SELECT \n    county_id,\n    class_id,\n    SUM(sum) AS total_area,\n    ROW_NUMBER() OVER (PARTITION BY county_id ORDER BY SUM(sum) DESC) AS row_num\n  FROM \n    land_use_statistics\n  GROUP BY \n    county_id, class_id\n)\nSELECT \n  COUNT(DISTINCT class_id) AS unique_top_classes\nFROM \n  CountyLandUseCTE\nWHERE \n  row_num = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "land_use_and_ownership_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH DriverRaces AS (\n    SELECT\n        d.driver_name,\n        r.race_id,\n        r.race_status,\n        rp.finish_position\n    FROM\n        race_participants rp\n        JOIN drivers d ON rp.driver_id = d.driver_id\n        JOIN races r ON rp.race_id = r.race_id\n    WHERE\n        r.race_status = 'Completed'\n)\nSELECT\n    dr.driver_name,\n    SUM(CASE WHEN dr.finish_position = 1 THEN 1 ELSE 0 END) AS wins,\n    COUNT(dr.race_id) AS total_races,\n    CAST(SUM(CASE WHEN dr.finish_position = 1 THEN 1 ELSE 0 END) AS REAL) / COUNT(dr.race_id) AS win_rate\nFROM\n    DriverRaces dr\nGROUP BY\n    dr.driver_name\nORDER BY\n    win_rate DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "boat_racing_records_and_statistics"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT COUNT(DISTINCT course_enrollments.student_id) AS total_students\nFROM courses\nINNER JOIN course_enrollments ON courses.course_id = course_enrollments.course_id\nWHERE courses.teacher_id = (\n    SELECT teacher_id\n    FROM courses\n    GROUP BY teacher_id\n    ORDER BY COUNT(course_id) DESC\n    LIMIT 1\n);",
+    "database_path": "data/databases/sample.db",
+    "db_id": "student_performance_tracking_and_analysis_606964"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    r.region_name,\n    AVG(dd.concentration) AS avg_population_density\nFROM \n    demographic_data dd\nJOIN \n    block_regions br ON dd.block_id = br.block_id\nJOIN \n    regions r ON br.region_id = r.region_id\nGROUP BY \n    r.region_name\nORDER BY \n    r.region_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "demographic_data_analysis_927436"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH long_voyages AS (\n    SELECT voyage_id\n    FROM voyages\n    WHERE duration_days > 5\n),\nsurvival_stats AS (\n    SELECT\n        tc.class_name,\n        COUNT(*) AS total_passengers,\n        SUM(s.survived) AS survived_passengers\n    FROM\n        survivals s\n    JOIN\n        passengers p ON s.passenger_id = p.passenger_id\n    JOIN\n        long_voyages lv ON s.voyage_id = lv.voyage_id\n    JOIN\n        ticket_classes tc ON p.class_id = tc.class_id\n    GROUP BY\n        tc.class_name, s.voyage_id\n),\naverage_survival_rate AS (\n    SELECT\n        class_name,\n        AVG(CAST(survived_passengers AS REAL) / total_passengers) AS survival_rate\n    FROM\n        survival_stats\n    GROUP BY\n        class_name\n)\nSELECT\n    class_name,\n    ROUND(survival_rate * 100, 2) AS survival_rate_percentage\nFROM\n    average_survival_rate;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "passenger_and_survival_data_analysis_for_maritime_transport"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH TeamStatistics AS (\n  -- Calculate wins, losses, draws, and total matches for team1_id\n  SELECT\n    team1_id AS team_id,\n    SUM(CASE WHEN team1_score > team2_score THEN 1 ELSE 0 END) AS wins,\n    SUM(CASE WHEN team1_score < team2_score THEN 1 ELSE 0 END) AS losses,\n    SUM(CASE WHEN team1_score = team2_score THEN 1 ELSE 0 END) AS draws,\n    COUNT(*) AS matches_played\n  FROM\n    matches\n  GROUP BY\n    team1_id\n\n  UNION ALL\n\n  -- Calculate wins, losses, draws, and total matches for team2_id\n  SELECT\n    team2_id AS team_id,\n    SUM(CASE WHEN team2_score > team1_score THEN 1 ELSE 0 END) AS wins,\n    SUM(CASE WHEN team2_score < team1_score THEN 1 ELSE 0 END) AS losses,\n    SUM(CASE WHEN team2_score = team1_score THEN 1 ELSE 0 END) AS draws,\n    COUNT(*) AS matches_played\n  FROM\n    matches\n  GROUP BY\n    team2_id\n),\nAggregatedStatistics AS (\n  -- Aggregate the combined statistics\n  SELECT\n    team_id,\n    SUM(wins) AS total_wins,\n    SUM(losses) AS total_losses,\n    SUM(draws) AS total_draws,\n    SUM(matches_played) AS total_matches_played\n  FROM\n    TeamStatistics\n  GROUP BY\n    team_id\n)\n-- Join the aggregated statistics with the teams table and order by team name\nSELECT\n  t.team_name,\n  COALESCE(a.total_wins, 0) AS total_wins,\n  COALESCE(a.total_losses, 0) AS total_losses,\n  COALESCE(a.total_draws, 0) AS total_draws,\n  COALESCE(a.total_matches_played, 0) AS total_matches_played\nFROM\n  teams t\nLEFT JOIN\n  AggregatedStatistics a ON t.team_id = a.team_id\nORDER BY\n  t.team_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "sports_team_performance_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH OccupiedSpots AS (\n  SELECT \n    ps.spot_id,\n    ps.title,\n    ps.capacity,\n    COUNT(r.reservation_id) AS occupied_spots\n  FROM \n    parking_spots ps\n  LEFT JOIN \n    reservations r ON ps.spot_id = r.spot_id AND r.status = 'confirmed'\n  WHERE \n    ps.campus = 'UTSG'\n  GROUP BY \n    ps.spot_id, ps.title, ps.capacity\n),\nOccupancyRates AS (\n  SELECT \n    os.spot_id,\n    os.title,\n    os.capacity,\n    os.occupied_spots,\n    CASE \n      WHEN os.capacity = 0 THEN 0 \n      ELSE (os.occupied_spots / os.capacity) * 100 \n    END AS occupancy_rate\n  FROM \n    OccupiedSpots os\n)\nSELECT \n  os.title,\n  os.capacity,\n  os.occupied_spots,\n  os.occupancy_rate\nFROM \n  OccupancyRates os\nORDER BY \n  os.occupancy_rate DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "parking_facility_management_and_resource_allocation"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedPlayers AS (\n  SELECT p.player_name,\n         p.team,\n         ps.ppg,\n         ROW_NUMBER() OVER (PARTITION BY p.team ORDER BY ps.ppg DESC) AS performance_rank\n  FROM players p\n  INNER JOIN performance_stats ps ON p.player_id = ps.player_id\n),\nTopThreePlayers AS (\n  SELECT player_name,\n         team,\n         ppg,\n         performance_rank\n  FROM RankedPlayers\n  WHERE performance_rank <= 3\n),\nTeamTotalPPG AS (\n  SELECT team, SUM(ppg) AS total_ppg\n  FROM performance_stats ps\n  INNER JOIN players p ON ps.player_id = p.player_id\n  GROUP BY team\n)\nSELECT tp.player_name,\n       tp.team,\n       tp.ppg,\n       tt.total_ppg\nFROM TopThreePlayers tp\nINNER JOIN TeamTotalPPG tt ON tp.team = tt.team\nORDER BY tp.team, tp.performance_rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "sports_performance_and_statistics_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RecipeMetrics AS (\n    SELECT\n        r.recipe_id,\n        AVG(ra.rating) AS average_rating,\n        COUNT(uf.favorite_id) AS favorite_count\n    FROM\n        recipes r\n    LEFT JOIN\n        ratings ra ON r.recipe_id = ra.recipe_id\n    LEFT JOIN\n        user_favorites uf ON r.recipe_id = uf.recipe_id\n    GROUP BY\n        r.recipe_id\n),\nRankedRecipes AS (\n    SELECT\n        rm.recipe_id,\n        rm.average_rating,\n        rm.favorite_count,\n        ROW_NUMBER() OVER (ORDER BY rm.average_rating DESC, rm.favorite_count DESC) AS rank\n    FROM\n        RecipeMetrics rm\n)\nSELECT\n    r.recipe_name\nFROM\n    RankedRecipes rr\nJOIN\n    recipes r ON rr.recipe_id = r.recipe_id\nWHERE\n    rr.rank <= 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "culinary_recipe_management_and_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH EnrolledStudents AS (\n    SELECT \n        e.student_id, \n        e.course_id, \n        s.gpa, \n        e.final_grade,\n        COALESCE(c.cross_list_course_id, e.course_id) AS effective_course_id\n    FROM \n        enrollments e\n    INNER JOIN \n        students s ON e.student_id = s.student_id\n    LEFT JOIN \n        cross_listed_courses c ON e.course_id = c.course_id\n    WHERE \n        e.final_grade IN ('A', 'A+')\n),\nAvgGPACalculation AS (\n    SELECT \n        es.effective_course_id,\n        AVG(es.gpa) AS average_gpa\n    FROM \n        EnrolledStudents es\n    GROUP BY \n        es.effective_course_id\n)\nSELECT \n    agc.effective_course_id, \n    agc.average_gpa\nFROM \n    AvgGPACalculation agc\nORDER BY \n    agc.average_gpa DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "course_enrollment_and_management_system"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT\n    c.country_name,\n    h.happiness_score\nFROM\n    countries c\nJOIN\n    happiness_scores h ON c.country_id = h.country_id\nWHERE\n    h.year = 2015\nORDER BY\n    h.happiness_score DESC\nLIMIT 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "world_happiness_data_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RankedFilms AS (\n    SELECT \n        fw.title,\n        fw.film_work_id,\n        fw.rating,\n        g.genre_name,\n        ROW_NUMBER() OVER (PARTITION BY g.genre_name ORDER BY fw.rating DESC) AS rank\n    FROM film_works fw\n    JOIN film_work_genres fwg ON fw.film_work_id = fwg.film_work_id\n    JOIN genres g ON fwg.genre_id = g.genre_id\n),\nAvgReviews AS (\n    SELECT \n        r.film_work_id,\n        AVG(r.rating) AS avg_review_score\n    FROM reviews r\n    GROUP BY r.film_work_id\n)\nSELECT \n    rf.title,\n    rf.rating,\n    ar.avg_review_score\nFROM RankedFilms rf\nJOIN AvgReviews ar ON rf.film_work_id = ar.film_work_id\nWHERE rf.rank <= 3\nORDER BY rf.genre_name, rf.rating DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "film_and_television_database_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    publication_id,\n    title\nFROM \n    publications\nORDER BY \n    citation_count DESC\nLIMIT 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "institutional_research_and_publication_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT\n    d.district_name,\n    s.status_name,\n    COUNT(p.patient_id) AS total_patients\nFROM\n    patients p\nINNER JOIN\n    patient_status s ON p.status_id = s.status_id\nINNER JOIN\n    districts d ON p.district_id = d.district_id\nGROUP BY\n    d.district_name,\n    s.status_name\nHAVING\n    COUNT(p.patient_id) > 0\nORDER BY\n    d.district_name,\n    s.status_name;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "health_and_safety_monitoring_in_districts"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n  de.data_standard_id\nFROM \n  data_elements de\nJOIN \n  data_standards ds ON de.data_standard_id = ds.data_standard_id\nWHERE \n  LOWER(ds.name) = 'hl7'\nGROUP BY \n  de.data_standard_id\nHAVING \n  SUM(CASE WHEN de.is_required = 1 THEN 1 ELSE 0 END) > SUM(CASE WHEN de.is_deprecated = 1 THEN 1 ELSE 0 END);",
+    "database_path": "data/databases/sample.db",
+    "db_id": "healthcare_data_standardization_and_conformance"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT\n    r.region_name,\n    ag.age_range,\n    AVG(vr.vaccination_coverage) AS average_vaccination_coverage\nFROM\n    vaccination_reports vr\nJOIN\n    regions r ON vr.region_id = r.region_id\nJOIN\n    age_groups ag ON vr.age_group_id = ag.age_group_id\nGROUP BY\n    r.region_name,\n    ag.age_range\nORDER BY\n    r.region_name,\n    ag.age_range;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "vaccination_data_management_and_analytics_434950"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT f.title, f.release_year, d.director_name, r.num_critic_reviews, r.num_user_reviews\nFROM films f\nJOIN directors d ON f.director_id = d.director_id\nJOIN reviews r ON f.film_id = r.film_id\nWHERE f.release_year = 2012\nORDER BY r.num_user_reviews DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "film_industry_data_management_and_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH RecentAudits AS (\n    SELECT audit_id, audit_date, audit_type, description, findings\n    FROM audits\n    WHERE audit_date >= DATE('2023-01-01')\n),\nRecentCompliance AS (\n    SELECT compliance_id, compliance_date, compliance_type, description, status,\n           ROW_NUMBER() OVER (ORDER BY compliance_date DESC) AS rn\n    FROM compliance\n    WHERE compliance_type = 'Internal'\n)\nSELECT ra.audit_date, ra.audit_type, ra.description AS audit_description, ra.findings,\n       rc.status AS compliance_status\nFROM RecentAudits ra\nCROSS JOIN RecentCompliance rc\nWHERE rc.rn = 1\nORDER BY ra.audit_date DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "water_treatment_and_resource_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH CorrectAnswers AS (\n    SELECT \n        q.category_id, \n        AVG(a.response_time) AS avg_response_time\n    FROM \n        questions q\n    JOIN \n        answers a ON q.question_id = a.question_id\n    WHERE \n        a.is_correct = 1\n    GROUP BY \n        q.category_id\n)\nSELECT \n    c.category_name, \n    COALESCE(ca.avg_response_time, 0) AS avg_response_time\nFROM \n    categories c\nLEFT JOIN \n    CorrectAnswers ca ON c.category_id = ca.category_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "cognitive_assessment_and_data_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH DisciplineAverageScores AS (\n    SELECT \n        e.discipline_id,\n        AVG(r.total_score) AS avg_score\n    FROM \n        results r\n    JOIN \n        events e ON r.event_id = e.event_id\n    GROUP BY \n        e.discipline_id\n)\nSELECT \n    a.athlete_name,\n    a.nationality,\n    COUNT(r.event_id) AS num_events_above_avg\nFROM \n    results r\nJOIN \n    athletes a ON r.athlete_id = a.athlete_id\nJOIN \n    events e ON r.event_id = e.event_id\nJOIN \n    DisciplineAverageScores das ON e.discipline_id = das.discipline_id\nWHERE \n    r.total_score > das.avg_score\nGROUP BY \n    a.athlete_name, a.nationality;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "figure_skating_competition_results"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH LoanOfficerTotals AS (\n    SELECT\n        lo.officer_id,\n        lo.name,\n        SUM(l.loan_amount) AS total_loan_amount\n    FROM\n        loan_officers lo\n    JOIN\n        loans l ON lo.officer_id = l.loan_officer_id\n    GROUP BY\n        lo.officer_id, lo.name\n),\nRankedLoanOfficers AS (\n    SELECT\n        officer_id,\n        name,\n        total_loan_amount,\n        ROW_NUMBER() OVER (ORDER BY total_loan_amount DESC) AS rank\n    FROM\n        LoanOfficerTotals\n)\nSELECT\n    name\nFROM\n    RankedLoanOfficers\nWHERE\n    rank <= 3;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "microfinance_loan_management_and_tracking"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH StoreSales AS (\n    SELECT \n        s.store_id,\n        s.store_name,\n        SUM(t.total_spend) AS total_sales_revenue\n    FROM \n        stores s\n    INNER JOIN \n        transactions t ON s.store_id = t.store_id\n    GROUP BY \n        s.store_id, s.store_name\n),\nRankedStores AS (\n    SELECT \n        ss.store_id,\n        ss.store_name,\n        ss.total_sales_revenue,\n        RANK() OVER (ORDER BY ss.total_sales_revenue DESC) AS sales_rank\n    FROM \n        StoreSales ss\n)\nSELECT \n    rs.store_name,\n    rs.total_sales_revenue\nFROM \n    RankedStores rs\nWHERE \n    rs.sales_rank <= 5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "customer_transaction_and_preference_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH PropertyRatings AS (\n    SELECT\n        pr.property_id,\n        AVG(pr.rating) AS average_rating\n    FROM\n        property_reviews pr\n    GROUP BY\n        pr.property_id\n),\nTopRatedProperty AS (\n    SELECT\n        property_id\n    FROM\n        PropertyRatings\n    ORDER BY\n        average_rating DESC\n    LIMIT 1\n)\nSELECT\n    GROUP_CONCAT(pf.feature_name, ', ') AS features\nFROM\n    TopRatedProperty trp\nJOIN\n    property_features pf ON trp.property_id = pf.property_id;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "real_estate_property_management_168506"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH AnimalDietInfo AS (\n    SELECT \n        a.animal_id,\n        a.animal_name,\n        d.diet_name,\n        ad.diet_preference,\n        d.nutritional_value\n    FROM \n        animals a\n    JOIN \n        animal_diets ad ON a.animal_id = ad.animal_id\n    JOIN \n        diets d ON ad.diet_id = d.diet_id\n),\nPopulationSizeInfo AS (\n    SELECT \n        animal_id,\n        AVG(population_size) AS average_population_size\n    FROM \n        population_sizes\n    GROUP BY \n        animal_id\n)\nSELECT \n    adi.animal_name,\n    adi.diet_name,\n    adi.diet_preference,\n    adi.nutritional_value,\n    p.average_population_size AS max_population_size\nFROM \n    AnimalDietInfo adi\nJOIN \n    PopulationSizeInfo p ON adi.animal_id = p.animal_id\nORDER BY \n    p.average_population_size DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "wildlife_information_and_conservation_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH SubzoneDensityCTE AS (\n    SELECT \n        p.pa_name, \n        s.sz_name, \n        s.sz_id, \n        p.pa_id, \n        (s.sz_population / s.sz_area_sq_km) AS population_density,\n        ROW_NUMBER() OVER (PARTITION BY p.pa_id ORDER BY (s.sz_population / s.sz_area_sq_km) DESC) AS density_rank\n    FROM \n        planning_areas p\n    INNER JOIN \n        subzones s ON p.pa_id = s.pa_id\n)\nSELECT \n    pd.pa_name, \n    pd.sz_name\nFROM \n    SubzoneDensityCTE pd\nWHERE \n    pd.density_rank <= 3\nORDER BY \n    pd.pa_name, \n    pd.density_rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "demographic_and_housing_data_of_planning_areas"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH ApplicationStats AS (\n    SELECT\n        a.application_id,\n        a.job_id,\n        a.user_id,\n        a.application_date,\n        a.status,\n        j.position,\n        j.company_id,\n        j.experience_required,\n        u.user_name,\n        ROW_NUMBER() OVER (PARTITION BY a.job_id ORDER BY a.application_date ASC) AS application_order\n    FROM applications a\n    JOIN jobs j ON a.job_id = j.job_id\n    JOIN users u ON a.user_id = u.user_id\n),\nJobPerformance AS (\n    SELECT\n        j.position,\n        c.company_name,\n        ap.experience_required,\n        ap.user_name,\n        ap.application_order,\n        COUNT(ap.application_id) OVER (PARTITION BY ap.job_id) AS total_applicants,\n        SUM(CASE WHEN ap.status = 'accepted' THEN 1 ELSE 0 END) OVER (PARTITION BY ap.job_id) AS accepted_applicants\n    FROM ApplicationStats ap\n    JOIN jobs j ON ap.job_id = j.job_id\n    JOIN companies c ON j.company_id = c.company_id\n)\nSELECT\n    position,\n    company_name,\n    experience_required,\n    user_name,\n    application_order,\n    total_applicants,\n    accepted_applicants,\n    CAST(accepted_applicants AS REAL) / total_applicants * 100 AS acceptance_rate\nFROM JobPerformance\nWHERE application_order <= 5\nORDER BY position, application_order;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "job_listings_and_employee_information"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH DeviceUsageCTE AS (\n    SELECT\n        du.country_id,\n        AVG(dut.average_session_time) AS avg_session_time\n    FROM\n        device_usage du\n    JOIN\n        device_usage_by_type dut ON du.usage_id = dut.usage_id\n    GROUP BY\n        du.country_id\n),\nGrowthRateCTE AS (\n    SELECT\n        du.country_id,\n        dup.growth_rate\n    FROM\n        device_usage du\n    JOIN\n        device_usage_by_period dup ON du.usage_id = dup.usage_id\n    JOIN\n        time_periods tp ON dup.time_period_id = tp.time_period_id\n    WHERE\n        tp.period_type = 'year'\n)\nSELECT\n    c.country_name,\n    AVG(duc.avg_session_time) AS avg_session_time\nFROM\n    countries c\nJOIN\n    DeviceUsageCTE duc ON c.country_id = duc.country_id\nJOIN\n    GrowthRateCTE gr ON c.country_id = gr.country_id\nWHERE\n    c.population > 100000000 \nGROUP BY\n    c.country_name\nORDER BY\n    gr.growth_rate DESC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "global_digital_device_usage_statistics"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT s.simulation_id, s.scenario_id, s.model_id, u.user_name\nFROM simulations s\nINNER JOIN users u ON s.created_by = u.user_id\nINNER JOIN scenarios sc ON s.scenario_id = sc.scenario_id\nORDER BY s.simulation_id ASC;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "structural_analysis_and_simulation_results"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n    UPPER(e.event_name) AS EventName, \n    UPPER(a.name) AS AthleteName, \n    er.finish_time\nFROM \n    event_results er\nINNER JOIN \n    events e ON er.event_id = e.event_id\nINNER JOIN \n    athletes a ON er.athlete_id = a.athlete_id\nWHERE \n    er.overall_rank <= 3;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "athlete_performance_tracking_and_racing_results"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH LatestRatings AS (\n    SELECT \n        fr.facility_id, \n        fr.rating_value, \n        fr.year,\n        ROW_NUMBER() OVER (PARTITION BY fr.facility_id ORDER BY fr.year DESC) AS rn\n    FROM \n        facility_ratings fr\n)\nSELECT \n    f.facility_name,\n    lr.rating_value,\n    fe.condition\nFROM \n    facilities f\nJOIN \n    LatestRatings lr ON f.facility_id = lr.facility_id\nJOIN \n    facilities_equipment fe ON f.facility_id = fe.facility_id\nWHERE \n    lr.rn = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "facilities_and_equipment_quality_assessment"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT \n  s.snp_id, \n  s.allele1, \n  s.allele2, \n  s.eaf, \n  s.beta, \n  s.se, \n  s.p_value, \n  s.discovery_study, \n  s.units, \n  s.chromosome, \n  s.position, \n  s.trait, \n  s.population, \n  s.imputation, \n  s.reference_genome, \n  s.additional_notes,\n  a.allele_id, \n  a.allele_type, \n  a.frequency, \n  a.allele_frequency_source, \n  a.allele_frequency_population, \n  a.allele_frequency_reference\nFROM \n  snps s\nJOIN \n  alleles a ON s.snp_id = a.snp_id\nWHERE \n  s.trait = 'Type 2 Diabetes' \n  AND s.population = 'European' \n  AND a.frequency > 0.5;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "genetic_association_studies_and_data_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT ur.role_name, COUNT(u.user_id) AS user_count\nFROM users u\nJOIN user_roles ur ON u.role_id = ur.role_id\nGROUP BY ur.role_id, ur.role_name\nORDER BY user_count DESC\nLIMIT 3;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "website_configuration_management"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH UserPerformanceCTE AS (\n    SELECT\n        u.username,\n        a.question_id,\n        AVG(a.success_rate) AS average_success_rate,\n        ROW_NUMBER() OVER (PARTITION BY a.question_id ORDER BY AVG(a.success_rate) DESC) AS performance_rank\n    FROM users u\n    JOIN analytics a ON u.user_id = a.user_id\n    GROUP BY u.username, a.question_id\n)\nSELECT\n    question_id,\n    username,\n    average_success_rate\nFROM UserPerformanceCTE\nWHERE performance_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "online_coding_challenge_and_assessment_platform"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH ProjectRankings AS (\n  SELECT \n    p.project_id,\n    p.name,\n    fg.goal_name,\n    p.funding_goal,\n    SUM(fd.amount) AS total_funding,\n    sr.success_rate,\n    ROW_NUMBER() OVER (PARTITION BY p.goal_id ORDER BY SUM(fd.amount) DESC) AS funding_rank\n  FROM \n    projects p\n  JOIN \n    funding_goals fg ON p.goal_id = fg.goal_id\n  JOIN \n    funding_data fd ON p.project_id = fd.project_id\n  LEFT JOIN \n    success_rates sr ON p.goal_id = sr.goal_id\n  GROUP BY \n    p.project_id, p.name, fg.goal_name, p.funding_goal, sr.success_rate\n),\nTotalBacking AS (\n  SELECT \n    project_id,\n    SUM(amount) AS total_backing\n  FROM \n    backers\n  GROUP BY \n    project_id\n)\nSELECT \n  pr.project_id,\n  pr.name,\n  pr.goal_name,\n  pr.total_funding,\n  tb.total_backing\nFROM \n  ProjectRankings pr\n  LEFT JOIN TotalBacking tb ON pr.project_id = tb.project_id\nWHERE \n  pr.funding_rank <= 5 AND pr.success_rate > 0.5\nORDER BY \n  pr.goal_name, pr.funding_rank;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "project_funding_and_success_rate_analysis"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "SELECT a.athlete_name, r.rank AS best_rank\nFROM athletes AS a\nJOIN results AS r ON a.athlete_id = r.athlete_id\nJOIN tournaments AS t ON r.tournament_id = t.tournament_id\nJOIN weight_classes AS wc ON r.weight_class_id = wc.class_id\nWHERE t.tournament_type = 'International'\n  AND wc.class_name = 'Lightweight'\nORDER BY r.rank ASC\nLIMIT 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "weightlifting_tournament_results_and_rankings"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH DailyEngagement AS (\n    SELECT\n        e.date,\n        t.tweet_id,\n        t.text,\n        t.geo_location,\n        e.replies + e.retweets + e.favorites + e.quote_count AS total_engagement,\n        e.engagement_rate,\n        AVG(e.replies + e.retweets + e.favorites + e.quote_count) OVER (PARTITION BY e.date) AS avg_daily_engagement\n    FROM engagement e\n    JOIN tweets t ON e.tweet_id = t.tweet_id\n    JOIN users u ON t.user_id = u.user_id\n    WHERE u.username = 'realDonaldTrump'\n),\nRankedEngagement AS (\n    SELECT\n        date,\n        tweet_id,\n        text,\n        geo_location,\n        total_engagement,\n        engagement_rate,\n        avg_daily_engagement,\n        ROW_NUMBER() OVER (PARTITION BY date ORDER BY engagement_rate DESC) AS engagement_rank\n    FROM DailyEngagement\n)\nSELECT\n    date,\n    tweet_id,\n    text,\n    geo_location,\n    total_engagement,\n    engagement_rate,\n    avg_daily_engagement\nFROM RankedEngagement\nWHERE engagement_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "social_media_analytics_and_engagement"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH AverageRushingYards AS (\n  SELECT \n    player_id,\n    AVG(rushing_yards) AS avg_rushing_yards\n  FROM \n    game_logs\n  GROUP BY \n    player_id\n)\nSELECT \n  p.full_name\nFROM \n  players p\n  INNER JOIN AverageRushingYards ary ON p.player_id = ary.player_id\nORDER BY \n  ary.avg_rushing_yards DESC\nLIMIT 1",
+    "database_path": "data/databases/sample.db",
+    "db_id": "fantasy_football_player_performance_tracking_266395"
+  },
+  {
+    "prompt": "",
+    "gold_sql": "WITH HighQualityBins AS (\n    SELECT\n        g.bin_id,\n        g.bin_name\n    FROM genomic_bins g\n    INNER JOIN completeness_metrics c ON g.bin_id = c.bin_id\n    INNER JOIN contamination_metrics cont ON g.bin_id = cont.bin_id\n    WHERE c.completeness > 75 AND cont.contamination < 5\n),\nMarkerQualityAnalysis AS (\n    SELECT\n        hqb.bin_id,\n        hqb.bin_name,\n        gbm.marker_functional_role,\n        gbm.marker_quality,\n        gbm.marker_coverage,\n        ROW_NUMBER() OVER (PARTITION BY hqb.bin_id ORDER BY gbm.marker_quality DESC, gbm.marker_coverage DESC) AS marker_rank\n    FROM HighQualityBins hqb\n    INNER JOIN genomic_bin_markers gbm ON hqb.bin_id = gbm.bin_id\n)\nSELECT\n    mqa.bin_id,\n    mqa.bin_name,\n    mqa.marker_functional_role\nFROM MarkerQualityAnalysis mqa\nWHERE mqa.marker_rank = 1;",
+    "database_path": "data/databases/sample.db",
+    "db_id": "genomic_bin_analysis_and_microbial_community_profiling"
+  }
+]
