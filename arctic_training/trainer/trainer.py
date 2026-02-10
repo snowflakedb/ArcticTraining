@@ -151,7 +151,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.epoch_idx = 0
         self.train_batch_idx = 0
         self.global_step = 0
-        self.global_step_this_run = 0
         self.global_step_at_start_this_run = 0
         self.early_stop = False
         self.early_stop_reason = ""
@@ -305,6 +304,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         set_seed(seed)
 
     @property
+    def global_step_this_run(self):
+        return self.global_step - self.global_step_at_start_this_run
+
+    @property
     def model_unwrapped(self):
         """Return the original model before it was wrapped by deepspeed"""
         if hasattr(self.model, "module"):
@@ -432,7 +435,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         # DeepSpeed increments its global step after the step() call, so we use it as the golden truth
         self.global_step = self.model.global_steps
-        self.global_step_this_run = self.global_step - self.global_step_at_start_this_run
 
     @callback_wrapper("epoch")
     def epoch(self) -> None:
