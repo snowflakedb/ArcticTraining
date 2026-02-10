@@ -53,7 +53,7 @@ def test_ds_engine(tmp_path, model_name):
     trainer = trainer_cls(config)
 
     # Force checkpoint to be saved despite no training happening
-    trainer.global_step_this_run = 1
+    trainer.global_step = 1
     trainer.training_finished = True
     trainer.checkpoint()
 

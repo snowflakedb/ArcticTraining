@@ -116,7 +116,7 @@ class Metrics:
         self.summary_dict.clear()
         self.summary_dict["epoch"] = self.trainer.epoch_idx
         self.summary_dict["iter"] = self.trainer.global_step
-        self.summary_dict["lr"] = self.trainer.model.lr_scheduler.get_last_lr()[0]
+        self.summary_dict["lr"] = self.trainer.model.get_lr()[0]
 
         tflos_total: float = 0.0
         if self.seqlens is not None:
