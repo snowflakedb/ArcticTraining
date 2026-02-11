@@ -15,7 +15,9 @@
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import Dict
+from typing import List
 from typing import Optional
 from typing import Type
 from typing import Union
@@ -23,6 +25,7 @@ from typing import Union
 import peft
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 
 from arctic_training.config.base import BaseConfig
 from arctic_training.config.enums import DType
@@ -57,6 +60,12 @@ class ModelConfig(BaseConfig):
     hf_config_kwargs: Dict = Field(default_factory=dict)
     """ Optional kwargs to override in the HF model config object created by `AutoConfig.from_pretrained(model.name_or_path)` """
 
+    fp8_recipe: Optional[Any] = None
+    """ Transformer Engine FP8 recipe configuration. `type` indicates which recipe type to use. If `null`, FP8 training is disabled. """
+
+    fp8_target_modules: List[str] = Field(default_factory=list)
+    """ List of module name substrings to target for FP8. E.g. ["q_proj", "o_proj", "k_proj"] """
+
     @property
     def factory(self) -> Type["ModelFactory"]:
         return get_registered_model_factory(name=self.type)
@@ -83,6 +92,7 @@ class ModelConfig(BaseConfig):
         return value
 
     @field_validator("attn_implementation", mode="after")
+    @classmethod
     def validate_attn_implementation(cls, value: str) -> str:
         if value in ["flash_attention_2", "flash_attention_3"]:
             try:
@@ -96,3 +106,47 @@ class ModelConfig(BaseConfig):
                     " cd flash-attention/hopper; pip install . --no-build-isolation --no-clean"
                 )
         return value
+
+    @field_validator("fp8_recipe", mode="before")
+    @classmethod
+    def create_fp8_recipe_obj(cls, v: Optional[Dict[str, Any]]) -> Any:
+        if v is None:
+            return v
+
+        try:
+            import transformer_engine.common.recipe as te_recipe
+        except ImportError:
+            raise ImportError(
+                "FP8 recipe specified but `transformer_engine` is not installed. "
+                "Please install `transformer_engine` to use FP8 training:\n"
+                '`pip install --no-build-isolation "transformer_engine[pytorch]"`'
+            )
+
+        available_recipe_types = {}
+        for r in dir(te_recipe):
+            try:
+                if issubclass(getattr(te_recipe, r), te_recipe.Recipe):
+                    available_recipe_types[r.lower()] = getattr(te_recipe, r)
+            except Exception:
+                continue
+        if "type" not in v:
+            raise ValueError(
+                f"No `type` specified in `fp8_recipe` config. Available types: {available_recipe_types.keys()}"
+            )
+        recipe_type = v.pop("type").lower()
+        if recipe_type not in available_recipe_types:
+            raise ValueError(
+                f"FP8 recipe type {recipe_type} not found. Available types: {available_recipe_types.keys()}"
+            )
+        recipe_cls = available_recipe_types[recipe_type]
+
+        if "fp8_format" in v:
+            v["fp8_format"] = te_recipe.Format[v["fp8_format"].upper()]
+
+        return recipe_cls(**v)
+
+    @model_validator(mode="after")
+    def check_fp8_target_modules(self) -> "ModelConfig":
+        if self.fp8_recipe is not None and len(self.fp8_target_modules) == 0:
+            raise ValueError("FP8 recipe specified but no `fp8_target_modules` provided.")
+        return self
