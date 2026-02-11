@@ -1,0 +1,99 @@
+# On-Policy Distillation Configuration
+#
+# This config demonstrates training a student model (Qwen3-1.7B) using
+# on-policy distillation from a teacher model (Qwen3-8B) loaded in-memory.
+#
+# The key difference from traditional (off-policy) distillation:
+# - Off-policy: Teacher generates trajectories, student imitates
+# - On-policy: Student generates trajectories, teacher corrects via reverse KL
+#
+# On-policy distillation is more compute-efficient and avoids compounding errors
+# from distribution mismatch.
+#
+# Memory requirement: Both student and teacher must fit in GPU memory.
+# With DeepSpeed ZeRO-2/3, this is typically feasible for most model combinations.
+
+type: on_policy_distillation
+
+# Student model configuration
+model:
+  type: huggingface
+  name_or_path: Qwen/Qwen3-1.7B
+  dtype: bf16
+  attn_implementation: flash_attention_2
+
+# Teacher model configuration (loaded in-memory for fast logprob computation)
+teacher_model:
+  type: huggingface
+  name_or_path: Qwen/Qwen3-8B
+  dtype: bf16
+  attn_implementation: flash_attention_2
+
+# Disable dropout in teacher for stable distillation signal
+disable_teacher_dropout: true
+
+# On-policy distillation hyperparameters
+num_rollouts_per_prompt: 8      # Number of completions per prompt (increases GPU utilization)
+max_new_tokens: 128             # Math solutions are short
+generation_temperature: 0.7     # Lower temp for more focused math responses
+beta: 1.0                       # Reverse KL coefficient
+
+# Training configuration - OPTIMIZED FOR H200 (143GB per GPU)
+world_size: 4
+micro_batch_size: 16            # 16 prompts * 8 rollouts = 128 completions per step
+gradient_accumulation_steps: 1  # Single accumulation for max throughput
+epochs: 10
+
+# Data configuration - GSM8K math reasoning (small dataset, short responses)
+data:
+  sources:
+    - type: huggingface_instruct
+      name_or_path: openai/gsm8k
+      split: train
+      kwargs:
+        name: main
+      role_mapping:
+        user: question
+        assistant: answer
+  max_length: 512               # Math solutions are short
+  max_prompt_length: 256
+  filter_long_prompts: true
+  train_eval_split: [0.9, 0.1]  # 90% train, 10% validation
+  cache_dir: ./data-cache
+  num_proc: 16
+
+# Evaluation
+eval_interval: 10              # Evaluate every 10 steps
+
+# DeepSpeed configuration
+deepspeed:
+  zero_optimization:
+    stage: 2
+
+# Logging
+wandb:
+  enable: true
+  project: on-policy-distillation-gsm8k
+  name: distill-qwen3-1.7b
+
+logger:
+  level: INFO
+  output_dir: ./logs
+
+# Optimizer
+scheduler:
+  name: cosine
+  warmup_ratio: 0.1
+
+optimizer:
+  type: fused_adam
+  betas: [0.9, 0.999]
+  weight_decay: 0.1
+  lr: 1e-5
+
+# Checkpointing
+checkpoint:
+  - type: huggingface
+    save_every_n_steps: 100
+    output_dir: ./checkpoints/distill-qwen3-8b
+    save_end_of_training: true

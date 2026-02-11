@@ -16,6 +16,7 @@
 from typing import Dict
 
 import torch
+import torch.nn as nn
 
 
 def to_device(batch: Dict, device: str) -> Dict:
@@ -24,3 +25,17 @@ def to_device(batch: Dict, device: str) -> Dict:
         if isinstance(v, torch.Tensor):
             output[k] = v.to(device)
     return output
+
+
+def disable_dropout_in_model(model: nn.Module) -> None:
+    """Disable dropout in a model by setting dropout probability to 0.
+
+    This is useful for teacher/reference models during distillation or DPO
+    training where we want deterministic outputs.
+
+    Args:
+        model: The PyTorch model to modify in-place.
+    """
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):
+            module.p = 0.0
