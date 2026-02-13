@@ -17,6 +17,7 @@ import math
 from typing import Union
 
 import torch
+import torch.nn as nn
 import torch.distributed.nn.functional
 from deepspeed.runtime.sequence_parallel.ulysses_sp import TiledFusedLogitsLoss
 
@@ -41,16 +42,37 @@ class SFTTrainer(Trainer):
     optimizer_factory: Union[FusedAdamOptimizerFactory, CPUAdamOptimizerFactory]
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
+    loss_fct = nn.CrossEntropyLoss(reduction="none")
 
     def loss(self, batch) -> torch.Tensor:
         batch = to_device(batch, self.device)
+        # print(self.tokenizer.decode(batch['input_ids'][0]))
+        # print((batch['labels'] != -100).sum())
+        # import pdb; pdb.set_trace()
 
         if self.config.sequence_parallel_size == 1:
             # if model.type=liger is configured - this will use a much more efficient fused
             # logits+loss liger kernel - using significantly less gpu memory and a bit faster
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
+            labels = batch.pop("labels").view(-1)
+            loss_mask = (labels != -100).view(-1)[1:].contiguous()
+            # pred = labels[loss_mask]
+            # print(self.tokenizer.decode(pred))
+            shift_labels = batch['input_ids'][:, 1:].view(-1).contiguous()
+            input_ids = batch['input_ids']
+            # self.tokenizer.decode(shift_labels[loss_mask])
+            # import pdb; pdb.set_trace()
+            
             outputs = self.model(**batch, use_cache=False)
-            loss = outputs.loss
+            logits = outputs.logits
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_logits = shift_logits.view(-1, logits.shape[-1])
+            shift_labels = shift_labels.view(-1)
+            loss = self.loss_fct(shift_logits, shift_labels)
+            loss = (loss * loss_mask.contiguous()).sum()
+            # import pdb; pdb.set_trace()
+            # loss = outputs.loss
+            # import pdb; pdb.set_trace()
             return loss
 
         # Ulysses SP expectations:

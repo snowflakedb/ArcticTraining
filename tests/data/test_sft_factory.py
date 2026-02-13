@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import List
 
 import pytest
+from datasets import Dataset
+
+from arctic_training.data.sft_factory import IGNORE_INDEX, SFTDataFactory
 
 from .utils import create_data_factory
 
@@ -108,3 +111,112 @@ def test_pad_to(model_name: str, tmp_path: Path):
     dataloader, _ = data_factory()
     for batch in dataloader:
         assert batch["input_ids"].shape[1] % 256 == 0, "Incorrect padded sequence length"
+
+
+def test_tokenize_input_output(model_name: str):
+    """Test the tokenize_input_output method for INPUT/OUTPUT format."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.pad_token = tokenizer.eos_token
+
+    input_text = "Translate to French: Hello, how are you?"
+    output_text = " Bonjour, comment allez-vous?"
+
+    # Test with masking enabled (default)
+    result_masked = SFTDataFactory.tokenize_input_output(
+        input_text=input_text, output_text=output_text, tokenizer=tokenizer, mask_inputs=True
+    )
+
+    # Verify that we have the expected keys
+    assert "input_ids" in result_masked
+    assert "labels" in result_masked
+    assert "attention_mask" in result_masked
+
+    # Verify that input_ids contains the concatenated sequence (tokenized separately)
+    input_encoding = tokenizer(input_text, add_special_tokens=False)
+    output_encoding = tokenizer(output_text, add_special_tokens=False)
+    expected_input_ids = input_encoding["input_ids"] + output_encoding["input_ids"]
+    assert result_masked["input_ids"] == expected_input_ids
+
+    # Verify that INPUT portion is masked in labels
+    input_length = len(input_encoding["input_ids"])
+
+    # Check that first input_length tokens are masked
+    assert all(label == IGNORE_INDEX for label in result_masked["labels"][:input_length])
+
+    # Check that remaining tokens match OUTPUT encoding (not full input_ids)
+    assert result_masked["labels"][input_length:] == output_encoding["input_ids"]
+
+    # Test without masking
+    result_unmasked = SFTDataFactory.tokenize_input_output(
+        input_text=input_text, output_text=output_text, tokenizer=tokenizer, mask_inputs=False
+    )
+
+    # Verify that labels equal input_ids when masking is disabled
+    assert result_unmasked["labels"] == result_unmasked["input_ids"]
+
+    # Verify that input_ids are the same in both cases
+    assert result_masked["input_ids"] == result_unmasked["input_ids"]
+
+
+def test_input_output_data_format(model_name: str, tmp_path: Path):
+    """Test SFT data factory with input_output format using a synthetic dataset."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.pad_token = tokenizer.eos_token
+
+    # Create a synthetic dataset with input/output format
+    synthetic_data = Dataset.from_dict(
+        {
+            "input": [
+                "Translate to French: Hello",
+                "What is 2+2?",
+                "Write a haiku about coding",
+            ],
+            "output": [" Bonjour", " The answer is 4.", " Code flows like water,\nBugs rise and fall away,\nPeace in the debug."],
+        }
+    )
+
+    # Save dataset to disk
+    dataset_path = tmp_path / "test_input_output_dataset"
+    synthetic_data.save_to_disk(str(dataset_path))
+
+    # Create data factory with input_output format
+    data_factory = create_data_factory(
+        model_name=model_name,
+        data_config_kwargs=dict(
+            type="sft",
+            data_format="input_output",
+            sources=[
+                {
+                    "type": "huggingface_input_output",
+                    "name_or_path": str(dataset_path),
+                    "input_key": "input",
+                    "output_key": "output",
+                }
+            ],
+            cache_dir=tmp_path,
+            max_length=512,
+            batch_size=2,
+        ),
+    )
+
+    # Get dataloader
+    dataloader, _ = data_factory()
+
+    # Verify that data is loaded correctly
+    batch = next(iter(dataloader))
+
+    assert "input_ids" in batch
+    assert "labels" in batch
+    assert "attention_mask" in batch or "position_ids" in batch
+
+    # Verify that some labels are masked (IGNORE_INDEX)
+    has_masked_labels = any((batch["labels"] == IGNORE_INDEX).any() for _ in range(len(batch["labels"])))
+    assert has_masked_labels, "Expected some labels to be masked (IGNORE_INDEX)"
+
+    # Verify that not all labels are masked
+    has_unmasked_labels = any((batch["labels"] != IGNORE_INDEX).any() for _ in range(len(batch["labels"])))
+    assert has_unmasked_labels, "Expected some labels to be unmasked (trainable)"
