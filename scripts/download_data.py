@@ -47,7 +47,7 @@ def get_args():
         "-t",
         "--tmp-path",
         type=Path,
-        default=Path("/data-fast/data-tmp"),
+        default=Path("/tmp/"),
         help="Path to a temporary directory to download data to.",
     )
     return parser.parse_args()
