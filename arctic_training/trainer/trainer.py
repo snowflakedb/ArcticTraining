@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import contextlib
 import math
 import random
 from abc import ABC
@@ -245,6 +246,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             mpu=mpu,
         )
 
+        self.autocast_context = self.set_autocast_context()
+
         self.ds_wall_clock_available = hasattr(self.model, "get_wall_clock_timers")
 
         if self.config.sequence_parallel_size > 1:
@@ -303,6 +306,15 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         np.random.seed(seed)
         random.seed(seed)
         set_seed(seed)
+
+    def set_autocast_context(self):
+        ds_config = self.config.deepspeed
+        if ds_config.get("torch_autocast", {}).get("enabled", False):
+            dtype_str = ds_config.get("torch_autocast").get("dtype").split(".")[1]  # e.g. "torch.bfloat16"
+            dtype = getattr(torch, dtype_str)
+            return torch.autocast(device_type="cuda", dtype=dtype)
+        else:
+            return contextlib.nullcontext()
 
     @property
     def model_unwrapped(self):
