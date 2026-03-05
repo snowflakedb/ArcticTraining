@@ -49,10 +49,8 @@ class SFTTrainer(Trainer):
             # if model.type=liger is configured - this will use a much more efficient fused
             # logits+loss liger kernel - using significantly less gpu memory and a bit faster
             # compute (liger fused logits+loss kernel does not repeat forward during backward)
-            with self.autocast_context:
-                outputs = self.model(**batch, use_cache=False)
-                loss = outputs.loss
-
+            outputs = self.model(**batch, use_cache=False)
+            loss = outputs.loss
             return loss
 
         # Ulysses SP expectations:
@@ -86,9 +84,8 @@ class SFTTrainer(Trainer):
         if self.config.model.type == "liger":
 
             # letting liger do fused logits+loss calculation
-            with self.autocast_context:
-                outputs = self.model(**batch, use_cache=False)
-                loss = outputs.loss
+            outputs = self.model(**batch, use_cache=False)
+            loss = outputs.loss
 
             if loss is None:
                 # XXX: not sure why this happens with SP>1 and eval-enabled, I checked shift_labels contain valid non -100 tokens - disabling fused_linear_cross_entropy=False in AutoLigerKernelForCausalLM.from_pretrained doesn't help. all works when eval is off.
@@ -116,44 +113,43 @@ class SFTTrainer(Trainer):
                 num_shards = math.ceil(size_in_gb / slice_size_in_gb)
                 # print(f"derived {num_shards} shards for size {size_in_gb}GB")
 
-            with self.autocast_context:
-                model_with_head = self.model_unwrapped
-                outputs = model_with_head.model(**batch, use_cache=False)
-                hidden_states = outputs.last_hidden_state
-                compute_params = [model_with_head.lm_head.weight]
-                seqlen = shift_labels.shape[1]
-                mask = None
-                output_reduction = "sum"
+            model_with_head = self.model_unwrapped
+            outputs = model_with_head.model(**batch, use_cache=False)
+            hidden_states = outputs.last_hidden_state
+            compute_params = [model_with_head.lm_head.weight]
+            seqlen = shift_labels.shape[1]
+            mask = None
+            output_reduction = "sum"
 
-                # since -100s shift_labels are ignored we have to perform a weighted average on each
-                # loss slice as each slice may contribute a different number of non- -100 labels
-                def fused_logits_loss_fn(model_with_head=None, hidden_states=None, shift_labels=None):
-                    vocab_size = model_with_head.config.vocab_size
-                    logits = model_with_head.lm_head(hidden_states)
-                    if all((shift_labels == -100).squeeze()):
-                        # fake loss calculation, since CE will return nan, but grads will be set
-                        # a normal loss_fn upcasts logits to float so match it
-                        loss_sum = (logits.sum() * 0.0).float()
-                    else:
-                        good_items = ((shift_labels != -100).squeeze()).sum()
-                        loss = model_with_head.loss_function(
-                            logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
-                        )
-                        loss_sum = loss * good_items
-                    return loss_sum
+            # since -100s shift_labels are ignored we have to perform a weighted average on each
+            # loss slice as each slice may contribute a different number of non- -100 labels
+            def fused_logits_loss_fn(model_with_head=None, hidden_states=None, shift_labels=None):
+                vocab_size = model_with_head.config.vocab_size
+                logits = model_with_head.lm_head(hidden_states)
+                if all((shift_labels == -100).squeeze()):
+                    # fake loss calculation, since CE will return nan, but grads will be set
+                    # a normal loss_fn upcasts logits to float so match it
+                    loss_sum = (logits.sum() * 0.0).float()
+                else:
+                    good_items = ((shift_labels != -100).squeeze()).sum()
+                    loss = model_with_head.loss_function(
+                        logits=logits, labels=None, vocab_size=vocab_size, shift_labels=shift_labels
+                    )
+                    loss_sum = loss * good_items
+                return loss_sum
 
-                total_loss_sum = TiledFusedLogitsLoss.apply(
-                    fused_logits_loss_fn,
-                    model_with_head,
-                    hidden_states,
-                    shift_labels,
-                    mask,
-                    num_shards,
-                    compute_params,
-                    output_reduction,
-                )
-                total_good_items = (shift_labels != -100).squeeze().sum()
-                loss = total_loss_sum / max(total_good_items, 1)
+            total_loss_sum = TiledFusedLogitsLoss.apply(
+                fused_logits_loss_fn,
+                model_with_head,
+                hidden_states,
+                shift_labels,
+                mask,
+                num_shards,
+                compute_params,
+                output_reduction,
+            )
+            total_good_items = (shift_labels != -100).squeeze().sum()
+            loss = total_loss_sum / max(total_good_items, 1)
 
         # differentiable weighted per-shard-loss aggregation across ranks
         losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=self.sp_group)
