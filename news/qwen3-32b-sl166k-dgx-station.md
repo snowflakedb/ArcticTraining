@@ -10,7 +10,7 @@ We can see a nice fast convergence with [HuggingFaceH4/ultrachat_200k dataset](h
 ![](qwen3-32b-sl166k-dgx-station/qwen3-32b-166k-dgx-station-loss.png)
 We used bf16 rather than mixed precision, because instead of using 12 bytes per parameters (8 bytes optim + 4 bytes master weights), we no need only 6 - (4 bytes optim + 2 bytes master weights), so a lot less memory is needed.
 
-The actual tflops are higher since TiledMLP adds an additional forward path but yours truly hasn't fixed the flop estimator to account for it ;) But even with under-reporting it's pretty good - theoretical BF16 on B400 is 2250 TFLOPS, but [measured MAMF](https://github.com/stas00/ml-engineering/tree/master/compute/accelerator#maximum-achievable-flops) is only 1769 TFLOPS  - still not too bad.
+The flops aren't very high because we are using FA2 on Blackwell, which is very slow. Also the actual tflops are higher since TiledMLP adds an additional forward path but yours truly hasn't fixed the flop estimator to account for it ;) But even with under-reporting it's pretty good - theoretical BF16 on B400 is 2250 TFLOPS, but [measured MAMF](https://github.com/stas00/ml-engineering/tree/master/compute/accelerator#maximum-achievable-flops) is only 1769 TFLOPS  - still this pretty good.
 ![](qwen3-32b-sl166k-dgx-station/qwen3-32b-166k-dgx-station-tflops.png)
 
 Sequence length is packed smaller samples so the total varies:
