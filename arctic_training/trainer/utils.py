@@ -24,5 +24,5 @@ def to_device(batch: Dict, device: str) -> Dict:
         if isinstance(v, torch.Tensor):
             output[k] = v.to(device)
         else:
-            output[k] = v          
+            output[k] = v
     return output
