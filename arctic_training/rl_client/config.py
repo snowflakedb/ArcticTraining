@@ -21,6 +21,37 @@ class WeightSyncConfig(BaseModel):
     bucket_size: int = 256 * 1024 * 1024  # 256 MB
 
 
+class ServerLaunchConfig(BaseModel):
+    """Controls whether the client spawns the ArcticInference server itself.
+
+    When ``enabled=True``, :meth:`ArcticRLClient.launch_server` starts a
+    ``uvicorn`` process serving ``arctic_inference.server.api:app`` on the
+    host/port specified in :class:`InferenceServerConfig`.  The process is
+    stopped automatically by :meth:`ArcticRLClient.shutdown`.
+
+    This is the expected mode when running inside VeRL, where the client
+    owns the full lifecycle of the inference engine.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Spawn the ArcticInference server on launch_server().",
+    )
+    app: str = Field(
+        default="arctic_inference.server.api:app",
+        description="Uvicorn app import string.  Override for testing.",
+    )
+    log_level: str = "info"
+    startup_timeout: float = Field(
+        default=120.0,
+        description="Seconds to wait for the server to become healthy.",
+    )
+    health_check_interval: float = Field(
+        default=2.0,
+        description="Seconds between /status health-check polls.",
+    )
+
+
 class InferenceServerConfig(BaseModel):
     """Connection parameters for an inference server.
 
@@ -48,3 +79,4 @@ class ArcticRLClientConfig(BaseModel):
     inference: InferenceServerConfig = Field(default_factory=InferenceServerConfig)
     training: TrainingServerConfig = Field(default_factory=TrainingServerConfig)
     weight_sync: WeightSyncConfig = Field(default_factory=WeightSyncConfig)
+    server: ServerLaunchConfig = Field(default_factory=ServerLaunchConfig)
