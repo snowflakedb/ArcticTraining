@@ -92,8 +92,8 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
         if not self.config.enabled:
             return False
         return_value = False
-        if self.config.save_every_n_steps and self.trainer.global_step > 0:
-            return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
+        if self.trainer.model.is_gradient_accumulation_boundary() and self.config.save_every_n_steps:
+            return_value = True
 
         if self.config.save_every_n_epochs:
             return_value = return_value or (
