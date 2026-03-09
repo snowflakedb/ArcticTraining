@@ -71,8 +71,12 @@ def get_nvml_mem():
             return 0
         pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
         # pynvml.nvmlShutdown()
-    memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
-    return memory_info.used
+    try:
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(pynvml_handle)
+        return memory_info.used
+    except pynvml.NVMLError_NotSupported:
+        # DGX Spark fails here https://docs.nvidia.com/dgx/dgx-spark/known-issues.html#nvidia-smi-reports-memory-usage-not-supported
+        return 0
 
 
 def gc_empty_accelerator_cache():
