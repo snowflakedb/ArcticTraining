@@ -420,7 +420,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.model.train()
 
-        loss = self.loss(batch)
+        with deepspeed.runtime.engine.autocast_if_enabled(self.model):
+            loss = self.loss(batch)
 
         self.backward(loss)
 
