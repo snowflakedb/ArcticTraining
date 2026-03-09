@@ -93,7 +93,7 @@ class CheckpointEngine(ABC, CallbackMixin, metaclass=RegistryMeta):
             return False
         return_value = False
         if self.trainer.model.is_gradient_accumulation_boundary() and self.config.save_every_n_steps:
-            return_value = True
+            return_value = self.trainer.global_step % self.config.save_every_n_steps == 0
 
         if self.config.save_every_n_epochs:
             return_value = return_value or (
