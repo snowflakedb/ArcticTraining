@@ -54,6 +54,7 @@ jobs:
               - 'ci/**'
               - 'tests/**'
               - '!docs/**'
+              - '!news/**'
               - '!projects/**'
               - '!scripts/**'
               - '!tutorial/**'
