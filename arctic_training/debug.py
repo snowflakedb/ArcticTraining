@@ -214,16 +214,16 @@ if USE_PRINTFLOCK:
 
 def print_rank(*msg, force=False, ranks=None):
     """print something on all global ranks with [rank] prefix.
-    if `ranks` is passed then only those ranks will be printed
+    if `ranks is not None` passed then only those ranks will be printed
 
     e.g. to print just on ranks 0 and 3:
     print_rank(*msg, ranks=[0,3]):
 
     """
-    if DISABLE_DEBUG or not force or ranks is None:
+    if DISABLE_DEBUG or not force:
         return
     global_rank = dist.get_rank()
-    if global_rank not in ranks:
+    if ranks is not None and global_rank not in ranks:
         return
     print(f"[{global_rank}]", *msg)
 
