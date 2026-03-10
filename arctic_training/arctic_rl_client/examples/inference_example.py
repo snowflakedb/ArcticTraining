@@ -22,7 +22,11 @@ import argparse
 import json
 import logging
 
-from arctic_training.rl_client import ArcticRLClient, ArcticRLClientConfig, InferenceServerConfig
+from arctic_training.arctic_rl_client import (
+    ArcticRLClient,
+    ArcticRLClientConfig,
+    InferenceServerConfig,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 log = logging.getLogger(__name__)

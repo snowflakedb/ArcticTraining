@@ -1,12 +1,13 @@
 """ArcticRLClient -- unified client for Arctic servers.
 
-All operations go through a single :class:`Backend` instance.  The client
-caches ``model_id`` after :meth:`init_model` so callers don't need to pass
-it on every call.
+Sends HTTP requests directly to the FastAPI endpoints exposed by
+``arctic_inference_server`` (``/init``, ``/generate``, ``/sync_weights``, ...).
 
 When ``config.server.enabled`` is ``True``, the client also owns the
 ArcticInference server process: :meth:`launch_server` spawns it and
 :meth:`shutdown` tears it down.
+
+Training methods are not yet implemented.
 """
 
 from __future__ import annotations
@@ -22,31 +23,18 @@ from typing import Any, Iterable, Iterator
 import requests
 import torch
 
-from arctic_training.rl_client.backends.base import Backend
-from arctic_training.rl_client.backends.direct import DirectBackend
-from arctic_training.rl_client.config import ArcticRLClientConfig
-from arctic_training.rl_client.weight_sync import WeightSyncCoordinator
+from arctic_training.arctic_rl_client.config import ArcticRLClientConfig
+from arctic_training.arctic_rl_client.weight_sync import WeightSyncCoordinator
 
 logger = logging.getLogger(__name__)
 
-
-def _build_backend(config: ArcticRLClientConfig) -> Backend:
-    """Create the backend implied by *config.inference.backend*."""
-    base_url = f"http://{config.inference.host}:{config.inference.port}"
-    kind = config.inference.backend
-
-    if kind == "direct":
-        return DirectBackend(base_url)
-
-    if kind == "dss":
-        from arctic_training.rl_client.backends.dss import DSSBackend
-        return DSSBackend(base_url)
-
-    raise ValueError(f"Unknown backend: {kind!r}")
+_TRAINING_NOT_IMPL = (
+    "Training is not yet supported via the HTTP backend."
+)
 
 
 class ArcticRLClient:
-    """Framework-agnostic client for Arctic servers.
+    """Framework-agnostic HTTP client for Arctic servers.
 
     Parameters
     ----------
@@ -68,10 +56,12 @@ class ArcticRLClient:
         auto_launch: bool = False,
     ) -> None:
         self.config = config
-        self.backend = _build_backend(config)
         self.weight_sync = WeightSyncCoordinator(config.weight_sync)
         self.model_id: str | None = config.inference.model_id
 
+        base_url = f"http://{config.inference.host}:{config.inference.port}"
+        self._base_url = base_url.rstrip("/")
+        self._session = requests.Session()
         self._server_process: subprocess.Popen | None = None
 
         if auto_launch and config.server.enabled:
@@ -124,7 +114,6 @@ class ArcticRLClient:
     def _wait_for_ready(self) -> None:
         """Poll the server until it responds or timeout."""
         srv = self.config.server
-        base_url = f"http://{self.config.inference.host}:{self.config.inference.port}"
         deadline = time.monotonic() + srv.startup_timeout
 
         while time.monotonic() < deadline:
@@ -133,9 +122,9 @@ class ArcticRLClient:
                     f"Server process exited with code {self._server_process.returncode}"
                 )
             try:
-                resp = requests.get(f"{base_url}/status", timeout=3)
+                resp = requests.get(f"{self._base_url}/status", timeout=3)
                 if resp.ok:
-                    logger.info("ArcticInference server is ready at %s", base_url)
+                    logger.info("ArcticInference server is ready at %s", self._base_url)
                     return
             except requests.ConnectionError:
                 pass
@@ -143,7 +132,7 @@ class ArcticRLClient:
 
         raise TimeoutError(
             f"ArcticInference server did not become healthy within "
-            f"{srv.startup_timeout}s at {base_url}"
+            f"{srv.startup_timeout}s at {self._base_url}"
         )
 
     def stop_server(self) -> None:
@@ -187,20 +176,30 @@ class ArcticRLClient:
         model_id: str | None = None,
     ) -> dict[str, Any]:
         """Load a model on the server.  Caches the returned ``model_id``."""
-        data = self.backend.init_model(model_config, model_id=model_id)
+        resp = self._session.post(
+            f"{self._base_url}/init",
+            json={"config": model_config, "model_id": model_id},
+        )
+        resp.raise_for_status()
+        data = resp.json()
         self.model_id = data.get("model_id") or model_id or model_config.get("model", "default")
         data["model_id"] = self.model_id
         return data
 
     def shutdown_model(self, model_id: str | None = None) -> dict[str, Any]:
         """Unload a single model."""
-        return self.backend.shutdown_model(model_id or self.model_id)
+        resp = self._session.post(
+            f"{self._base_url}/shutdown",
+            params={"model_id": model_id or self.model_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     def shutdown(self) -> None:
         """Tear down NCCL senders, shut down the server, and stop the process."""
         self.weight_sync.destroy()
         try:
-            self.backend.shutdown()
+            self._session.post(f"{self._base_url}/shutdown").raise_for_status()
         except Exception:
             logger.warning("Server shutdown request failed", exc_info=True)
         self.stop_server()
@@ -217,12 +216,21 @@ class ArcticRLClient:
         sampling_params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate text completions."""
-        return self.backend.generate(
-            self.model_id,
-            prompts,
-            prompt_token_ids=prompt_token_ids,
-            sampling_params=sampling_params,
+        merged: list[str | list[int]] = []
+        if prompts:
+            merged.extend(prompts)
+        if prompt_token_ids:
+            merged.extend(prompt_token_ids)
+        resp = self._session.post(
+            f"{self._base_url}/generate",
+            json={
+                "model_id": self.model_id,
+                "prompts": merged,
+                "sampling_params": sampling_params or {},
+            },
         )
+        resp.raise_for_status()
+        return resp.json()["results"]
 
     # ------------------------------------------------------------------
     # Weight sync
@@ -238,18 +246,28 @@ class ArcticRLClient:
         direct_mode: bool = False,
     ) -> dict[str, Any]:
         """Trigger NCCL weight receive on the server."""
-        return self.backend.update_weights(
-            self.model_id,
-            groups,
-            bucket_size=bucket_size,
-            strategy=strategy,
-            engine_only=engine_only,
-            direct_mode=direct_mode,
+        resp = self._session.post(
+            f"{self._base_url}/sync_weights",
+            json={
+                "model_id": self.model_id,
+                "groups": groups,
+                "bucket_size": bucket_size,
+                "strategy": strategy,
+                "engine_only": engine_only,
+                "direct_mode": direct_mode,
+            },
         )
+        resp.raise_for_status()
+        return resp.json()
 
     def close_weight_sync(self) -> dict[str, Any]:
         """Destroy persistent NCCL receiver engines on the server."""
-        return self.backend.close_weight_sync(self.model_id)
+        resp = self._session.post(
+            f"{self._base_url}/close_weight_sync",
+            params={"model_id": self.model_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     def sync_weights(
         self,
@@ -267,11 +285,21 @@ class ArcticRLClient:
 
     def wake_up(self) -> dict[str, Any]:
         """Resume workers from sleep."""
-        return self.backend.wake_up(self.model_id)
+        resp = self._session.post(
+            f"{self._base_url}/wake_up",
+            json={"model_id": self.model_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     def sleep(self, level: int = 1) -> dict[str, Any]:
         """Release GPU memory (weights + KV cache)."""
-        return self.backend.sleep(self.model_id, level=level)
+        resp = self._session.post(
+            f"{self._base_url}/sleep",
+            json={"model_id": self.model_id, "level": level},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # ------------------------------------------------------------------
     # Status
@@ -279,19 +307,26 @@ class ArcticRLClient:
 
     def status(self) -> dict[str, Any]:
         """Server and model status."""
-        return self.backend.status()
+        resp = self._session.get(f"{self._base_url}/status")
+        resp.raise_for_status()
+        return resp.json()
 
     def weights_info(self) -> dict[str, Any]:
         """Parameter metadata for the loaded model."""
-        return self.backend.weights_info(self.model_id)
+        resp = self._session.get(
+            f"{self._base_url}/weights_info",
+            params={"model_id": self.model_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # ------------------------------------------------------------------
-    # Log-probs / Policy
+    # Log-probs / Policy (not yet implemented)
     # ------------------------------------------------------------------
 
     def compute_log_prob(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Forward-only pass returning per-token log probabilities."""
-        return self.backend.compute_log_prob(batch)
+        raise NotImplementedError(_TRAINING_NOT_IMPL)
 
     def update_policy(
         self,
@@ -300,20 +335,20 @@ class ArcticRLClient:
         loss_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Forward + backward + optimizer step."""
-        return self.backend.update_policy(batch, loss_type=loss_type, loss_config=loss_config)
+        raise NotImplementedError(_TRAINING_NOT_IMPL)
 
     # ------------------------------------------------------------------
-    # Weights / Checkpointing
+    # Weights / Checkpointing (not yet implemented)
     # ------------------------------------------------------------------
 
     def get_weights(self) -> Iterator[tuple[str, torch.Tensor]]:
         """Iterate over un-sharded model parameters."""
-        return self.backend.get_weights()
+        raise NotImplementedError(_TRAINING_NOT_IMPL)
 
     def save_checkpoint(self, path: str) -> dict[str, Any]:
         """Persist model + optimizer state to *path*."""
-        return self.backend.save_checkpoint(path)
+        raise NotImplementedError(_TRAINING_NOT_IMPL)
 
     def load_checkpoint(self, path: str) -> dict[str, Any]:
         """Restore model + optimizer state from *path*."""
-        return self.backend.load_checkpoint(path)
+        raise NotImplementedError(_TRAINING_NOT_IMPL)

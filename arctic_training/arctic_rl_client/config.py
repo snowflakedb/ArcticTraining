@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
@@ -53,16 +51,10 @@ class ServerLaunchConfig(BaseModel):
 
 
 class InferenceServerConfig(BaseModel):
-    """Connection parameters for an inference server.
-
-    Set *backend* to ``"direct"`` (default) to talk to a standalone
-    ArcticInference server, or ``"dss"`` to talk to a dss-platform
-    SFTP server.  The rest of the config stays the same.
-    """
+    """Connection parameters for the ArcticInference server."""
 
     host: str = "localhost"
     port: int = 8000
-    backend: Literal["direct", "dss"] = "direct"
     model_id: str | None = None
 
 

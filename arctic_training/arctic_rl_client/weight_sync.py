@@ -16,10 +16,10 @@ import torch
 from arctic_inference.server.weight_sync.schedule import TransferSchedule
 from arctic_inference.server.weight_sync.sender import WeightSender
 
-from arctic_training.rl_client.config import WeightSyncConfig
+from arctic_training.arctic_rl_client.config import WeightSyncConfig
 
 if TYPE_CHECKING:
-    from arctic_training.rl_client.client import ArcticRLClient
+    from arctic_training.arctic_rl_client.client import ArcticRLClient
 
 logger = logging.getLogger(__name__)
 
