@@ -212,7 +212,7 @@ if USE_PRINTFLOCK:
     print = printflock
 
 
-def print_rank(*msg, force=True, ranks=None):
+def print_rank(*msg, force=False, ranks=None):
     """print something on all global ranks with [rank] prefix.
     if `ranks is not None` passed then only those ranks will be printed
 
