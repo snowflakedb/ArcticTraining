@@ -477,45 +477,32 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     [len(batch["input_ids"][idx]) * self.config.sequence_parallel_size]
                     for idx in range(len(batch["input_ids"]))
                 ]
-            self.metrics.seqlens = sample_seqlens
+            self.metrics.record("seqlens", sample_seqlens)
 
             self.metrics.start_timer("step")
             self.step(batch)
             self.metrics.stop_timer("step")
-
             self.metrics.restart_timer("iter")
 
-            if self.config.train_log_iter_interval != 0:
-                self.metrics.print_summary()
-
             if self.gas_boundary:
-                if (
-                    self.global_rank == 0
-                    and self.config.train_log_iter_interval != 0
-                    and self.global_step % self.config.train_log_iter_interval == 0
-                ):
-                    metrics = {k: v for k, v in self.metrics.summary_dict.items()}
-                    if self.ds_wall_clock_available:
-                        ds_timers = self.model.get_wall_clock_timers()
-                        metrics.update(ds_timers)
-
-                    append_json_file(self.config.train_log_metrics_path, metrics)
-
-                    # do not log the first train iteration to wandb, since it's a massive outlier
-                    # on all performance metrics, which messes up the scale of the report
-                    if self.wandb_experiment is not None and self.global_step > 1:
-                        metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
-                        self.wandb_experiment.log(metrics, step=self.global_step)
+                if self.metrics.should_log():
+                    summary = self.metrics.report()
+                    if self.global_rank == 0:
+                        if self.ds_wall_clock_available:
+                            summary.update(self.model.get_wall_clock_timers())
+                        append_json_file(self.config.train_log_metrics_path, summary)
+                        if self.wandb_experiment is not None and self.global_step > 1:
+                            wandb_metrics = {k: v for k, v in summary.items() if k != "iter"}
+                            self.wandb_experiment.log(wandb_metrics, step=self.global_step)
 
                 if self.config.eval_interval != 0 and self.global_step % self.config.eval_interval == 0:
                     self.evaluate()
-
                     if self.is_eval_log_iter():
-                        self.metrics.print_summary(prefix="eval")
-
+                        eval_summary = self.metrics.report(prefix="eval")
                         if self.wandb_experiment is not None:
-                            metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
-                            self.wandb_experiment.log(metrics, step=self.global_step)
+                            self.wandb_experiment.log(
+                                {"eval_loss": eval_summary["eval_loss"]}, step=self.global_step
+                            )
 
         self.metrics.stop_timer("iter")
         self.epoch_finished = True
@@ -561,8 +548,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         """
         self.model.eval()
         with torch.no_grad():
-            losses = [self.loss(eval_batch).item() for eval_batch in self.eval_batches]
-        self.metrics.record("loss/eval", losses)  # type: ignore
+            for eval_batch in self.eval_batches:
+                self.metrics.record("eval_loss", self.loss(eval_batch).item())
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
