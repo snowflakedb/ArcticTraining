@@ -134,27 +134,19 @@ def see_memory_usage(message, force=False, ranks=[0]):
     get_accelerator().reset_peak_memory_stats()
 
 
-def get_mem_metrics():
-
+def get_mem_metrics() -> tuple[float, float, float]:
+    """Return (memory_allocated_gb, max_memory_allocated_gb, nvml_mem_gb)."""
     gc.collect()
-    # torch.cuda.empty_cache()
 
     nv_mem = get_nvml_mem()
-
-    summary = " | ".join(
-        [
-            f"MA {round(get_accelerator().memory_allocated() / 2**30, 2):0.2f} GB",
-            f"Max_MA {round(get_accelerator().max_memory_allocated() / 2**30, 2):0.2f} GB",
-            f"NV {round(nv_mem / 2**30, 2):0.2f} GB",
-        ]
-    )
+    ma_gb = round(get_accelerator().memory_allocated() / 2**30, 2)
+    max_ma_gb = round(get_accelerator().max_memory_allocated() / 2**30, 2)
+    nv_gb = round(nv_mem / 2**30, 2)
 
     # get the peak memory to report correct data, so reset the counter for the next call
-    # this will lead to wrong peak reports if `see_mem_usage` is also used during the run,
-    # as it resets the peak counter and there is only one counter
     get_accelerator().reset_peak_memory_stats()
 
-    return summary
+    return (ma_gb, max_ma_gb, nv_gb)
 
 
 # fcntl.flock can be slow on shared fs, so if things are too slow especially when many ranks are
