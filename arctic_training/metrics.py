@@ -26,7 +26,6 @@ from typing import Union
 import torch
 from deepspeed.utils.timer import SynchronizedWallClockTimer
 
-from arctic_training.debug import get_mem_metrics
 from arctic_training.trainer.flops_counter import estimate_decoder_transformer_tflos
 from arctic_training.utils import human_format_base10_number
 from arctic_training.utils import human_format_secs
@@ -142,7 +141,7 @@ class Metrics:
         self._defs: Dict[str, MetricDef] = {}
         self._accum: Dict[str, list] = defaultdict(list)
         self._timers: Dict[str, SynchronizedWallClockTimer.Timer] = {}
-        self._display_order: List[str] = list(trainer.config.metrics_display_order)
+        self._display_order: List[str] = trainer.config.metrics_display_order
         self.summary_dict: Dict[str, Union[int, float]] = {}
 
         # Register standard metrics -- display order follows registration order.
@@ -155,6 +154,9 @@ class Metrics:
         self.register("step_tflops", derive=_derive_tflops("step_time"), fmt=".1f", display_name="step tflops")
         self.register("iter_time", reduce="mean", fmt=human_format_secs, display_name="iter time", accumulate=True)
         self.register("iter_tflops", derive=_derive_tflops("iter_time"), fmt=".1f", display_name="iter tflops")
+        self.register("mem_ma", reduce="mean", fmt=lambda v: f"{v:.2f} GB", display_name="MA")
+        self.register("mem_max_ma", reduce="mean", fmt=lambda v: f"{v:.2f} GB", display_name="Max_MA")
+        self.register("mem_nv", reduce="mean", fmt=lambda v: f"{v:.2f} GB", display_name="NV")
 
         numel = lambda p: p.ds_numel if hasattr(p, "ds_tensor") else p.numel()
         self._model_size = sum(numel(p) for p in trainer.model_unwrapped.parameters())
@@ -304,5 +306,4 @@ class Metrics:
             defn = self._defs.get(key)
             if defn and defn.display_name and key in s:
                 parts.append(f"{defn.display_name}: {defn.format_value(s[key])}")
-        parts.append(get_mem_metrics())
         print(" | ".join(parts))

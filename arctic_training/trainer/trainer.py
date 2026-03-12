@@ -47,6 +47,7 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
 from arctic_training.data.utils import OverfitOneBatchDataLoader
+from arctic_training.debug import get_mem_metrics
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
@@ -486,6 +487,10 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             if self.gas_boundary:
                 if self.metrics.should_log():
+                    ma, max_ma, nv = get_mem_metrics()
+                    self.metrics.record("mem_ma", ma)
+                    self.metrics.record("mem_max_ma", max_ma)
+                    self.metrics.record("mem_nv", nv)
                     summary = self.metrics.report()
                     if self.global_rank == 0:
                         if self.ds_wall_clock_available:
