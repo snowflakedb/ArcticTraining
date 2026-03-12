@@ -505,9 +505,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     if self.is_eval_log_iter():
                         eval_summary = self.metrics.report(prefix="eval")
                         if self.wandb_experiment is not None:
-                            self.wandb_experiment.log(
-                                {"eval_loss": eval_summary["eval_loss"]}, step=self.global_step
-                            )
+                            self.wandb_experiment.log({"eval_loss": eval_summary["eval_loss"]}, step=self.global_step)
 
         self.metrics.stop_timer("iter")
         self.epoch_finished = True
