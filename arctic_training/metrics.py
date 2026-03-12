@@ -73,15 +73,30 @@ def _derive_tflops(time_key: str) -> Callable:
     return _derive
 
 
-def _derive_seqlen(metrics: Metrics, ctx: Dict) -> Optional[float]:
-    """Derive mean per-micro-step token count from raw seqlens accumulator."""
+def _compute_interval_token_sum(metrics: Metrics) -> Optional[int]:
+    """Total tokens since last log (summed over all steps and DP)."""
     seqlens_raw = metrics._accum.get("seqlens", [])
     if not seqlens_raw:
         return None
     local_total = sum(s for batch in seqlens_raw for sublist in batch for s in sublist)
+    gathered = _gather_object(local_total, metrics.trainer.world_size)
+    return sum(gathered)
+
+
+def _derive_seqlen(metrics: Metrics, ctx: Dict) -> Optional[float]:
+    """Average seqlen per step per DP (since last log)."""
+    total_tokens = _compute_interval_token_sum(metrics)
+    if total_tokens is None:
+        return None
+    seqlens_raw = metrics._accum.get("seqlens", [])
     ws = metrics.trainer.world_size
-    gathered = _gather_object(local_total, ws)
-    return sum(gathered) / (len(seqlens_raw) * len(gathered))
+    num_steps = len(seqlens_raw) * ws
+    return total_tokens / num_steps if num_steps else None
+
+
+def _derive_seqlen_total_since_log(metrics: Metrics, ctx: Dict) -> Optional[int]:
+    """Total tokens since last log (all steps, all DP ranks)."""
+    return _compute_interval_token_sum(metrics)
 
 
 class MetricDef:
@@ -149,7 +164,8 @@ class Metrics:
         self.register("loss", reduce="mean", fmt=".4f", display_name="loss")
         self.register("eval_loss", reduce="mean", fmt=".4f", display_name="eval loss")
         self.register("lr", derive=lambda m, _: m.trainer.model.lr_scheduler.get_last_lr()[0], fmt=".3E", display_name="lr")
-        self.register("seqlens", derive=_derive_seqlen, fmt=human_format_base10_number, display_name="seqlen")
+        self.register("seqlens", derive=_derive_seqlen, fmt=human_format_base10_number, display_name="seqlen (avg/step/DP)")
+        self.register("seqlen_total_since_log", derive=_derive_seqlen_total_since_log, fmt=human_format_base10_number, display_name="seqlen total (since log)")
         self.register("step_time", reduce="mean", fmt=human_format_secs, display_name="step time", accumulate=True)
         self.register("step_tflops", derive=_derive_tflops("step_time"), fmt=".1f", display_name="step tflops")
         self.register("iter_time", reduce="mean", fmt=human_format_secs, display_name="iter time", accumulate=True)
