@@ -44,7 +44,7 @@ data:
   dl_num_workers: 1
 
   pack_samples: true
-  max_length: 166_000 #  r0.7
+  max_length: 136_000 #  r0.7
 
 wandb:
   enable: false

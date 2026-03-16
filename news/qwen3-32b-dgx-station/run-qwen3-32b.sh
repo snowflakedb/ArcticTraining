@@ -1,5 +1,4 @@
 #!/bin/bash
-seq 20 | xargs -I -- echo
 
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 #export HF_HOME=/data/huggingface
