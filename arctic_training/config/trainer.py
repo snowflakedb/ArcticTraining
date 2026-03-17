@@ -106,8 +106,11 @@ class TrainerConfig(BaseConfig):
     loss_log_interval: HumanInt = Field(default=1, ge=0)
     """ Number of steps between logging loss. """
 
-    train_log_iter_interval: Literal[0, 1] = 1
-    """ Iters between training metric log outputs. `0` is off, only intervals of `1` currently supported. """
+    train_log_iter_interval: HumanInt = Field(default=1, ge=0)
+    """ Iters between training metric log outputs. `0` disables metrics logging. """
+
+    metrics_display_order: List[str] = []
+    """ Optional display order for metrics in the log line. Unlisted metrics are appended in their default order. """
 
     # XXX: fixme: the default output dir is broken
     # train_log_metrics_path: Path = Field(
