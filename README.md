@@ -10,6 +10,7 @@
 
 ## Latest News
 
+* [2026/03] [Post-training Qwen3-32B model on 1x NVIDIA DGX Station with 136K sequence length is now a reality](https://github.com/snowflakedb/ArcticTraining/blob/main/news/qwen3-32b-dgx-station.md)
 * [2025/06] [Arctic Long Sequence Training (ALST): Scalable And Efficient Training For Multi-Million Token Sequences](https://www.snowflake.com/en/engineering-blog/arctic-long-sequence-training-multi-million-token-ai/)
 * [2025/05] [Fastest Speculative Decoding in vLLM with Arctic Inference and Arctic Training](https://www.snowflake.com/en/engineering-blog/fast-speculative-decoding-vllm-arctic/)
 * [2025/03] [Snowflake Arctic Embed Joins ArcticTraining: Simple And Scalable Embedding Model Training](https://www.snowflake.com/en/engineering-blog/arctic-embed-joins-arctictraining/)
