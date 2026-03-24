@@ -23,6 +23,7 @@ from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.data import DataConfig
+from arctic_training.config.experiment_tracking import ExperimentTrackingConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.model import ModelConfig
 from arctic_training.config.optimizer import OptimizerConfig
@@ -39,6 +40,11 @@ from arctic_training.data.hf_source import HFDataSource
 from arctic_training.data.sft_factory import SFTDataFactory
 from arctic_training.data.snowflake_source import SnowflakeDataSource
 from arctic_training.data.source import DataSource
+from arctic_training.experiment_tracking.snowflake_tracker import SnowflakeExperimentTrackingConfig
+from arctic_training.experiment_tracking.snowflake_tracker import SnowflakeExpTracker
+from arctic_training.experiment_tracking.tracker import ExperimentTracker
+from arctic_training.experiment_tracking.wandb_tracker import WandBExperimentTrackingConfig
+from arctic_training.experiment_tracking.wandb_tracker import WandBTracker
 from arctic_training.logging import logger
 from arctic_training.model.factory import ModelFactory
 from arctic_training.model.hf_factory import HFModelFactory

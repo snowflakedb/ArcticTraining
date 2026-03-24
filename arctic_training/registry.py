@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from arctic_training.checkpoint.engine import CheckpointEngine
     from arctic_training.data.factory import DataFactory
     from arctic_training.data.source import DataSource
+    from arctic_training.experiment_tracking.tracker import ExperimentTracker
     from arctic_training.model.factory import ModelFactory
     from arctic_training.optimizer.factory import OptimizerFactory
     from arctic_training.scheduler.factory import SchedulerFactory
@@ -127,6 +128,10 @@ def get_registered_class(class_type: str, name: str) -> Type:
 
 def get_registered_checkpoint_engine(name: str) -> Type["CheckpointEngine"]:
     return get_registered_class(class_type="CheckpointEngine", name=name)
+
+
+def get_registered_experiment_tracker(name: str) -> Type["ExperimentTracker"]:
+    return get_registered_class(class_type="ExperimentTracker", name=name)
 
 
 def get_registered_data_factory(name: str) -> Type["DataFactory"]:

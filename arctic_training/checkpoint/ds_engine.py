@@ -79,7 +79,11 @@ class DSCheckpointEngine(CheckpointEngine):
             "np_random_state": np.random.get_state(),
             "python_random_state": random.getstate(),
             "global_step": self.trainer.global_step,
-            "wandb_run_id": self.trainer.wandb_run_id,
+            "experiment_tracker_state": (
+                self.trainer.experiment_tracker.get_resume_state()
+                if self.trainer.experiment_tracker is not None
+                else None
+            ),
         }
         if self.device != torch.device("cpu"):
             state["torch_cuda_random_state"] = torch.cuda.get_rng_state()
@@ -112,7 +116,7 @@ class DSCheckpointEngine(CheckpointEngine):
         if self.device != torch.device("cpu"):
             torch.cuda.set_rng_state(client_states["torch_cuda_random_state"])
 
-        self.trainer.wandb_run_id = client_states["wandb_run_id"]
+        self.trainer.experiment_tracker_state = client_states.get("experiment_tracker_state")
 
         # Helpful ckpt resume debugging snippet
         # norm = model_norm(model)
