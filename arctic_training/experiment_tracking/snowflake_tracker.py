@@ -76,7 +76,7 @@ class SnowflakeExpTracker(ExperimentTracker):
 
     def __init__(self, trainer: "Trainer", config: SnowflakeExperimentTrackingConfig) -> None:
         super().__init__(trainer, config)
-        self._experiment = None
+        self._experiment: Any = None
         self._run_name: Optional[str] = config.run_name
 
     def start(self, run_config: Dict[str, Any]) -> None:

@@ -14,4 +14,6 @@
 # limitations under the License.
 
 # Backward compatibility alias — use ExperimentTrackingConfig / WandBExperimentTrackingConfig instead.
-from arctic_training.experiment_tracking.wandb_tracker import WandBExperimentTrackingConfig as WandBConfig  # noqa: F401
+from arctic_training.experiment_tracking.wandb_tracker import WandBExperimentTrackingConfig as WandBConfig
+
+__all__ = ["WandBConfig"]

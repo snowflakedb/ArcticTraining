@@ -39,6 +39,7 @@ from arctic_training.config.base import BaseConfig
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.data import DataConfig
 from arctic_training.config.enums import DType
+from arctic_training.config.experiment_tracking import ExperimentTrackingConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.model import ModelConfig
 from arctic_training.config.optimizer import OptimizerConfig
@@ -47,7 +48,6 @@ from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.config.utils import HumanInt
 from arctic_training.config.utils import UniqueKeyLoader
 from arctic_training.config.utils import parse_human_val
-from arctic_training.config.experiment_tracking import ExperimentTrackingConfig
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
 from arctic_training.registry import get_registered_data_factory

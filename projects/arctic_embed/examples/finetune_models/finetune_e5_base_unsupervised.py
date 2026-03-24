@@ -39,7 +39,7 @@ from arctic_embed.trainer import BiencoderTrainerConfig
 from arctic_training.config.checkpoint import CheckpointConfig
 from arctic_training.config.logger import LoggerConfig
 from arctic_training.config.optimizer import OptimizerConfig
-from arctic_training.config.wandb import WandBConfig
+from arctic_training.experiment_tracking.wandb_tracker import WandBExperimentTrackingConfig
 from arctic_training.scheduler.wsd_factory import WSDSchedulerConfig
 
 LEARNING_RATE = 3e-5
@@ -75,7 +75,7 @@ dconf = ContrastivePretokenizedDataConfig(
 sconf = WSDSchedulerConfig(num_warmup_steps=500, num_decay_steps=1_000, learning_rate=LEARNING_RATE)
 oconf = OptimizerConfig(weight_decay=0.01, learning_rate=LEARNING_RATE)
 lconf = LoggerConfig(level="INFO")
-wconf = WandBConfig(
+wconf = WandBExperimentTrackingConfig(
     enable=True,
     project="arctic-training-arctic-embed-testbed",
     name=f"e5-base-unsupervised-finetune-{ts}",
@@ -132,7 +132,7 @@ if __name__ == "__main__":
         optimizer=oconf,
         logger=lconf,
         checkpoint=cconf,
-        wandb=wconf,
+        experiment_tracking=wconf,
         deepspeed=dsconf,
         loss_log_interval=0,
         eval_interval=100,

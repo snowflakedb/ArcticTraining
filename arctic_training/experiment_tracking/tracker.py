@@ -49,6 +49,7 @@ class ExperimentTracker(ABC, metaclass=RegistryMeta):
     def _validate_subclass(cls) -> None:
         _validate_class_attribute_set(cls, "name")
         _validate_class_attribute_type(cls, "config", ExperimentTrackingConfig)
+        _validate_class_method(cls, "start", ["self", "run_config"])
         _validate_class_method(cls, "log_metrics", ["self", "metrics", "step"])
         _validate_class_method(cls, "log_params", ["self", "params"])
         _validate_class_method(cls, "finish", ["self"])
@@ -62,6 +63,11 @@ class ExperimentTracker(ABC, metaclass=RegistryMeta):
     @property
     def trainer(self) -> "Trainer":
         return self._trainer
+
+    @abstractmethod
+    def start(self, run_config: Dict[str, Any]) -> None:
+        """Initialize and start the tracking run."""
+        raise NotImplementedError
 
     @abstractmethod
     def log_metrics(self, metrics: Dict[str, Any], step: int) -> None:

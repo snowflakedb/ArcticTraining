@@ -45,8 +45,8 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
-from arctic_training.experiment_tracking.tracker import ExperimentTracker
 from arctic_training.data.utils import OverfitOneBatchDataLoader
+from arctic_training.experiment_tracking.tracker import ExperimentTracker
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory

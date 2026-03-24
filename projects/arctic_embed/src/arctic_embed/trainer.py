@@ -164,10 +164,11 @@ class BiencoderTrainer(Trainer):
         if self.is_wandb_logger:
             import wandb
 
+            et = self.config.experiment_tracking
             wandb.init(
-                project=self.config.experiment_tracking.project,
+                project=getattr(et, "project", None),
                 config=self.config.model_dump(),
-                name=self.config.experiment_tracking.name,
+                name=getattr(et, "name", None),
                 dir="/tmp/wandb",
                 save_code=False,
             )
