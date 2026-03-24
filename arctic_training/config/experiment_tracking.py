@@ -13,5 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Backward compatibility alias — use ExperimentTrackingConfig / WandBExperimentTrackingConfig instead.
-from arctic_training.experiment_tracking.wandb_tracker import WandBExperimentTrackingConfig as WandBConfig  # noqa: F401
+from arctic_training.config.base import BaseConfig
+
+
+class ExperimentTrackingConfig(BaseConfig):
+    type: str = "wandb"
+    """ Experiment tracking backend type. """
+
+    enable: bool = False
+    """ Whether to enable experiment tracking. """

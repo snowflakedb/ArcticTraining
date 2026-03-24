@@ -47,10 +47,11 @@ from arctic_training.config.tokenizer import TokenizerConfig
 from arctic_training.config.utils import HumanInt
 from arctic_training.config.utils import UniqueKeyLoader
 from arctic_training.config.utils import parse_human_val
-from arctic_training.config.wandb import WandBConfig
+from arctic_training.config.experiment_tracking import ExperimentTrackingConfig
 from arctic_training.registry import _get_class_attr_type_hints
 from arctic_training.registry import get_registered_checkpoint_engine
 from arctic_training.registry import get_registered_data_factory
+from arctic_training.registry import get_registered_experiment_tracker
 from arctic_training.registry import get_registered_model_factory
 from arctic_training.registry import get_registered_optimizer_factory
 from arctic_training.registry import get_registered_scheduler_factory
@@ -88,8 +89,8 @@ class TrainerConfig(BaseConfig):
     logger: LoggerConfig = Field(default_factory=LoggerConfig)
     """ Logger configuration. """
 
-    wandb: WandBConfig = Field(default_factory=WandBConfig)
-    """ Weights and Biases configuration. """
+    experiment_tracking: ExperimentTrackingConfig = Field(default_factory=ExperimentTrackingConfig)
+    """ Experiment tracking configuration (e.g., wandb, snowflake). """
 
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     """ Scheduler configuration. """
@@ -335,6 +336,33 @@ class TrainerConfig(BaseConfig):
             attr_name="tokenizer_factory",
         )
         return cast(TokenizerConfig, subconfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_wandb_config(cls, data: Any) -> Any:
+        """Accept legacy ``wandb:`` YAML key and convert it to ``experiment_tracking:``."""
+        if isinstance(data, dict) and "wandb" in data:
+            wandb_config = data.pop("wandb")
+            if "experiment_tracking" not in data:
+                if isinstance(wandb_config, dict):
+                    wandb_config.setdefault("type", "wandb")
+                data["experiment_tracking"] = wandb_config
+        return data
+
+    @field_validator("experiment_tracking", mode="before")
+    @classmethod
+    def init_experiment_tracking_config(
+        cls,
+        v: Union[Dict, ExperimentTrackingConfig],
+    ) -> ExperimentTrackingConfig:
+        if isinstance(v, ExperimentTrackingConfig):
+            return v
+        config_dict = v if isinstance(v, dict) else {}
+        tracker_type = config_dict.get("type", "wandb")
+        tracker_cls = get_registered_experiment_tracker(tracker_type)
+        config_cls = _get_class_attr_type_hints(tracker_cls, "config")[0]
+        config_dict["type"] = tracker_type
+        return config_cls(**config_dict)
 
     @model_validator(mode="after")
     def validate_eval_interval(self) -> Self:

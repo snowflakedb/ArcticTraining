@@ -19,6 +19,7 @@ import random
 from abc import ABC
 from abc import abstractmethod
 from functools import cached_property
+from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -30,7 +31,6 @@ import numpy as np
 import torch
 import torch.cuda
 import torch.distributed.nn
-import wandb
 from deepspeed.accelerator import get_accelerator
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPAttentionHF
 from deepspeed.runtime.sequence_parallel.ulysses_sp import UlyssesSPDataLoaderAdapter
@@ -38,7 +38,6 @@ from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
-from wandb.sdk.wandb_run import Run as WandbRun
 
 from arctic_training.callback.logging import post_loss_log_cb
 from arctic_training.callback.mixin import CallbackMixin
@@ -46,6 +45,7 @@ from arctic_training.callback.mixin import callback_wrapper
 from arctic_training.checkpoint.engine import CheckpointEngine
 from arctic_training.config.trainer import TrainerConfig
 from arctic_training.data.factory import DataFactory
+from arctic_training.experiment_tracking.tracker import ExperimentTracker
 from arctic_training.data.utils import OverfitOneBatchDataLoader
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
@@ -159,9 +159,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         self.global_rank = config.global_rank
         self.epoch_finished = False
         self.training_finished = False
-        self.wandb_experiment: Optional[WandbRun] = None
+        self.experiment_tracker: Optional[ExperimentTracker] = None
         self.is_resume = False  # Track if we resumed from ckpt
-        self.wandb_run_id = None
+        self.experiment_tracker_state: Optional[Dict[str, Any]] = None
 
         self._set_seeds(self.config.seed)
 
@@ -280,22 +280,16 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.metrics = Metrics(self)
 
-        if self.global_rank == 0 and self.config.wandb.enable:
+        if self.global_rank == 0 and self.config.experiment_tracking.enable:
+            from arctic_training.registry import get_registered_experiment_tracker
 
-            # in order for resume to continue the same wandb run we need to re-use a run_id from the previous run
-            if self.wandb_run_id is None:
-                self.wandb_run_id = wandb.util.generate_id()
+            tracker_cls = get_registered_experiment_tracker(self.config.experiment_tracking.type)
+            self.experiment_tracker = tracker_cls(self, self.config.experiment_tracking)
 
-            # Note: wandb.init() is not type annotated so we need to use type: ignore
-            self.wandb_experiment = wandb.init(  # type: ignore
-                id=self.wandb_run_id,
-                entity=self.config.wandb.entity,
-                project=self.config.wandb.project,
-                name=self.config.wandb.name,
-                config=self.config.model_dump(),
-                # do not put `wandb` in the root of the repo as it conflicts with wandb package
-                dir=f"{self.config.logger.output_dir}/wandb",
-            )
+            if self.experiment_tracker_state is not None:
+                self.experiment_tracker.set_resume_state(self.experiment_tracker_state)
+
+            self.experiment_tracker.start(self.config.model_dump())
 
     def _set_seeds(self, seed: int) -> None:
         logger.info(f"Setting random seeds to {seed}")
@@ -501,11 +495,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
                     append_json_file(self.config.train_log_metrics_path, metrics)
 
-                    # do not log the first train iteration to wandb, since it's a massive outlier
+                    # do not log the first train iteration, since it's a massive outlier
                     # on all performance metrics, which messes up the scale of the report
-                    if self.wandb_experiment is not None and self.global_step > 1:
+                    if self.experiment_tracker is not None and self.global_step > 1:
                         metrics = {k: v for k, v in metrics.items() if k not in ["iter"]}
-                        self.wandb_experiment.log(metrics, step=self.global_step)
+                        self.experiment_tracker.log_metrics(metrics, step=self.global_step)
 
                 if self.config.eval_interval != 0 and self.global_step % self.config.eval_interval == 0:
                     self.evaluate()
@@ -513,9 +507,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     if self.is_eval_log_iter():
                         self.metrics.print_summary(prefix="eval")
 
-                        if self.wandb_experiment is not None:
+                        if self.experiment_tracker is not None:
                             metrics = {k: self.metrics.summary_dict[k] for k in ["loss/eval"]}
-                            self.wandb_experiment.log(metrics, step=self.global_step)
+                            self.experiment_tracker.log_metrics(metrics, step=self.global_step)
 
         self.metrics.stop_timer("iter")
         self.epoch_finished = True
@@ -551,8 +545,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if self.config.mem_profiler is not None:
                 torch.cuda.memory._dump_snapshot(self.config.mem_profiler_dir / f"{self.global_rank}.pickle")
 
-            if self.wandb_experiment is not None:
-                self.wandb_experiment.finish()
+            if self.experiment_tracker is not None:
+                self.experiment_tracker.finish()
 
     @callback_wrapper("evaluate")
     def evaluate(self) -> None:

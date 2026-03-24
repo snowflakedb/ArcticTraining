@@ -157,7 +157,7 @@ class BiencoderTrainer(Trainer):
 
     @property
     def is_wandb_logger(self) -> bool:
-        return self.global_rank == 0 and self.config.wandb.enable
+        return self.global_rank == 0 and self.config.experiment_tracking.enable
 
     def pre_train_callback(self) -> None:
         # Turn on weights and biases on the master worker.
@@ -165,9 +165,9 @@ class BiencoderTrainer(Trainer):
             import wandb
 
             wandb.init(
-                project=self.config.wandb.project,
+                project=self.config.experiment_tracking.project,
                 config=self.config.model_dump(),
-                name=self.config.wandb.name,
+                name=self.config.experiment_tracking.name,
                 dir="/tmp/wandb",
                 save_code=False,
             )

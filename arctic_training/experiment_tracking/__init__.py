@@ -12,6 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-# Backward compatibility alias — use ExperimentTrackingConfig / WandBExperimentTrackingConfig instead.
-from arctic_training.experiment_tracking.wandb_tracker import WandBExperimentTrackingConfig as WandBConfig  # noqa: F401
