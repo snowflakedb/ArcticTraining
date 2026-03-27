@@ -38,6 +38,7 @@ from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
+from wandb import util as wandb_util  # type: ignore
 from wandb.sdk.wandb_run import Run as WandbRun
 
 from arctic_training.callback.logging import post_loss_log_cb
@@ -378,8 +379,8 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         if self.global_rank == 0 and self.config.wandb.enable:
 
             # in order for resume to continue the same wandb run we need to re-use a run_id from the previous run
-            # if self.wandb_run_id is None:
-            #     self.wandb_run_id = wandb.util.generate_id()
+            if self.wandb_run_id is None:
+                self.wandb_run_id = wandb_util.generate_id()
 
             # Note: wandb.init() is not type annotated so we need to use type: ignore
             self.wandb_experiment = wandb.init(  # type: ignore
