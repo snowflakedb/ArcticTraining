@@ -48,6 +48,7 @@ class MoEConfig:
     use_triton: bool = True
     use_shared_expert: bool = False
     use_custom_moe_kernel: bool = False
+    enable_routing_replay: bool = False
 
 
 def torch_group_gemm_fn(A, B, rows_cumsum):
@@ -147,6 +148,8 @@ class ArcticMoE(nn.Module):
             self.moe_gather = RaggedMoEGatherModule(self.input_dtype, self.model_dim)
             self.topk_kernel = RaggedTopKRouterModule(self.input_dtype, self.num_experts)
 
+        self.enable_routing_replay = config.enable_routing_replay
+
     def enable_wall_clock_breakdown(self):
         """activate timers and signal we are in a profiler mode"""
         self.wall_clock_breakdown = True
@@ -213,8 +216,11 @@ class ArcticMoE(nn.Module):
         )
         return x
 
-    def forward(self, hidden_states):
-        return hidden_states
+    def forward(self, hidden_states, routing_replay_assignments: torch.Tensor = None):
+        if self.enable_routing_replay:
+            assert (
+                routing_replay_assignments is not None
+            ), "Routing replay assignments must be provided when routing replay is enabled"
 
         self.timers.start("amoe e2e")
         see_memory_usage("enter fwd", force=False)
@@ -233,10 +239,12 @@ class ArcticMoE(nn.Module):
                 expert_token_count,
                 expert_token_rcv_count,
                 max_capacity_per_expert,
-            ) = self.CustomTopKRouter(logits, hidden_states)
+            ) = self.CustomTopKRouter(
+                logits, hidden_states, routing_replay_assignments if self.enable_routing_replay else None
+            )
         else:
             moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots = self.MoERouter(
-                hidden_states, logits
+                hidden_states, logits, routing_replay_assignments if self.enable_routing_replay else None
             )
         self.timers.stop("router")
         see_memory_usage("after router", force=False)
@@ -297,7 +305,7 @@ class ArcticMoE(nn.Module):
             s_intermediate = torch.matmul(hidden_states, self.shared_expert_gate_up)
             if self._config.is_gated:
                 s_gate, s_up = s_intermediate[..., 0::2], s_intermediate[..., 1::2]
-                s_intermediate = s_up * self.act_fn(s_gate)
+                s_intermediate = s_up * self.act_fn(s_gate)  # type: ignore
             s_out = torch.matmul(s_intermediate, self.shared_expert_down)
             s_out_gate = torch.matmul(hidden_states, self.shared_expert_output_gate)
             output = output + s_out * F.sigmoid(s_out_gate)
@@ -327,11 +335,12 @@ class ArcticMoE(nn.Module):
         output = AlltoAllV(self.ep_group, x, token_snd_count, token_rcv_count)
         return output
 
-    def MoERouter(self, hidden_states, logits):
+    def MoERouter(self, hidden_states, logits, routing_replay_assignments=None):
         """Mixture of Experts (MoE) router.
         Args:
             hidden_states: [#tokens, hidden_size]
             logits: [#tokens, num_experts]
+            routing_replay_assignments: [#tokens, topk] - assignments for routing replay
         Returns:
             moe_input: [#tokens * topk, hidden_size]
             expert_token_count: [num_experts]
@@ -339,11 +348,13 @@ class ArcticMoE(nn.Module):
             scores: [#tokens, topk]
             token_mapped_slots: [#tokens * topk]
         """
-        scores, token_mapped_slots, expert_token_count, expert_token_rcv_count = self._gate(logits)
+        scores, token_mapped_slots, expert_token_count, expert_token_rcv_count = self._gate(
+            logits, routing_replay_assignments
+        )
         moe_input = hidden_states[token_mapped_slots]
         return moe_input, expert_token_count, expert_token_rcv_count, scores, token_mapped_slots
 
-    def _gate(self, logits):
+    def _gate(self, logits, routing_replay_assignments=None):
         logits = logits.view(-1, self.num_experts)
         probs = F.softmax(logits, dim=-1, dtype=torch.float32)  # T x E
 
@@ -352,7 +363,11 @@ class ArcticMoE(nn.Module):
             topk_scores = topk_scores / torch.sum(topk_scores, dim=-1, keepdim=True)
         topk_scores = topk_scores.to(self._config.input_dtype)  # T x top_k
         topk_scores = topk_scores.t().reshape(-1)
-        topk_expert_indices = topk_expert_indices.t().reshape(-1)
+        topk_expert_indices = (
+            topk_expert_indices.t().reshape(-1)
+            if routing_replay_assignments is None
+            else routing_replay_assignments.t().reshape(-1)
+        )
 
         T = probs.shape[0]
 
@@ -393,9 +408,13 @@ class ArcticMoE(nn.Module):
         # print(f"router logits norm {topk_scores.norm().item():.3f}")
         return topk_scores, token_mapped_slots, expert_token_count, expert_token_rcv_count
 
-    def CustomTopKRouter(self, logits, hidden_states):
+    def CustomTopKRouter(self, logits, hidden_states, routing_replay_assignments):
         mapped_slots = torch.empty_like(logits.shape[0], self.top_k, dtype=torch.int32, device=logits.device)
-        assignments = torch.empty_like(mapped_slots, dtype=torch.int32, device=logits.device)
+        assignments = (
+            torch.empty_like(mapped_slots, dtype=torch.int32, device=logits.device)
+            if routing_replay_assignments is None
+            else routing_replay_assignments
+        )
         offsets = torch.empty_like(assignments, dtype=torch.int32, device=logits.device)
         (self.expert_counts, scores, assignments, offsets, logits_out) = self.topk_kernel(
             self.expert_counts, assignments, offsets, logits
@@ -409,7 +428,7 @@ class ArcticMoE(nn.Module):
 
         return scores, moe_input, mapped_slots, self.expert_counts, expert_token_rcv_count, max_capacity_per_expert
 
-    def torch_bached_gemm(A, B, max_capacity_per_expert):
+    def torch_bached_gemm(self, A, B, max_capacity_per_expert):
         A = A.reshape(-1, max_capacity_per_expert, A.shape[-1])
         c = torch.bmm(
             A,
