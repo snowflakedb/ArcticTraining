@@ -210,14 +210,14 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size, is_resume):
 
             see_memory_usage(f"{layer} after orig mlp to device", force=False)
 
-            def copy_weights(from_name, to_param, local_expert_indices):
+            def copy_weights(from_name, to_param, local_expert_indices, transpose=False):
                 if experts_is_a_list:  # ModuleList models like qwen
                     weight_stacked = torch.stack(
                         [getattr(orig_experts[i], from_name).weight.T for i in local_expert_indices]
                     )
                 else:  # gpt-oss-like models with a stack of experts weights
                     weight_stacked = getattr(orig_experts, from_name)[local_expert_indices, ...]
-                to_param.copy_(weight_stacked)
+                to_param.copy_(weight_stacked.transpose(-1, -2) if transpose else weight_stacked)
 
             # pr0(f"{local_expert_indices=}", force=True)
             # qwen -> unified gate_up interleaved on dim=-1 tensor like gpt-oss
@@ -277,11 +277,11 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size, is_resume):
             else:  # gpt-oss
 
                 # 1. mlp.router => router_gate
-                arctic_moe.router_gate.copy_(layer_module.mlp.router.weight)
+                arctic_moe.router_gate.copy_(layer_module.mlp.gate.weight)
                 # 2. gate_up_proj -> expert_gate_up
-                copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices)
+                copy_weights("gate_up_proj", arctic_moe.expert_gate_up, local_expert_indices, transpose=True)
                 # 3. down_proj -> expert_down
-                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices)
+                copy_weights("down_proj", arctic_moe.expert_down, local_expert_indices, transpose=True)
 
         if not is_resume:
             copy_weights()
