@@ -140,13 +140,13 @@ class ArcticMoE(nn.Module):
         if self.use_custom_kernel:
             from arctic_training.kernels.moe_ops import RaggedMoEGatherModule
             from arctic_training.kernels.moe_ops import RaggedMoEScatterModule
-            from arctic_training.kernels.moe_ops import RaggedTopKRouterModule
+            from arctic_training.kernels.moe_ops import RaggedTopKGatingModule
 
             self.expert_counts = torch.zeros(self.num_experts, dtype=torch.int32, device=torch.cuda.current_device())
             self.expert_cumsum = torch.empty_like(self.expert_counts, dtype=torch.long)
-            self.moe_scatter = RaggedMoEScatterModule(self.input_dtype, self.model_dim)
-            self.moe_gather = RaggedMoEGatherModule(self.input_dtype, self.model_dim)
-            self.topk_kernel = RaggedTopKRouterModule(self.input_dtype, self.num_experts)
+            self.moe_scatter = RaggedMoEScatterModule()
+            self.moe_gather = RaggedMoEGatherModule()
+            self.topk_kernel = RaggedTopKGatingModule()
 
         self.enable_routing_replay = config.enable_routing_replay
 
