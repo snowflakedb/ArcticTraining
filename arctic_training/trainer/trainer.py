@@ -236,74 +236,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
-        # Arctic MoE model remapping has to be called before optimizer is created
-        from arctic_training.model.moe.utils import detect_if_moe_model
-        from arctic_training.model.moe.utils import remap_orig_moe_mlp_params_to_arctic_moe
-
-        if self.config.arctic_moe == "auto":
-            self.use_arctic_moe = detect_if_moe_model(self.model)
-        else:
-            self.use_arctic_moe = self.config.arctic_moe
-        if self.use_arctic_moe:
-            pr0("Activating ArcticMoE", force=True)
-            import deepspeed.comm as dist
-
-            if not dist.is_initialized():
-                dist.init_distributed(dist_backend="nccl", dist_init_required=True)
-
-            from arctic_training.model.moe.utils import monkey_patch_ds_moe
-
-            monkey_patch_ds_moe()
-
-            # deepspeed.runtime.engine.DeepSpeedEngine.print_forward_breakdown = print_forward_breakdown
-            # DeepspeedMoE is only integrated with ZeRO-2
-            zero_stage = self.config.deepspeed.get("zero_optimization", {}).get("stage", 0)
-            if zero_stage != 2:
-                raise ValueError(
-                    "at the moment Deepspeed supports only ZeRO stage 2 with MoE, but the configuration asks for ZeRO"
-                    f" stage={zero_stage}"
-                )
-
-            from deepspeed.utils import groups
-
-            # this config comes from use_data_before_expert_parallelism ds config which defaults to False
-            # engine._config.use_data_before_expert_parallel_)
-            # but we don't have the engine yet to get the ds config values - perhaps could extract this via AT-config?
-            use_data_before_expert_parallel_ = False
-            # the ep group has to be created before remap_orig_moe_mlp_params_to_arctic_moe as ep rank info is needed to remap pre-trained experts
-            groups._create_expert_data_and_model_parallel(
-                self.config.expert_parallel_size,
-                mpu=None,
-                use_data_before_expert_parallel_=use_data_before_expert_parallel_,
-            )
-
-            # self.groups = ParallelGroups(expert_parallel_size=self.config.expert_parallel_size)
-
-            # we sort out if we are in resume mode much later, by actually trying to load the model, but that's too late so we are going to rely on testing if the latest checkpoint exists instead
-            # early_is_resume = False
-            # for engine in self.checkpoint_engines:
-            #     # currently only deepspeed engine supports resume from intermediate checkpoint
-            #     if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
-            #         early_is_resume = True
-            remap_orig_moe_mlp_params_to_arctic_moe(
-                self.model, ep_size=self.config.expert_parallel_size, is_resume=self.is_resume
-            )
-            # self.groups)
-            # XXX: check we can remap back
-            # from arctic_training.model.moe.utils import remap_arctic_moe_params_to_orig_moe_mlp
-            # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
-
-        see_memory_usage("after moe remap", force=False)
-        #
-
-        # inspectors are important to call after all model tweaks are done (e.g. after AMoE)
-        #
-        # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
-        # debug_overflow = DebugUnderflowOverflow(self.model, max_frames_to_save=100)  # noqa
-        #
-        # from arctic_training.debug.underflow_overflow import DebugGradients
-        # debug_grads = DebugGradients(self.model, trace_batch_nums=[1], max_frames_to_save=100)  # noqa
-
         optimizer_factory = self.config.optimizer.factory(self)
         self.optimizer = optimizer_factory()
 
@@ -321,24 +253,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             mpu=mpu,
         )
         see_memory_usage("after deepspeed.initialize", force=False)
-
-        if self.use_arctic_moe:
-            # instrument deepspeed profiler - XXX: probably abstract into a helper function to remove noise from here
-            from arctic_training.model.moe.moe import ArcticMoE
-
-            for module in self.model_unwrapped.modules():
-                if isinstance(module, ArcticMoE):
-                    # self.model.gate_modules.append(module)
-                    if self.model.wall_clock_breakdown():
-                        module.enable_wall_clock_breakdown()
-
-        # # XXX: future MoE support
-        # if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
-        #     for m in self.model_unwrapped.modules():
-        #         if "SparseMoeBlock" in m.__class__.__name__:
-        #             deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
-        #             pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
-        #             break
 
         self.ds_wall_clock_available = hasattr(self.model, "get_wall_clock_timers")
 
@@ -527,32 +441,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.metrics.record("loss", maybe_item(loss))
 
-        # if neededing to debug AMoE-EP grads
-        # from deepspeed.utils import safe_get_full_grad
-        #
-        # if hasattr(self.model_unwrapped.model.layers[1].mlp, "router_gate"):
-        #     pr0("------------------------->8------------- grads ------------->8----------",
-        #         force=True)
-        #     pr0(
-        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.router_gate))=}",
-        #         force=True,
-        #     )
-        #     pr0(
-        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_gate_up))=}",
-        #         force=True,
-        #     )
-        #     pr0(
-        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].mlp.expert_down))=}",
-        #         force=True,
-        #     )
-        #     pr0(
-        #         f"grad: {torch.norm(safe_get_full_grad(self.model_unwrapped.model.layers[1].post_attention_layernorm.weight))=}",
-        #         force=True,
-        #     )
-        #     pr0("------------------------->8------------- grads end --------->8----------",
-        #         force=True)
-        # exit()
-
         self.model.step()
         see_memory_usage("after global step", force=False)
 
@@ -705,20 +593,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         for engine in self.checkpoint_engines:
             if engine.do_checkpoint:
 
-                if engine.name == "huggingface" and self.use_arctic_moe:
-                    if self.training_finished:
-                        # export to the original moe mlp format/layout - this is slow but it's the end of the training so it's fine.
-                        from arctic_training.model.moe.utils import remap_arctic_moe_to_orig_moe_mlp_params
-
-                        logger.info("Exporting to the original MoE format before saving the checkpoint")
-                        remap_arctic_moe_to_orig_moe_mlp_params(self.model)
-                    else:
-                        raise ValueError(
-                            "Currently supporting saving to HF checkpoint for AMoE models only when the training is"
-                            " finished, because conversion will be very slow. For interim checkpoints use `deepspeed`"
-                            " type of the checkpoint as it'd be much faster to save to and resume from. "
-                        )
-
                 logger.info(f"Saving Checkpoint at global step: {self.global_step}.")
                 engine.save(self.model)
 
@@ -739,8 +613,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         return dict(sizes)
 
     def count_model_params_in_original_model(self):
-        """This counts total params in the model before it got sliced into MoE EP slices"""
-        # XXX: perhaps add a new class for various stats? or may be add to metrics class?
+        """Counts total params in the model before any parallelism slicing."""
         if torch.distributed.get_rank() == 0:
             self.original_hf_model_params = self.count_model_parameters()
 
@@ -764,19 +637,8 @@ Original model: {self.config.model.name_or_path}
     - Trainable params: {orig_model_params["trainable"]:,} ({orig_model_params["trainable"]/1e9:.2f}B)
 """
 
-        # XXX: if possible add MoE passive/activate params breakdown if AMoE is used?
-        if self.config.expert_parallel_size > 1:
-            # EP>1 spreads the experts across ranks
-            header += f"""
-Rank 0 model with EP={self.config.expert_parallel_size}:
-    - Total params    : {curr_model_params["total"]:,} ({curr_model_params["total"]/1e9:0.2f}B)
-    - Trainable params: {curr_model_params["trainable"]:,} ({curr_model_params["trainable"]/1e9:.2f}B)
-"""
-
-        # DP is world size w/ EP>1 and SP>1 (but this might change with other parallelism)
         header += f"""
 Parallelism:
-    - EP: {self.config.expert_parallel_size}
     - SP: {self.config.sequence_parallel_size}
     - DP: {world_size}
     """
