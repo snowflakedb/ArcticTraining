@@ -1,0 +1,61 @@
+type: sft
+micro_batch_size: 1
+#exit_iteration: 4
+#min_iterations: 4
+tiled_mlp_compute: true
+
+deepspeed:
+  zero_optimization:
+    stage: 3
+    offload_optimizer:
+      device: cpu
+      ratio: 0.7
+
+  bf16:
+    enabled: true
+    bf16_master_weights_and_grads: true
+    bf16_optimizer_states: true
+
+  torch_autocast:
+    enabled: true
+    dtype: torch.bfloat16
+
+optimizer:
+  type: cpu_adam
+  learning_rate: 0.00001
+
+model:
+  type: liger
+  #name_or_path: hf-internal-testing/tiny-random-LlamaForCausalLM
+  name_or_path: Qwen/Qwen3-32B
+
+  attn_implementation: flash_attention_2
+
+data:
+  sources:
+    - type: huggingface_instruct
+      name_or_path: HuggingFaceH4/ultrachat_200k
+      split: train_sft
+      role_mapping:
+        user: messages.role.user
+        assistant: messages.role.assistant
+
+  cache_dir: /data/data-cache
+  dl_num_workers: 1
+
+  pack_samples: true
+  max_length: 136_000 #  r0.7
+
+wandb:
+  enable: false
+  entity: youraccount
+  project: "ulysses"
+  name: "dgx-station-qwen3-32b"
+
+
+logger:
+  level: WARNING
+#  level: INFO
+
+  output_dir: "logs"
+  print_output_ranks: [0,1,2,3,4,5,6,7]

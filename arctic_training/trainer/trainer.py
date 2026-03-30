@@ -516,8 +516,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         see_memory_usage("before global fwd", force=False)
         self.model.train()
-        loss = self.loss(batch)
-        see_memory_usage("after global fwd", force=False)
+
+        with deepspeed.runtime.engine.autocast_if_enabled(self.model):
+            loss = self.loss(batch)
 
         self.backward(loss)
         see_memory_usage("after global bwd", force=False)
