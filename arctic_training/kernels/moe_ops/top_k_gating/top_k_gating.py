@@ -27,7 +27,7 @@ class RaggedTopKGatingFunction(torch.autograd.Function):
         ctx.inf_module = inf_module
         n_tokens = logits.size(0)
         top_k = assignments.size(1)
-        scores = torch.empty(n_tokens, top_k, device=logits.device, dtype=logits.dtype, requires_grad=True)
+        scores = torch.empty(n_tokens, top_k, device=logits.device, requires_grad=True)
         logits_out = torch.empty_like(logits)
         if replay_routing:
             inf_module.top_k_gating_with_replay(expert_counts, scores, assignments, offsets, logits, logits_out)
@@ -37,15 +37,12 @@ class RaggedTopKGatingFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        import pdb
-
-        pdb.set_trace()
         assignments, logits = ctx.saved_tensors
         _, grad_scores, _, _, grad_logits = grad_outputs
         grad_scores = grad_scores.contiguous()
         grad_logits = grad_logits.contiguous()
         ctx.inf_module.top_k_gating_bwd(grad_logits, grad_scores, logits, assignments)
-        return None, None, None, None, grad_logits
+        return None, None, None, None, grad_logits, None
 
 
 class RaggedTopKGatingModule(torch.nn.Module):

@@ -79,7 +79,7 @@ class ArcticMoE(nn.Module):
         self.model_dim = config.model_dim
         self.num_experts = config.num_experts
         self.top_k = config.top_k
-        self.use_custom_kernel = config.use_custom_moe_kernel
+        self.use_custom_kernel = True  # config.use_custom_moe_kernel
         # profiler
         self.timers = SynchronizedWallClockTimerSimple()
         self.wall_clock_breakdown = False
@@ -148,7 +148,7 @@ class ArcticMoE(nn.Module):
             self.moe_gather = RaggedMoEGatherModule()
             self.topk_kernel = RaggedTopKGatingModule()
 
-        self.enable_routing_replay = config.enable_routing_replay
+        self.enable_routing_replay = False  # config.enable_routing_replay
 
     def enable_wall_clock_breakdown(self):
         """activate timers and signal we are in a profiler mode"""
@@ -232,6 +232,7 @@ class ArcticMoE(nn.Module):
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
         logits = F.linear(hidden_states, self.router_gate)
         if self.use_custom_kernel:
+
             (
                 scores,
                 moe_input,
@@ -264,7 +265,7 @@ class ArcticMoE(nn.Module):
 
         self.timers.start("groupGeMM")
         if self.use_custom_kernel:
-            moe_output = self.torch_bached_gemm(moe_input, self.expert_gate_up, max_capacity_per_expert)
+            moe_output = self.torch_bached_gemm(moe_input, max_capacity_per_expert)
         else:
             moe_output = self.GroupGeMM(moe_input, expert_token_count_cumsum)
         self.timers.stop("groupGeMM")
@@ -298,6 +299,7 @@ class ArcticMoE(nn.Module):
             output = self.CustomMoEGather(moe_output, token_mapped_slots, scores)
         else:
             output = self.MoECombine(moe_output, token_mapped_slots, scores)
+
         self.timers.stop("moe-combine")
         see_memory_usage("after MoECombine", force=False)
         if self._config.use_shared_expert:
@@ -409,7 +411,7 @@ class ArcticMoE(nn.Module):
         return topk_scores, token_mapped_slots, expert_token_count, expert_token_rcv_count
 
     def CustomTopKRouter(self, logits, hidden_states, routing_replay_assignments):
-        mapped_slots = torch.empty_like(logits.shape[0], self.top_k, dtype=torch.int32, device=logits.device)
+        mapped_slots = torch.empty(logits.shape[0], self.top_k, dtype=torch.int32, device=logits.device)
         assignments = (
             torch.empty_like(mapped_slots, dtype=torch.int32, device=logits.device)
             if routing_replay_assignments is None
@@ -428,13 +430,18 @@ class ArcticMoE(nn.Module):
 
         return scores, moe_input, mapped_slots, self.expert_counts, expert_token_rcv_count, max_capacity_per_expert
 
-    def torch_bached_gemm(self, A, B, max_capacity_per_expert):
-        A = A.reshape(-1, max_capacity_per_expert, A.shape[-1])
-        c = torch.bmm(
-            A,
-            B,
+    def torch_bached_gemm(self, input, max_capacity_per_expert):
+        input = input.reshape(-1, max_capacity_per_expert, input.shape[-1])
+        intermediate = torch.bmm(
+            input,
+            self.expert_gate_up,
         )
-        return c.reshape(-1, c.shape[-1])
+        if self._config.is_gated:
+            gate, up = intermediate[..., 0::2], intermediate[..., 1::2]
+            gate = self.act_fn(gate * self.gate_scale)
+            intermediate = (up + self.up_scale) * gate
+        output = torch.bmm(intermediate, self.expert_down)
+        return output.reshape(-1, output.shape[-1])
 
     def CustomMoEGather(self, moe_output, token_mapped_slots, scores):
         output = self.moe_gather(moe_output, scores, token_mapped_slots, self.expert_counts)

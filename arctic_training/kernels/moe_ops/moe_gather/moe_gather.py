@@ -29,7 +29,6 @@ class RaggedMoEGatherFunction(torch.autograd.Function):
         expert_counts: torch.Tensor,
         normalize_scores: bool,
     ) -> torch.Tensor:
-
         n_tokens, _ = scores.shape[0], scores.shape[1]
         _, hidden_size = moe_output.shape
         layer_output = torch.empty(
