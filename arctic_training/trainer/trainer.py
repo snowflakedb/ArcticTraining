@@ -293,7 +293,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # in order for resume to continue the same wandb run we need to re-use a run_id from the previous run
             if self.wandb_run_id is None:
-                self.wandb_run_id = wandb.util.generate_id()
+                self.wandb_run_id = wandb.util.generate_id()  # type: ignore
 
             # Note: wandb.init() is not type annotated so we need to use type: ignore
             self.wandb_experiment = wandb.init(  # type: ignore
@@ -623,7 +623,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             return
 
         orig_model_params = self.original_hf_model_params
-        curr_model_params = self.count_model_parameters()
 
         world_size = self.world_size
         gas = self.config.gradient_accumulation_steps

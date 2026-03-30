@@ -53,7 +53,9 @@ class SFTTrainer(Trainer):
     data_factory: SFTDataFactory
     model_factory: Union[HFModelFactory, LigerModelFactory]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
-    optimizer_factory: Union[FusedAdamOptimizerFactory, CPUAdamOptimizerFactory]
+    optimizer_factory: Union[
+        FusedAdamOptimizerFactory, CPUAdamOptimizerFactory, FusedAdamMoEOptimizerFactory, CPUAdamMoEOptimizerFactory
+    ]
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 

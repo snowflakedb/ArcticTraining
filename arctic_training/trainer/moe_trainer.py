@@ -43,6 +43,8 @@ class MoETrainer(Trainer):
     export back to the original MoE layout.
     """
 
+    name = "moe_trainer"
+
     def __init__(self, config: TrainerConfig, mode: str = "train") -> None:
         logger.info(f"Initializing Trainer with config:\n{debug.format(config)}")
         self.config = config
@@ -259,7 +261,7 @@ class MoETrainer(Trainer):
 
             # in order for resume to continue the same wandb run we need to re-use a run_id from the previous run
             if self.wandb_run_id is None:
-                self.wandb_run_id = wandb.util.generate_id()
+                self.wandb_run_id = wandb.util.generate_id()  # type: ignore
 
             # Note: wandb.init() is not type annotated so we need to use type: ignore
             self.wandb_experiment = wandb.init(  # type: ignore
