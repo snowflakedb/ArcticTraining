@@ -6,7 +6,6 @@
 #pragma once
 
 #include "ds_kernel_utils.h"
-#include "ragged_dtypes.h"
 
 template <typename T>
 void launch_moe_gather(T* layer_output,

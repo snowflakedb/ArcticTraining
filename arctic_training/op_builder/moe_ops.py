@@ -74,13 +74,13 @@ class RaggedOpsBuilder(CUDAOpBuilder):
 
     def sources(self):
         sources = [
-            "kernels/moe_ops/ragged_ops.cpp",
-            "kernels/moe_ops/moe_scatter/moe_scatter.cpp",
-            "kernels/moe_ops/moe_scatter/moe_scatter_cuda.cu",
-            "kernels/moe_ops/moe_gather/moe_gather.cpp",
-            "kernels/moe_ops/moe_gather/moe_gather_cuda.cu",
-            "kernels/moe_ops/top_k_gating/top_k_gating.cpp",
-            "kernels/moe_ops/top_k_gating/top_k_gating_cuda.cu",
+            "arctic_training/kernels/moe_ops/ragged_ops.cpp",
+            "arctic_training/kernels/moe_ops/moe_scatter/moe_scatter.cpp",
+            "arctic_training/kernels/moe_ops/moe_scatter/moe_scatter_cuda.cu",
+            "arctic_training/kernels/moe_ops/moe_gather/moe_gather.cpp",
+            "arctic_training/kernels/moe_ops/moe_gather/moe_gather_cuda.cu",
+            "arctic_training/kernels/moe_ops/top_k_gating/top_k_gating.cpp",
+            "arctic_training/kernels/moe_ops/top_k_gating/top_k_gating_cuda.cu",
         ]
 
         prefix = self.get_prefix()
@@ -92,10 +92,10 @@ class RaggedOpsBuilder(CUDAOpBuilder):
 
     def include_paths(self):
         sources = [
-            "kernels/includes",
-            "kernels/moe_ops/moe_gather",
-            "kernels/moe_ops/moe_scatter",
-            "kernels/moe_ops/top_k_gating",
+            "arctic_training/kernels/includes",
+            "arctic_training/kernels/moe_ops/moe_gather",
+            "arctic_training/kernels/moe_ops/moe_scatter",
+            "arctic_training/kernels/moe_ops/top_k_gating",
         ]
 
         prefix = self.get_prefix()

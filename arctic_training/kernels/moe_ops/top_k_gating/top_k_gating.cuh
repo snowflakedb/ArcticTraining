@@ -6,7 +6,6 @@
 #pragma once
 
 #include "ds_kernel_utils.h"
-#include "ragged_dtypes.h"
 
 namespace gating {
 constexpr int unassigned = -1;

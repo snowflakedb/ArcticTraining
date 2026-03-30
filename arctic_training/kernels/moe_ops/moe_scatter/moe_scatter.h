@@ -8,7 +8,6 @@
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
 #include "moe_scatter.cuh"
-#include "ragged_dtypes.h"
 
 /*
 Performs a cumsum on the expert counts and copies the hidden states to the

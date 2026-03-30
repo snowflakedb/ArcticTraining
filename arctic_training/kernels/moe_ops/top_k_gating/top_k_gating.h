@@ -7,7 +7,6 @@
 
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
-#include "ragged_dtypes.h"
 #include "top_k_gating.cuh"
 
 /*
