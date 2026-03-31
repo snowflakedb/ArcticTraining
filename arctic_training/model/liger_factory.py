@@ -46,12 +46,11 @@ class LigerModelFactory(HFModelFactory):
 
             if self.using_random_model:
                 # skip the weight loading for a faster startup if we are in a random model configuration mode
-                # I suspect this way doesn't work https://github.com/linkedin/Liger-Kernel/issues/943
                 return AutoLigerKernelForCausalLM.from_config(
                     model_config,
                     attn_implementation=self.config.attn_implementation,
                     dtype=self.config.dtype.value,
-                    # swiglu=swiglu,
+                    swiglu=swiglu,
                 )
             else:
                 return AutoLigerKernelForCausalLM.from_pretrained(
