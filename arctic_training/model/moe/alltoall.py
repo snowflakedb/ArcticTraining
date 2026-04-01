@@ -42,4 +42,5 @@ class AlltoAllV_Func(torch.autograd.Function):
         return (None, AlltoAllV_Func.apply(ctx.group, grad_output, recv_counts, send_counts), None, None)
 
 
-AlltoAllV = AlltoAllV_Func.apply
+def AlltoAllV(*args, **kwargs):
+    return AlltoAllV_Func.apply(*args, **kwargs)
