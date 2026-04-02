@@ -22,17 +22,17 @@ from arctic_training.op_builder import RaggedOpsBuilder
 class RaggedTopKGatingFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, inf_module, expert_counts, assignments, offsets, logits, replay_routing):
-
-        ctx.save_for_backward(assignments, logits)
         ctx.inf_module = inf_module
         n_tokens = logits.size(0)
         top_k = assignments.size(1)
         scores = torch.empty(n_tokens, top_k, device=logits.device, requires_grad=True)
-        logits_out = torch.empty_like(logits)
+        logits_out = torch.empty_like(logits, dtype=logits.dtype, device=logits.device, requires_grad=True)
         if replay_routing:
             inf_module.top_k_gating_with_replay(expert_counts, scores, assignments, offsets, logits, logits_out)
         else:
             inf_module.top_k_gating(expert_counts, scores, assignments, offsets, logits, logits_out)
+
+        ctx.save_for_backward(assignments, logits_out)
         return expert_counts, scores, assignments, offsets, logits_out
 
     @staticmethod
