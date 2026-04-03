@@ -55,6 +55,9 @@ class AlltoAllFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
+        import pdb
+
+        pdb.set_trace()
         return (None, AlltoAllFunction.apply(ctx.group, grad_output))
 
 
