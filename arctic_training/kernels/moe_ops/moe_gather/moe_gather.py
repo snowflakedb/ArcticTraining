@@ -42,7 +42,6 @@ class RaggedMoEGatherFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_layer_output: torch.Tensor):
-        # import pdb; pdb.set_trace()
         moe_output, scores, mapped_slots = ctx.saved_tensors
         grad_moe_output = torch.zeros_like(moe_output)
         grad_scores = torch.zeros_like(scores)

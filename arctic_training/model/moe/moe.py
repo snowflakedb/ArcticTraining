@@ -66,10 +66,13 @@ class ArcticMoE(nn.Module):
         config: MoEConfig object
     """
 
+    layer_idx = 0
+
     def __init__(self, config: MoEConfig):
         super(ArcticMoE, self).__init__()
         self._config = config
-
+        ArcticMoE.layer_idx += 1
+        self.layer_idx = ArcticMoE.layer_idx
         self.act_fn = config.act_fn
         self.ep_group = config.ep_group
         self.ep_rank = config.ep_rank
@@ -84,7 +87,6 @@ class ArcticMoE(nn.Module):
         self.timers = SynchronizedWallClockTimerSimple()
         self.wall_clock_breakdown = False
         self.gate_time = 0.0
-
         self.num_local_experts = self.num_experts // self.ep_size
 
         # XXX: shouldn't be inside expert param group - should be data parallel
@@ -145,7 +147,7 @@ class ArcticMoE(nn.Module):
             self.expert_counts = torch.zeros(self.num_experts, dtype=torch.int32, device=torch.cuda.current_device())
             self.expert_cumsum = torch.empty_like(self.expert_counts, dtype=torch.long)
             self.moe_scatter = RaggedMoEScatterModule()
-            self.moe_gather = RaggedMoEGatherModule()
+            self.moe_gather = RaggedMoEGatherModule(normalize_scores=self._config.normalize_topk_scores)
             self.topk_kernel = RaggedTopKGatingModule()
 
         self.enable_routing_replay = False  # config.enable_routing_replay

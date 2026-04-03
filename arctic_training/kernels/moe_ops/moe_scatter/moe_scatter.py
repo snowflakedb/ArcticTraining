@@ -28,8 +28,9 @@ class RaggedMoEScatterFunction(torch.autograd.Function):
         num_experts = expert_counts.shape[0]
         max_capacity_per_expert = expert_counts.max()
         torch.distributed.all_reduce(max_capacity_per_expert, op=torch.distributed.ReduceOp.MAX)
-        moe_input = torch.empty(
+        moe_input = torch.zeros(
             max_capacity_per_expert * num_experts,
+            # n_tokens * n_top_k,
             activations.shape[1],
             device=activations.device,
             dtype=activations.dtype,

@@ -61,7 +61,11 @@ __global__ void moe_scatter_kernel(T* moe_input,
         }
     }
     if (all_unassigned && token_idx != 0) return;
-    int32_t max_capacity = max_capacity_per_expert[0];
+    int32_t max_capacity = 0;
+    if (max_capacity_per_expert != nullptr)
+    {
+        max_capacity = max_capacity_per_expert[0];
+    }
     // Do a prefix scan on the expert counts to get the base offsets. Here we use the
     // single up-sweep variant.
     int32_t expert_vals;
@@ -123,8 +127,12 @@ __global__ void moe_scatter_kernel(T* moe_input,
     T* store_base_ptrs[N_TOP_K];
 #pragma unroll
     for (int i = 0; i < N_TOP_K; i++) {
-        const int32_t cur_expert_offset = assigned_experts[i] * max_capacity;
-            // (assigned_experts[i] > 0) ? expert_offsets[assigned_experts[i] - 1] : 0;
+        int32_t cur_expert_offset;
+        if (max_capacity > 0)
+            cur_expert_offset = assigned_experts[i] * max_capacity;
+        else
+             cur_expert_offset =
+                 (assigned_experts[i] > 0) ? expert_offsets[assigned_experts[i] - 1] : 0;
         store_rows[i] = cur_expert_offset + offsets[token_idx * N_TOP_K + i];
         const int32_t base_store_offset = store_rows[i] * n_channels + thread_offset;
         store_base_ptrs[i] = moe_input + base_store_offset;

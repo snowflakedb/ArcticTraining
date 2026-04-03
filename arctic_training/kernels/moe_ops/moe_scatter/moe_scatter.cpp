@@ -94,7 +94,7 @@ void moe_scatter_backward(torch::Tensor& grad_activations,
     const int32_t n_top_k = assignments.size(1);
 
     // Should have a lot of matching buffer sizes here.
-    printf("n_tokens: %d, n_channels: %d, n_top_k: %d, assignments.size(0): %d\n", n_tokens, n_channels, n_top_k, assignments.size(0));
+    // printf("n_tokens: %d, n_channels: %d, n_top_k: %d, assignments.size(0): %d\n", n_tokens, n_channels, n_top_k, assignments.size(0));
     TORCH_CHECK(n_tokens == assignments.size(0));
     TORCH_CHECK(n_channels == grad_moe_input.size(1));
 

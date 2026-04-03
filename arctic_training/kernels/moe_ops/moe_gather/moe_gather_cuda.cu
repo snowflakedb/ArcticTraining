@@ -200,7 +200,7 @@ __global__ void moe_top2_gather_bwd_kernel(T* layer_output_grad,
 
 #pragma unroll
     for (int i = 0; i < TOP_K; i++) {
-        score[i] = (mapped_slot[i] != gating::unassigned && mapped_slot[i] < (num_tokens * TOP_K)) ? scores[token_idx * TOP_K + i] : 0.f;
+        score[i] = (mapped_slot[i] != gating::unassigned) ? scores[token_idx * TOP_K + i] : 0.f;
         sum += score[i];
     }
     sum += 1.192092895e-07;
@@ -238,7 +238,7 @@ __global__ void moe_top2_gather_bwd_kernel(T* layer_output_grad,
 #pragma unroll
             for (int k = 0; k < TOP_K; k++) {
                 T store_buffer[vector_size];
-                if (mapped_slot[k] != gating::unassigned && mapped_slot[k] < (num_tokens * TOP_K))
+                if (mapped_slot[k] != gating::unassigned)
                 {
                     T out_buffer[vector_size];
                     T* moe_output_base = moe_output + mapped_slot[k] * n_channels + channel_offset;
