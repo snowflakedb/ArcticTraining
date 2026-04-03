@@ -28,6 +28,13 @@ class HFModelFactory(ModelFactory):
     def create_config(self):
         config = AutoConfig.from_pretrained(self.config.name_or_path)
 
+        # will be using this flag to switch from from_pretrained to from_config to init the model if we aren't loading the full model
+        num_hidden_layers_override = self.config.hf_config_kwargs.get("num_hidden_layers", None)
+        if num_hidden_layers_override is not None and num_hidden_layers_override != config.num_hidden_layers:
+            self.using_random_model = True
+        else:
+            self.using_random_model = False
+
         # override hf model config if we have some custom config
         for k, v in self.config.hf_config_kwargs.items():
             setattr(config, k, v)
@@ -35,12 +42,21 @@ class HFModelFactory(ModelFactory):
         return config
 
     def create_model(self, model_config) -> PreTrainedModel:
-        return AutoModelForCausalLM.from_pretrained(
-            self.config.name_or_path,
-            config=model_config,
-            attn_implementation=self.config.attn_implementation,
-            dtype=self.config.dtype.value,
-        )
+
+        if self.using_random_model:
+            # skip the weight loading for a faster startup if we are in a random model configuration mode
+            return AutoModelForCausalLM.from_config(
+                model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+            )
+        else:
+            return AutoModelForCausalLM.from_pretrained(
+                self.config.name_or_path,
+                config=model_config,
+                attn_implementation=self.config.attn_implementation,
+                dtype=self.config.dtype.value,
+            )
 
     @staticmethod
     def make_model_gradient_checkpointing_compatible(

@@ -52,6 +52,7 @@ from typing import Union
 from unittest import mock
 
 import numpy as np
+from safetensors import safe_open
 from transformers.utils import is_flash_attn_2_available
 from transformers.utils import is_flash_attn_3_available
 
@@ -269,6 +270,33 @@ def torch_assert_close(actual, expected, **kwargs):
     """
     # assert_close was added around pt-1.9, it does better checks - e.g. will check that dimensions dtype, device and layout match
     return torch.testing.assert_close(actual, expected, **kwargs)
+
+
+def torch_assert_safetensors_close(model_a_path, model_b_path, **kwargs):
+    """
+    Compare two safetensors files for each of its tensors or non-tensor numbers for their closeness.
+
+    rtol/atol args are the same as torch_assert_close
+
+    Add msg=blah to add an additional comment to when assert fails.
+
+    For default values of `rtol` and `atol` which are dtype dependent, see the table at https://docs.pytorch.org/docs/stable/testing.html#torch.testing.assert_close
+    For example for bf16 it is `rtol=1.6e-2` and `atol=1e-5`.
+
+    The check doesn't assert when `|a - b| <= (atol + rtol * |b|)`
+    """
+
+    with safe_open(model_a_path, framework="pt", device="cpu") as f_a:
+        model_a = {key: f_a.get_tensor(key) for key in f_a.keys()}
+
+    with safe_open(model_b_path, framework="pt", device="cpu") as f_b:
+        model_b = {key: f_b.get_tensor(key) for key in f_b.keys()}
+
+    if model_a.keys() != model_b.keys():
+        assert f"keys don't match:\n{model_a.keys()}\n{model_b.keys()}"
+
+    for key in model_a.keys():
+        torch_assert_close(model_a[key], model_b[key], **kwargs)
 
 
 def get_tests_dir(append_path=None):
