@@ -46,7 +46,9 @@ jobs:
       - name: Setup environment
         run: |
           pip install uv
-          uv venv
+          if [ ! -d .venv ]; then
+            uv venv
+          fi
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
           echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV

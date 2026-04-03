@@ -58,6 +58,16 @@ def monkey_patch_ds_moe():
     DeepSpeedEngine.load_moe_state_dict = amoe_load_state_dict
 
 
+def amoe_install_deepspeed_timers(model, model_unwrapped):
+    # instrument deepspeed profiler
+    # call right after `deepspeed.initialize`
+    for module in model_unwrapped.modules():
+        if isinstance(module, ArcticMoE):
+            # self.model.gate_modules.append(module)
+            if model.wall_clock_breakdown():
+                module.enable_wall_clock_breakdown()
+
+
 def detect_if_moe_model(model):
     return any(k for k in model.config.__dict__.keys() if re.search("experts", k))
 

@@ -53,6 +53,8 @@ from arctic_training.debug.utils import see_memory_usage
 from arctic_training.logging import logger
 from arctic_training.metrics import Metrics
 from arctic_training.model.factory import ModelFactory
+from arctic_training.model.moe.utils import amoe_install_deepspeed_timers
+from arctic_training.model.moe.utils import detect_if_moe_model
 from arctic_training.model.tiled_compute import enable_tiled_mlp_compute
 from arctic_training.optimizer.factory import OptimizerFactory
 from arctic_training.registry import RegistryMeta
@@ -189,8 +191,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
                 self.is_resume = True
 
-        print(f"IS RESUME={self.is_resume}")
-
         # XXX: We can abstract this section further with AT-specific wrapper, but
         # UlyssesSPAttentionHF should not have any AT-specific objects / assumptions
         mpu = UlyssesSPAttentionHF.register_with_transformers(
@@ -237,22 +237,21 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             transformers.masking_utils.ALL_MASK_ATTENTION_FUNCTIONS.register("sdpa", lambda *args, **kwargs: None)
 
-        # Arctic MoE model remapping has to be called before optimizer is created
-        from arctic_training.model.moe.utils import detect_if_moe_model
-        from arctic_training.model.moe.utils import remap_orig_moe_mlp_params_to_arctic_moe
-
+        # Arctic MoE model remapping has to be called before an optimizer is created
         if self.config.arctic_moe == "auto":
             self.use_arctic_moe = detect_if_moe_model(self.model)
         else:
             self.use_arctic_moe = self.config.arctic_moe
         if self.use_arctic_moe:
-            pr0("Activating ArcticMoE", force=True)
+            pr0("Activating ArcticMoE", force=False)
             import deepspeed.comm as dist
+            from deepspeed.utils import groups
+
+            from arctic_training.model.moe.utils import monkey_patch_ds_moe
+            from arctic_training.model.moe.utils import remap_orig_moe_mlp_params_to_arctic_moe
 
             if not dist.is_initialized():
                 dist.init_distributed(dist_backend="nccl", dist_init_required=True)
-
-            from arctic_training.model.moe.utils import monkey_patch_ds_moe
 
             monkey_patch_ds_moe()
 
@@ -264,8 +263,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
                     "at the moment Deepspeed supports only ZeRO stage 2 with MoE, but the configuration asks for ZeRO"
                     f" stage={zero_stage}"
                 )
-
-            from deepspeed.utils import groups
 
             # this config comes from use_data_before_expert_parallelism ds config which defaults to False
             # engine._config.use_data_before_expert_parallel_)
@@ -295,8 +292,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             # remap_arctic_moe_params_to_orig_moe_mlp(self.model)
 
         see_memory_usage("after moe remap", force=False)
-        #
 
+        # this is an optional debug instrumentation to trace overflows in params/grads
+        #
         # inspectors are important to call after all model tweaks are done (e.g. after AMoE)
         #
         # from arctic_training.debug.underflow_overflow import DebugUnderflowOverflow
@@ -311,8 +309,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         scheduler_factory = self.config.scheduler.factory(self)
         self.scheduler = scheduler_factory()
 
-        see_memory_usage("before deepspeed.initialize", force=False)
-
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=self.optimizer,
@@ -321,25 +317,9 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             config=self.config.deepspeed,
             mpu=mpu,
         )
-        see_memory_usage("after deepspeed.initialize", force=False)
 
         if self.use_arctic_moe:
-            # instrument deepspeed profiler - XXX: probably abstract into a helper function to remove noise from here
-            from arctic_training.model.moe.moe import ArcticMoE
-
-            for module in self.model_unwrapped.modules():
-                if isinstance(module, ArcticMoE):
-                    # self.model.gate_modules.append(module)
-                    if self.model.wall_clock_breakdown():
-                        module.enable_wall_clock_breakdown()
-
-        # # XXX: future MoE support
-        # if self.model_unwrapped.config.architectures[0] == "Qwen3MoeForCausalLM":
-        #     for m in self.model_unwrapped.modules():
-        #         if "SparseMoeBlock" in m.__class__.__name__:
-        #             deepspeed.utils.set_z3_leaf_modules(self.model, [m.__class__])
-        #             pr0(f"Setting zero3 leaf for model on class with name: {m.__class__.__name__}", force=True)
-        #             break
+            amoe_install_deepspeed_timers(self.model, self.model_unwrapped)
 
         self.ds_wall_clock_available = hasattr(self.model, "get_wall_clock_timers")
 
@@ -485,10 +465,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         If we need to exit early, set `self.early_stop_reason` and return True
         Otherwise return False
         """
-        pr0(
-            f"ITERATION {self.global_step=} {self.config.exit_iteration=} {self.config.exit_iteration_this_run=}",
-            force=True,
-        )
         # exit conditions in the order of likelyhood
         if (
             self.config.exit_iteration_this_run > 0
@@ -515,13 +491,12 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         this method.
         """
 
-        see_memory_usage("before global fwd", force=False)
         self.model.train()
-        loss = self.loss(batch)
-        see_memory_usage("after global fwd", force=False)
+
+        with deepspeed.runtime.engine.autocast_if_enabled(self.model):
+            loss = self.loss(batch)
 
         self.backward(loss)
-        see_memory_usage("after global bwd", force=False)
 
         def maybe_item(v):
             return v.item() if torch.is_tensor(v) else v
@@ -555,7 +530,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
         # exit()
 
         self.model.step()
-        see_memory_usage("after global step", force=False)
 
         self.checkpoint()
 
@@ -697,8 +671,6 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
     @callback_wrapper("checkpoint")
     def checkpoint(self) -> None:
-
-        pr0(f"{self.global_step_this_run=}")
         if self.global_step_this_run == 0:
             logger.info("No steps were run this run, not saving the checkpoint")
             return
