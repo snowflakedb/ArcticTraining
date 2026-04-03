@@ -66,13 +66,9 @@ class ArcticMoE(nn.Module):
         config: MoEConfig object
     """
 
-    layer_idx = 0
-
     def __init__(self, config: MoEConfig):
         super(ArcticMoE, self).__init__()
         self._config = config
-        ArcticMoE.layer_idx += 1
-        self.layer_idx = ArcticMoE.layer_idx
         self.act_fn = config.act_fn
         self.ep_group = config.ep_group
         self.ep_rank = config.ep_rank
@@ -83,10 +79,12 @@ class ArcticMoE(nn.Module):
         self.num_experts = config.num_experts
         self.top_k = config.top_k
         self.use_custom_kernel = True  # config.use_custom_moe_kernel
+
         # profiler
         self.timers = SynchronizedWallClockTimerSimple()
         self.wall_clock_breakdown = False
         self.gate_time = 0.0
+
         self.num_local_experts = self.num_experts // self.ep_size
 
         # XXX: shouldn't be inside expert param group - should be data parallel
