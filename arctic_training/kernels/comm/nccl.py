@@ -23,7 +23,7 @@ from .layout import Layout
 
 class NcclComm(Comm):
 
-    def __init__(self, layout: Layout, set_device: int = True):
+    def __init__(self, layout: Layout, set_device: bool = True):
 
         super().__init__(layout, int(os.getenv("LOCAL_RANK", "0")))
 
