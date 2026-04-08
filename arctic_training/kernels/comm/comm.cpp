@@ -1,4 +1,4 @@
-#include "custom_comm.h"
+#include "comm.h"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {

@@ -1,9 +1,9 @@
-#include "custom_comm.h"
+#include "comm.h"
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
 
 #include <vector>
-#include "tops_context.h"
+#include "context.h"
 
 void ds_create_comm(std::vector<int>& comm_ranks, int rank)
 {
