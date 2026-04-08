@@ -53,9 +53,18 @@ class Comm:
         op = communicate_op(val, val_gather, async_op, op_type="all_gather")
         return val_gather, op
 
-    def all_to_all(self, val, result=None, inplace=True, async_op=False):
+    def all_to_all(self, val, counts=None, result=None, inplace=True, async_op=False):
+        if counts is not None:
+            max_count = counts.max().item()
+            counts = counts.to("cpu").int()
+        else:
+            max_count = val.size(0) // self.group_size
+            counts = torch.full((self.group_size,), max_count, device="cpu", dtype=torch.int32)
+
         result = result if result is not None else torch.empty_like(val)
-        op = communicate_op(val, result, async_op, world_size=self.group_size, op_type="all_to_all")
+        op = communicate_op(
+            val, result, async_op, world_size=self.group_size, op_type="all_to_all", counts=counts, max_count=max_count
+        )
         return result, op
 
     def broadcast(self, val, inplace=True, async_op=False):
@@ -77,13 +86,13 @@ class Comm:
 
 
 class communicate_op:
-    def __init__(self, val, result, async_op, world_size=None, op_type="all_reduce"):
+    def __init__(self, val, result, async_op, world_size=None, op_type="all_reduce", counts=None, max_count=None):
         if op_type == "all_reduce":
             ds_comm.allReduce(val, result, val.numel(), async_op)
         elif op_type == "all_gather":
             ds_comm.allGather(val, result, val.numel(), async_op)
         elif op_type == "all_to_all":
-            ds_comm.alltoall(val, result, val.numel() // world_size, async_op)
+            ds_comm.alltoall(val, result, counts, max_count, async_op)
         elif op_type == "broadcast":
             ds_comm.broadcast(val, result, val.numel(), async_op)
 

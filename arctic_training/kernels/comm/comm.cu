@@ -75,27 +75,29 @@ inline size_t wordSize(ncclDataType_t type) {
 
 void ncclAlltoAll(void* sendbuff,
                         void* recvbuff,
-                        size_t count,
+                        int32_t *counts,
+                        size_t max_count,
                         ncclDataType_t type,
                         const unsigned nRanks,
                         ncclComm_t comm,
                         cudaStream_t stream) {
 
-  size_t rankOffset = count * wordSize(type);
+  size_t rankOffset = max_count * wordSize(type);
 
   ncclGroupStart();
   for (int r=0; r<nRanks; r++) {
-    ncclSend(((char*)sendbuff)+r*rankOffset, count, type, r, comm, stream);
-    ncclRecv(((char*)recvbuff)+r*rankOffset, count, type, r, comm, stream);
+    ncclSend(((char*)sendbuff)+r*rankOffset, counts[r], type, r, comm, stream);
+    ncclRecv(((char*)recvbuff)+r*rankOffset, counts[r], type, r, comm, stream);
   }
   ncclGroupEnd();
 }
 
-void ds_alltoall(torch::Tensor& send_buf, torch::Tensor& rcv_buf, int size, bool async_op)
+void ds_alltoall(torch::Tensor& send_buf, torch::Tensor& rcv_buf, torch::Tensor& counts, size_t max_count, bool async_op)
 {
     ncclAlltoAll(send_buf.data_ptr(),
                   rcv_buf.data_ptr(),
-                  size,
+                  (int32_t*)counts.data_ptr(),
+                  max_count,
                   (send_buf.scalar_type() == at::kFloat ?
                     ncclFloat :
                     (send_buf.scalar_type() == at::kHalf ?
