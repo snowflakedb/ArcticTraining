@@ -40,6 +40,7 @@ class Comm:
         self.global_ranks = layout.sibling_ranks(self.global_rank)
         self.local_ranks = list(range(self.group_size))
         self.rank_map = dict(zip(self.global_ranks, self.local_ranks))
+        self.counts_pinned_data = torch.empty(1024, dtype=torch.int32, device="cpu", pin_memory=True)
 
         print("Initializing comm ...")
 
@@ -55,8 +56,13 @@ class Comm:
 
     def all_to_all(self, val, counts=None, result=None, inplace=True, async_op=False):
         if counts is not None:
-            max_count = counts.max().item()
-            counts = counts.to("cpu").int()
+            receive_data = torch.empty_like(counts)
+            torch.distributed.all_to_all_single(receive_data, counts)
+            max_count = counts.max()
+            torch.distributed.all_reduce(max_count, op=torch.distributed.ReduceOp.MAX)
+
+            max_count = max_count.item()
+            counts = self.counts_pinned_data[: receive_data.numel()].copy_(receive_data)
         else:
             max_count = val.size(0) // self.group_size
             counts = torch.full((self.group_size,), max_count, device="cpu", dtype=torch.int32)

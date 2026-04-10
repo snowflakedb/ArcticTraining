@@ -22,7 +22,7 @@ from arctic_training.kernels.comm.layout import Layout
 from arctic_training.kernels.comm.nccl import create_comm
 
 
-def execute(val, is_torch=True, comm=None, op="AllReduce"):
+def execute(val, is_torch=True, comm=None, op="AllReduce", counts=None):
     if is_torch:
         if op == "AllReduce":
             torch.distributed.all_reduce(val)
@@ -44,7 +44,10 @@ def execute(val, is_torch=True, comm=None, op="AllReduce"):
             val, _ = comm.all_gather(val)
             return val
         elif op == "AlltoAll":
-            val, _ = comm.all_to_all(val)
+            if counts is not None:
+                val, _ = comm.all_to_all(val, counts)
+            else:
+                val, _ = comm.all_to_all(val)
             return val
 
 
@@ -83,15 +86,25 @@ def run_nccl_comm_test(comm, op="AllReduce"):
     else:
         raise AssertionError(f"Results do not match for {op} on rank {global_rank}")
 
+    if op == "AlltoAll":
+        counts = [6144 * 4096] * 8
+        counts = torch.tensor(counts, dtype=torch.int32, device=torch.cuda.current_device())
+
+    def func(*args, **kwargs):
+        if op == "AlltoAll":
+            kwargs["counts"] = counts
+
+        return execute(*args, **kwargs)
+
     for _ in range(10):
         # val = torch.matmul(inp.view(-1, 4096), weight1)
-        execute(inp, is_torch=False, comm=comm, op=op)
+        func(inp, is_torch=False, comm=comm, op=op)
         # out = torch.matmul(val.view(-1, 4096), weight2)
     torch.cuda.synchronize()
     start = time.time()
     for _ in range(1000):
         # val = torch.matmul(inp.view(-1, 4096), weight1)
-        execute(inp, is_torch=False, comm=comm, op=op)
+        func(inp, is_torch=False, comm=comm, op=op)
         # out = torch.matmul(val.view(-1, 4096), weight2)
     torch.cuda.synchronize()
     end = time.time()
@@ -102,14 +115,14 @@ def run_nccl_comm_test(comm, op="AllReduce"):
 
     for _ in range(10):
         # val = torch.matmul(inp.view(-1, 4096), weight1)
-        execute(inp, is_torch=True, op=op)
+        func(inp, is_torch=True, op=op)
         # out = torch.matmul(val.view(-1, 4096), weight2)
 
     torch.cuda.synchronize()
     start = time.time()
     for _ in range(1000):
         # val = torch.matmul(inp.view(-1, 4096), weight1)
-        execute(inp, is_torch=True, op=op)
+        func(inp, is_torch=True, op=op)
         # out = torch.matmul(val.view(-1, 4096), weight2)
     torch.cuda.synchronize()
     end = time.time()
@@ -123,3 +136,4 @@ def run_nccl_comm_test(comm, op="AllReduce"):
 comm = init_comm()
 run_nccl_comm_test(comm=comm, op="AllReduce")
 run_nccl_comm_test(comm=comm, op="AlltoAll")
+torch.distributed.destroy_process_group()
