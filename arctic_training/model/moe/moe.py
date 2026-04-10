@@ -78,7 +78,7 @@ class ArcticMoE(nn.Module):
         self.model_dim = config.model_dim
         self.num_experts = config.num_experts
         self.top_k = config.top_k
-        self.use_custom_kernel = True  # config.use_custom_moe_kernel
+        self.use_custom_kernel = config.use_custom_moe_kernel
 
         # profiler
         self.timers = SynchronizedWallClockTimerSimple()
