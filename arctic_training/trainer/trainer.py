@@ -283,7 +283,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             #     if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
             #         early_is_resume = True
             remap_orig_moe_mlp_params_to_arctic_moe(
-                self.model, ep_size=self.config.expert_parallel_size, is_resume=self.is_resume
+                self.model,
+                ep_size=self.config.expert_parallel_size,
+                is_resume=self.is_resume,
+                enable_custom_moe_kernel=self.config.enable_arctic_moe_custom_optimization,
+                enable_routing_replay=self.config.enable_routing_replay,
             )
             # self.groups)
             # XXX: check we can remap back
