@@ -133,6 +133,12 @@ class TrainerConfig(BaseConfig):
     arctic_moe: Union[bool, Literal["auto"]] = False
     """ Whether to enable arctic moe. Values True/False/"auto" - "auto" will try to detect if the model is an MoE model """
 
+    enable_arctic_moe_custom_optimization: bool = False
+    """ Whether to enable custom optimization for arctic moe. This includes custom alltoall and custom kernels for MoE layers. """
+
+    enable_routing_replay: bool = False
+    """ Whether to enable routing replay for MoE layers. This can help with stability when training MoE models. """
+
     activation_checkpoint_cpu_offload: bool = False
     """ Offload activation checkpoint tensors to cpu. Enables a much longer sequence length. It is not very beneficial if sequence length is <64k  """
 

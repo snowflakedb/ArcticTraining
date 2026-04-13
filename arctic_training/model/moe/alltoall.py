@@ -44,3 +44,20 @@ class AlltoAllV_Func(torch.autograd.Function):
 
 def AlltoAllV(*args, **kwargs):
     return AlltoAllV_Func.apply(*args, **kwargs)
+
+
+class AlltoAllFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, group, x):
+        x = x.contiguous()
+        y = torch.empty_like(x)
+        dist.all_to_all_single(y, x, group=group)
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return (None, AlltoAllFunction.apply(ctx.group, grad_output))
+
+
+def AlltoAll(*args, **kwargs):
+    return AlltoAllFunction.apply(*args, **kwargs)
