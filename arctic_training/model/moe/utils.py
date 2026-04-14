@@ -73,7 +73,9 @@ def detect_if_moe_model(model):
 
 
 @torch.no_grad()
-def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size, is_resume):
+def remap_orig_moe_mlp_params_to_arctic_moe(
+    model, ep_size, is_resume, enable_custom_moe_kernel=False, enable_routing_replay=False
+):
     """
     remaps the existing model's mlp moe params to arctic_moe unified representation, modifying the model.
 
@@ -155,6 +157,8 @@ def remap_orig_moe_mlp_params_to_arctic_moe(model, ep_size, is_resume):
     arctic_moe_config.use_triton = False
     # at the moment the models we support are all gated
     arctic_moe_config.is_gated = True
+    arctic_moe_config.use_custom_moe_kernel = enable_custom_moe_kernel
+    arctic_moe_config.enable_routing_replay = enable_routing_replay
 
     ep_group_name = f"ep_size_{ep_size}"
     ep_rank = groups._get_expert_parallel_rank(ep_group_name)

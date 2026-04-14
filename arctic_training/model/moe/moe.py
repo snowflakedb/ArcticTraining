@@ -78,7 +78,7 @@ class ArcticMoE(nn.Module):
         self.model_dim = config.model_dim
         self.num_experts = config.num_experts
         self.top_k = config.top_k
-        self.use_custom_kernel = True  # config.use_custom_moe_kernel
+        self.use_custom_kernel = config.use_custom_moe_kernel
 
         # profiler
         self.timers = SynchronizedWallClockTimerSimple()
@@ -148,7 +148,7 @@ class ArcticMoE(nn.Module):
             self.moe_gather = RaggedMoEGatherModule(normalize_scores=self._config.normalize_topk_scores)
             self.topk_kernel = RaggedTopKGatingModule()
 
-        self.enable_routing_replay = False  # config.enable_routing_replay
+        self.enable_routing_replay = config.enable_routing_replay
 
     def enable_wall_clock_breakdown(self):
         """activate timers and signal we are in a profiler mode"""

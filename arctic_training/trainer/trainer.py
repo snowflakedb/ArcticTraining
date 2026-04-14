@@ -284,7 +284,11 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
             #     if engine.name == "deepspeed" and engine.config.auto_resume and engine.latest_checkpoint_exists:
             #         early_is_resume = True
             remap_orig_moe_mlp_params_to_arctic_moe(
-                self.model, ep_size=self.config.expert_parallel_size, is_resume=self.is_resume
+                self.model,
+                ep_size=self.config.expert_parallel_size,
+                is_resume=self.is_resume,
+                enable_custom_moe_kernel=self.config.enable_arctic_moe_custom_optimization,
+                enable_routing_replay=self.config.enable_routing_replay,
             )
             # self.groups)
             # XXX: check we can remap back
@@ -360,7 +364,7 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
             # in order for resume to continue the same wandb run we need to re-use a run_id from the previous run
             if self.wandb_run_id is None:
-                self.wandb_run_id = wandb_util.generate_id()
+                self.wandb_run_id = wandb.util.generate_id()  # type: ignore
 
             # Note: wandb.init() is not type annotated so we need to use type: ignore
             self.wandb_experiment = wandb.init(  # type: ignore

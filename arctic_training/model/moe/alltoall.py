@@ -45,6 +45,7 @@ class AlltoAllV_Func(torch.autograd.Function):
 def AlltoAllV(*args, **kwargs):
     return AlltoAllV_Func.apply(*args, **kwargs)
 
+
 class AlltoAllFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, group, x):
@@ -55,12 +56,8 @@ class AlltoAllFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        import pdb
-
-        pdb.set_trace()
         return (None, AlltoAllFunction.apply(ctx.group, grad_output))
 
 
 def AlltoAll(*args, **kwargs):
     return AlltoAllFunction.apply(*args, **kwargs)
-
