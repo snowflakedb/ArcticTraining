@@ -75,7 +75,8 @@ inline size_t wordSize(ncclDataType_t type) {
 
 void ncclAlltoAll(void* sendbuff,
                         void* recvbuff,
-                        int32_t *counts,
+                        int32_t *send_counts,
+                        int32_t *recv_counts,
                         size_t max_count,
                         ncclDataType_t type,
                         const unsigned nRanks,
@@ -86,17 +87,18 @@ void ncclAlltoAll(void* sendbuff,
 
   ncclGroupStart();
   for (int r=0; r<nRanks; r++) {
-    ncclSend(((char*)sendbuff)+r*rankOffset, counts[r], type, r, comm, stream);
-    ncclRecv(((char*)recvbuff)+r*rankOffset, counts[r], type, r, comm, stream);
+    ncclSend(((char*)sendbuff)+r*rankOffset, send_counts[r], type, r, comm, stream);
+    ncclRecv(((char*)recvbuff)+r*rankOffset, recv_counts[r], type, r, comm, stream);
   }
   ncclGroupEnd();
 }
 
-void ds_alltoall(torch::Tensor& send_buf, torch::Tensor& rcv_buf, torch::Tensor& counts, size_t max_count, bool async_op)
+void ds_alltoall(torch::Tensor& send_buf, torch::Tensor& rcv_buf, torch::Tensor& send_counts, torch::Tensor& recv_counts, size_t max_count, bool async_op)
 {
     ncclAlltoAll(send_buf.data_ptr(),
                   rcv_buf.data_ptr(),
-                  (int32_t*)counts.data_ptr(),
+                  (int32_t*)send_counts.data_ptr(),
+                  (int32_t*)recv_counts.data_ptr(),
                   max_count,
                   (send_buf.scalar_type() == at::kFloat ?
                     ncclFloat :

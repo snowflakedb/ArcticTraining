@@ -41,6 +41,7 @@ class Comm:
         self.local_ranks = list(range(self.group_size))
         self.rank_map = dict(zip(self.global_ranks, self.local_ranks))
         self.counts_pinned_data = torch.empty(1024, dtype=torch.int32, device="cpu", pin_memory=True)
+        self.recv_counts_pinned_data = torch.empty(1024, dtype=torch.int32, device="cpu", pin_memory=True)
 
         print("Initializing comm ...")
 
@@ -56,20 +57,30 @@ class Comm:
 
     def all_to_all(self, val, counts=None, result=None, inplace=True, async_op=False):
         if counts is not None:
-            receive_data = torch.empty_like(counts)
-            torch.distributed.all_to_all_single(receive_data, counts)
+            receive_counts = torch.empty_like(counts)
+            self.counts_pinned_data[: receive_counts.numel()].copy_(counts)
+            torch.distributed.all_to_all_single(receive_counts, counts)
             max_count = counts.max()
             torch.distributed.all_reduce(max_count, op=torch.distributed.ReduceOp.MAX)
 
             max_count = max_count.item()
-            counts = self.counts_pinned_data[: receive_data.numel()].copy_(receive_data)
+            receive_counts = self.recv_counts_pinned_data[: receive_counts.numel()].copy_(receive_counts)
+            counts = self.counts_pinned_data[: counts.numel()]
         else:
             max_count = val.size(0) // self.group_size
             counts = torch.full((self.group_size,), max_count, device="cpu", dtype=torch.int32)
+            receive_counts = counts
 
         result = result if result is not None else torch.empty_like(val)
         op = communicate_op(
-            val, result, async_op, world_size=self.group_size, op_type="all_to_all", counts=counts, max_count=max_count
+            val,
+            result,
+            async_op,
+            world_size=self.group_size,
+            op_type="all_to_all",
+            send_counts=counts,
+            recv_counts=receive_counts,
+            max_count=max_count,
         )
         return result, op
 
@@ -92,13 +103,23 @@ class Comm:
 
 
 class communicate_op:
-    def __init__(self, val, result, async_op, world_size=None, op_type="all_reduce", counts=None, max_count=None):
+    def __init__(
+        self,
+        val,
+        result,
+        async_op,
+        world_size=None,
+        op_type="all_reduce",
+        send_counts=None,
+        recv_counts=None,
+        max_count=None,
+    ):
         if op_type == "all_reduce":
             ds_comm.allReduce(val, result, val.numel(), async_op)
         elif op_type == "all_gather":
             ds_comm.allGather(val, result, val.numel(), async_op)
         elif op_type == "all_to_all":
-            ds_comm.alltoall(val, result, counts, max_count, async_op)
+            ds_comm.alltoall(val, result, send_counts, recv_counts, max_count, async_op)
         elif op_type == "broadcast":
             ds_comm.broadcast(val, result, val.numel(), async_op)
 
