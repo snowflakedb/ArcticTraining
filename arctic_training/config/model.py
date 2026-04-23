@@ -98,7 +98,7 @@ class ModelConfig(BaseConfig):
                 import flash_attn_3  # noqa: F401
             except (ImportError, ModuleNotFoundError):
                 raise ValueError(
-                    f"flash_attention_3 requires the flash_attn_3 package."
+                    "flash_attention_3 requires the flash_attn_3 package."
                     " For FA3 build from the github source: git clone https://github.com/Dao-AILab/flash-attention;"
                     " cd flash-attention/hopper; pip install . --no-build-isolation --no-clean"
                 )
