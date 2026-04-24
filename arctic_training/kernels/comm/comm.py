@@ -55,15 +55,22 @@ class Comm:
         op = communicate_op(val, val_gather, async_op, op_type="all_gather")
         return val_gather, op
 
-    def all_to_all(self, val, counts=None, result=None, inplace=True, async_op=False):
+    def all_to_all(
+        self, val, counts=None, receive_counts=None, max_count=None, result=None, inplace=True, async_op=False
+    ):
         if counts is not None:
-            receive_counts = torch.empty_like(counts)
+            if receive_counts is None:
+                receive_counts = torch.empty_like(counts)
+                torch.distributed.all_to_all_single(receive_counts, counts)
+
             self.counts_pinned_data[: receive_counts.numel()].copy_(counts)
-            torch.distributed.all_to_all_single(receive_counts, counts)
-            max_count = counts.max()
-            torch.distributed.all_reduce(max_count, op=torch.distributed.ReduceOp.MAX)
+
+            if max_count is None:
+                max_count = counts.max()
+                torch.distributed.all_reduce(max_count, op=torch.distributed.ReduceOp.MAX)
 
             max_count = max_count.item()
+
             receive_counts = self.recv_counts_pinned_data[: receive_counts.numel()].copy_(receive_counts)
             counts = self.counts_pinned_data[: counts.numel()]
         else:

@@ -87,16 +87,17 @@ def run_nccl_comm_test(comm, op="AllReduce"):
         raise AssertionError(f"Results do not match for {op} on rank {global_rank}")
 
     if op == "AlltoAll":
-        counts = [
-            768 * 4096,
-            1000 * 4096,
-            512 * 4096,
-            1024 * 4096,
-            768 * 4096,
-            1000 * 4096,
-            512 * 4096,
-            1024 * 4096,
-        ]  # [6144 * 4096] * 8
+        counts = [8192 * 4096] * 8
+        # counts = [
+        #     768 * 4096,
+        #     1000 * 4096,
+        #     512 * 4096,
+        #     1024 * 4096,
+        #     768 * 4096,
+        #     1000 * 4096,
+        #     512 * 4096,
+        #     1024 * 4096,
+        # ]  # [6144 * 4096] * 8
         counts = torch.tensor(counts, dtype=torch.int32, device=torch.cuda.current_device())
 
     def func(*args, **kwargs):

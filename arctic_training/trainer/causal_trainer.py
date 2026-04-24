@@ -19,7 +19,9 @@ from arctic_training.checkpoint.hf_engine import HFCheckpointEngine
 from arctic_training.data.causal_factory import CausalDataFactory
 from arctic_training.model.hf_factory import HFModelFactory
 from arctic_training.model.liger_factory import LigerModelFactory
+from arctic_training.optimizer.adam_factory import CPUAdamMoEOptimizerFactory
 from arctic_training.optimizer.adam_factory import CPUAdamOptimizerFactory
+from arctic_training.optimizer.adam_factory import FusedAdamMoEOptimizerFactory
 from arctic_training.optimizer.adam_factory import FusedAdamOptimizerFactory
 from arctic_training.scheduler.hf_factory import HFSchedulerFactory
 from arctic_training.tokenizer.hf_factory import HFTokenizerFactory
@@ -33,7 +35,9 @@ class CausalTrainer(Trainer):
     data_factory: CausalDataFactory
     model_factory: Union[HFModelFactory, LigerModelFactory]
     checkpoint_engine: Union[DSCheckpointEngine, HFCheckpointEngine]
-    optimizer_factory: Union[FusedAdamOptimizerFactory, CPUAdamOptimizerFactory]
+    optimizer_factory: Union[
+        FusedAdamOptimizerFactory, FusedAdamMoEOptimizerFactory, CPUAdamOptimizerFactory, CPUAdamMoEOptimizerFactory
+    ]
     scheduler_factory: Union[HFSchedulerFactory]
     tokenizer_factory: Union[HFTokenizerFactory]
 

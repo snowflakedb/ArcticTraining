@@ -46,6 +46,8 @@ class RaggedMoEScatterFunction(torch.autograd.Function):
             offsets,
             max_capacity_per_expert,
         )
+        # print(f'Max capacity per expert: {max_capacity_per_expert} expert_counts: {expert_counts}')
+        # exit(0)
         return moe_input, expert_cumsum, mapped_slots, max_capacity_per_expert
 
     @staticmethod
