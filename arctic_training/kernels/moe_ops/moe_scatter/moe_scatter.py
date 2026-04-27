@@ -25,12 +25,12 @@ class RaggedMoEScatterFunction(torch.autograd.Function):
         ctx.n_experts = expert_counts.shape[0]
         ctx.save_for_backward(mapped_slots, assignments)
         n_tokens, n_top_k = assignments.shape
-        num_experts = expert_counts.shape[0]
+        # num_experts = expert_counts.shape[0]
         max_capacity_per_expert = expert_counts.max()
-        torch.distributed.all_reduce(max_capacity_per_expert, op=torch.distributed.ReduceOp.MAX)
+        # torch.distributed.all_reduce(max_capacity_per_expert, op=torch.distributed.ReduceOp.MAX)
         moe_input = torch.zeros(
-            max_capacity_per_expert * num_experts,
-            # n_tokens * n_top_k,
+            # max_capacity_per_expert * num_experts,
+            n_tokens * n_top_k,
             activations.shape[1],
             device=activations.device,
             dtype=activations.dtype,
@@ -46,6 +46,8 @@ class RaggedMoEScatterFunction(torch.autograd.Function):
             offsets,
             max_capacity_per_expert,
         )
+        # print(f'Max capacity per expert: {max_capacity_per_expert} expert_counts: {expert_counts}')
+        # exit(0)
         return moe_input, expert_cumsum, mapped_slots, max_capacity_per_expert
 
     @staticmethod

@@ -24,9 +24,14 @@ from deepspeed.utils.logging import print_dist
 
 from arctic_training.debug.utils import pr0  # noqa, currently using it on/off a lot
 from arctic_training.debug.utils import see_memory_usage
+from arctic_training.kernels.comm.layout import Layout
+from arctic_training.kernels.comm.nccl import create_comm
 from arctic_training.model.moe.alltoall import AlltoAll
 from arctic_training.model.moe.alltoall import AlltoAllV
+from arctic_training.model.moe.alltoall import CustomAlltoAll
 from arctic_training.model.moe.timers import SynchronizedWallClockTimerSimple
+
+_custom_comm = None
 
 
 # from arctic_training.debug.utils import pr0
@@ -52,6 +57,7 @@ class MoEConfig:
 
 
 def torch_group_gemm_fn(A, B, rows_cumsum):
+    return torch._grouped_mm(A, B, offs=rows_cumsum.to(torch.int32))
     C = torch.zeros((rows_cumsum[-1], B.shape[-1]), device=A.device, dtype=A.dtype)
     for i in range(len(rows_cumsum)):
         start = 0 if i == 0 else rows_cumsum[i - 1]
@@ -66,6 +72,8 @@ class ArcticMoE(nn.Module):
         config: MoEConfig object
     """
 
+    layer_id = 0
+
     def __init__(self, config: MoEConfig):
         super(ArcticMoE, self).__init__()
         self._config = config
@@ -79,7 +87,8 @@ class ArcticMoE(nn.Module):
         self.num_experts = config.num_experts
         self.top_k = config.top_k
         self.use_custom_kernel = config.use_custom_moe_kernel
-
+        ArcticMoE.layer_id = ArcticMoE.layer_id + 1
+        self.layerId = ArcticMoE.layer_id
         # profiler
         self.timers = SynchronizedWallClockTimerSimple()
         self.wall_clock_breakdown = False
@@ -147,6 +156,10 @@ class ArcticMoE(nn.Module):
             self.moe_scatter = RaggedMoEScatterModule()
             self.moe_gather = RaggedMoEGatherModule(normalize_scores=self._config.normalize_topk_scores)
             self.topk_kernel = RaggedTopKGatingModule()
+            global _custom_comm
+            if _custom_comm is None:
+                _custom_comm = create_comm(Layout(self.ep_size, stride=1, world_size=dist.get_world_size()))
+            self.custom_comm = _custom_comm
 
         self.enable_routing_replay = config.enable_routing_replay
 
@@ -250,16 +263,28 @@ class ArcticMoE(nn.Module):
         self.timers.stop("router")
         see_memory_usage("after router", force=False)
 
-        if self.ep_size > 1 and not self.use_custom_kernel:
-            self.timers.start("a2a-v1")
-            moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
-            self.timers.stop("a2a-v1")
+        # hack to disable custom kernel for the rest of the forward pass to get a sense of the breakdown without the custom kernel -
+        # will be removing this soon once we have more confidence in the custom kernel performance and correctness
+        prev_custom_kernel_flag = self.use_custom_kernel
+        self.use_custom_kernel = False
 
-            self.timers.start("a2a-v1 transpose")
-            moe_input, expert_token_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
-                moe_input, expert_token_rcv_count
-            )
-            self.timers.stop("a2a-v1 transpose")
+        if self.ep_size > 1:
+            if self.use_custom_kernel:
+                if False:
+                    moe_input, expert_token_rcv_count = CustomAlltoAll(
+                        self.custom_comm, moe_input, expert_token_count, max_capacity_per_expert
+                    )
+                moe_input = AlltoAll(self.ep_group, moe_input)
+            else:
+                self.timers.start("a2a-v1")
+                moe_input = self.alltoall_V(moe_input, expert_token_count, expert_token_rcv_count)
+                self.timers.stop("a2a-v1")
+
+                self.timers.start("a2a-v1 transpose")
+                moe_input, expert_token_count_cumsum, expert_token_count_transposed = self.local_ep_transpose(
+                    moe_input, expert_token_rcv_count
+                )
+                self.timers.stop("a2a-v1 transpose")
         else:
             expert_token_count_cumsum = expert_token_count.cumsum(0)
 
@@ -275,6 +300,11 @@ class ArcticMoE(nn.Module):
         if self.ep_size > 1:
             self.timers.start("a2a-v2 permute")
             if self.use_custom_kernel:
+                # custom kernel already outputs in the correct order for the alltoall, so we can skip the local transpose and just do alltoall directly
+                if False:
+                    moe_output = CustomAlltoAll(
+                        self.custom_comm, moe_output, expert_token_rcv_count, max_capacity_per_expert
+                    )
                 moe_output = AlltoAll(self.ep_group, moe_output)
             else:
                 if self.wall_clock_breakdown:
@@ -293,6 +323,8 @@ class ArcticMoE(nn.Module):
                 moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
                 self.timers.stop("a2a-v2")
         see_memory_usage("after alltoall_V", force=False)
+
+        self.use_custom_kernel = prev_custom_kernel_flag
 
         self.timers.start("moe-combine")
         if self.use_custom_kernel:
@@ -422,7 +454,12 @@ class ArcticMoE(nn.Module):
             self.expert_counts, assignments, offsets, logits
         )
 
-        expert_token_rcv_count = self.expert_counts
+        if self.ep_size == 1:
+            expert_token_rcv_count = self.expert_counts
+        else:
+            expert_token_rcv_count = torch.empty_like(self.expert_counts)
+            # with torch.cuda.stream(self.comm_stream):
+            dist.all_to_all_single(expert_token_rcv_count, self.expert_counts, group=self.ep_group)
 
         (moe_input, self.expert_cumsum, mapped_slots, max_capacity_per_expert) = self.moe_scatter(
             self.expert_cumsum, mapped_slots, hidden_states, self.expert_counts, assignments, offsets
@@ -431,7 +468,7 @@ class ArcticMoE(nn.Module):
         return scores, moe_input, mapped_slots, self.expert_counts, expert_token_rcv_count, max_capacity_per_expert
 
     def torch_bached_gemm(self, input, max_capacity_per_expert):
-        input = input.reshape(-1, max_capacity_per_expert, input.shape[-1])
+        input = input.reshape(-1, self.ep_size * max_capacity_per_expert, input.shape[-1])
         intermediate = torch.bmm(
             input,
             self.expert_gate_up,

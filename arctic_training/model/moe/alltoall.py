@@ -50,9 +50,11 @@ class AlltoAllFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, group, x):
         x = x.contiguous()
-        y = torch.empty_like(x)
-        dist.all_to_all_single(y, x, group=group)
-        return y
+        # y = torch.empty_like(x)
+        ctx.group = group
+        # dist.all_to_all_single(y, x, group=group)
+        return x
+        # return y
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -61,3 +63,30 @@ class AlltoAllFunction(torch.autograd.Function):
 
 def AlltoAll(*args, **kwargs):
     return AlltoAllFunction.apply(*args, **kwargs)
+
+
+class CustomAlltoAllFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, comm, x, counts, max_count):
+        ctx.comm = comm
+
+        receive_counts = torch.empty_like(counts)
+        torch.distributed.all_to_all_single(receive_counts, counts)
+
+        y = comm.all_to_all(x, counts=counts, receive_counts=receive_counts, max_count=max_count)[0]
+
+        ctx.save_for_backward(receive_counts, max_count, counts)
+        return y, receive_counts
+
+    @staticmethod
+    def backward(ctx, *grad_outputs):
+        receive_counts, max_count, counts = ctx.saved_tensors
+        grad_output = grad_outputs[0].contiguous()
+        grad_input = ctx.comm.all_to_all(
+            grad_output, counts=receive_counts, receive_counts=counts, max_count=max_count
+        )[0]
+        return (None, grad_input, None, None)
+
+
+def CustomAlltoAll(*args, **kwargs):
+    return CustomAlltoAllFunction.apply(*args, **kwargs)

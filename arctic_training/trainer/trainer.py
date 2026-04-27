@@ -38,6 +38,7 @@ from devtools import debug
 from tqdm import tqdm
 from transformers import set_seed
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
+from wandb import util as wandb_util  # type: ignore
 from wandb.sdk.wandb_run import Run as WandbRun
 
 from arctic_training.callback.logging import post_loss_log_cb
