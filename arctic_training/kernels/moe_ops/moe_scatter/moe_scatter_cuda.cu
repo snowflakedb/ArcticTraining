@@ -168,7 +168,7 @@ __global__ void moe_scatter_kernel(T* moe_input,
                                          assignments,          \
                                          expert_counts,        \
                                          offsets,              \
-                                         max_capacity_per_expert, \
+                                         nullptr,               \
                                          n_channels,           \
                                          n_experts);           \
         break;

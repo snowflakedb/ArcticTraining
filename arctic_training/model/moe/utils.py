@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import gc
 import os
 import re
 import time
@@ -258,6 +259,10 @@ def remap_orig_moe_mlp_params_to_arctic_moe(
                 # putting the gate and up weigths in every-other order to match arctic-moe style
 
                 gate_up = torch.stack((gate_stacked, up_stacked), dim=-1).view(*up_stacked.shape[:-1], -1).contiguous()
+                gate_stacked = None  # free memory
+                up_stacked = None  # free memory
+                gc.collect()
+                torch.cuda.empty_cache()
                 # pr0(f"{gate_up.shape=}", force=True)
                 # pr0(f"{arctic_moe.expert_gate_up.shape=}", force=True)
                 arctic_moe.expert_gate_up.copy_(gate_up)

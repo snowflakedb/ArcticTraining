@@ -262,6 +262,11 @@ class ArcticMoE(nn.Module):
         self.timers.stop("router")
         see_memory_usage("after router", force=False)
 
+        # hack to disable custom kernel for the rest of the forward pass to get a sense of the breakdown without the custom kernel -
+        # will be removing this soon once we have more confidence in the custom kernel performance and correctness
+        prev_custom_kernel_flag = self.use_custom_kernel
+        self.use_custom_kernel = False
+
         if self.ep_size > 1:
             if self.use_custom_kernel:
                 if False:
@@ -317,6 +322,8 @@ class ArcticMoE(nn.Module):
                 moe_output = self.alltoall_V(moe_output, expert_token_rcv_count, expert_token_count)
                 self.timers.stop("a2a-v2")
         see_memory_usage("after alltoall_V", force=False)
+
+        self.use_custom_kernel = prev_custom_kernel_flag
 
         self.timers.start("moe-combine")
         if self.use_custom_kernel:
@@ -446,7 +453,12 @@ class ArcticMoE(nn.Module):
             self.expert_counts, assignments, offsets, logits
         )
 
-        expert_token_rcv_count = self.expert_counts
+        if self.ep_size == 1:
+            expert_token_rcv_count = self.expert_counts
+        else:
+            expert_token_rcv_count = torch.empty_like(self.expert_counts)
+            # with torch.cuda.stream(self.comm_stream):
+            dist.all_to_all_single(expert_token_rcv_count, self.expert_counts, group=self.ep_group)
 
         (moe_input, self.expert_cumsum, mapped_slots, max_capacity_per_expert) = self.moe_scatter(
             self.expert_cumsum, mapped_slots, hidden_states, self.expert_counts, assignments, offsets
