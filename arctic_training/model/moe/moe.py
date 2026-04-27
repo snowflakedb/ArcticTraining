@@ -57,6 +57,7 @@ class MoEConfig:
 
 
 def torch_group_gemm_fn(A, B, rows_cumsum):
+    return torch._grouped_mm(A, B, offs=rows_cumsum.to(torch.int32))
     C = torch.zeros((rows_cumsum[-1], B.shape[-1]), device=A.device, dtype=A.dtype)
     for i in range(len(rows_cumsum)):
         start = 0 if i == 0 else rows_cumsum[i - 1]
