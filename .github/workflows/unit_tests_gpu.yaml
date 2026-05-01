@@ -1,0 +1,30 @@
+name: Unit Tests (GPU)
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests-gpu:
+    runs-on: [self-hosted, h200]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup environment
+        run: |
+          python -m pip install ".[testing]"
+      - name: Environment print
+        run: |
+          python --version
+          pip list
+      - name: Unit Tests
+        run: |
+          cd tests
+          python -m pytest . -m "gpu" -s -v
