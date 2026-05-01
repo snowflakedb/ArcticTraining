@@ -1,0 +1,105 @@
+# GRPO Training Configuration for Text-to-SQL
+# Following Arctic-Text2SQL-R1 paper methodology
+# Paper: https://arxiv.org/abs/2505.20315
+
+type: grpo  # Our custom GRPO trainer
+epochs: 3
+micro_batch_size: 1  # Small batch size for 24GB GPU
+gradient_accumulation_steps: 16  # Effective batch size = 16
+
+# GRPO-specific hyperparameters (from paper Section 3)
+num_samples_per_prompt: 16  # Paper uses 16 rollouts per sample
+temperature: 0.8  # Paper uses 0.8 for generation
+kl_coef: 0.001  # KL divergence coefficient (β = 0.001)
+clip_range: 0.2  # PPO clipping ratio (ε = 0.2)
+
+# Reward function (from paper Section 3.2)
+reward_correct: 1.0  # Exact match with gold result
+reward_executable: 0.1  # Executable but wrong result
+reward_failed: 0.0  # Syntax error or execution failure
+
+# Model configuration
+model:
+  type: huggingface
+  name_or_path: Qwen/Qwen2.5-Coder-3B-Instruct  # Instruction-tuned base model
+  dtype: bf16
+  attn_implementation: flash_attention_2  # Faster attention
+
+  # LoRA configuration for parameter-efficient fine-tuning
+  peft_config:
+    peft_type: Lora
+    r: 16  # LoRA rank
+    lora_alpha: 32
+    lora_dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+    bias: none
+    task_type: CAUSAL_LM
+
+# Data configuration
+data:
+  sources:
+    - type: text2sql
+      path: ./projects/arctic_text2sql_r1_training/training_data/train.json
+  use_data_cache: true
+  cache_processed_data: true
+  num_proc: 8
+  max_length: 4096  # Accommodate prompt + SQL
+
+# DeepSpeed ZeRO-2 for memory efficiency
+deepspeed:
+  zero_optimization:
+    stage: 2  # ZeRO-2 is good balance for LoRA
+    offload_optimizer:
+      device: cpu  # Offload to CPU to save GPU memory
+    allgather_partitions: true
+    allgather_bucket_size: 2e8
+    reduce_scatter: true
+    reduce_bucket_size: 2e8
+    overlap_comm: true
+    contiguous_gradients: true
+  gradient_accumulation_steps: 16
+  gradient_clipping: 1.0
+  steps_per_print: 10
+  train_batch_size: auto
+  train_micro_batch_size_per_gpu: auto
+  wall_clock_breakdown: false
+  bf16:
+    enabled: true
+
+# Optimizer (from paper)
+optimizer:
+  type: fused_adam
+  lr: 1e-6  # Low learning rate for RL fine-tuning
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+
+# Scheduler
+scheduler:
+  name: cosine
+  warmup_ratio: 0.1
+
+# Logging
+wandb:
+  enable: true
+  project: arctic-text2sql-grpo
+  name: grpo-qwen-3b-experiment
+  entity: null  # Set your wandb entity
+
+logger:
+  level: INFO
+  output_dir: ./logs
+  file_output_ranks: [0]
+
+# Checkpointing
+checkpoint:
+  - type: huggingface
+    save_every_n_steps: 100
+    output_dir: ./checkpoints/grpo-qwen-3b
+    save_end_of_training: true
