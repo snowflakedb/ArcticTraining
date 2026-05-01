@@ -108,7 +108,7 @@ class Metrics:
         """Returns the value stored in the metrics dictionary for the given key."""
         return self.values[key]
 
-    def print_summary(self, prefix: str = "train") -> None:
+    def print_summary(self, prefix: str = "train", print_output: bool = True) -> None:
         """Prints a summary of the metrics. If a value is not recorded by the Trainer, it is not included in the summary."""
         if not self.enabled:
             return
@@ -169,6 +169,9 @@ class Metrics:
                 self.summary_dict["step_tflops"] = tflos_total / step_time_total
 
         self.values.clear()
+
+        if not print_output:
+            return
 
         summary_str = (
             f"{prefix.title():>{len('train')}} iter:"
