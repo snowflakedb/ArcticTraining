@@ -187,6 +187,43 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
             logger.error(f"Failed to list S3 checkpoints: {e}")
             return []
 
+    def _read_latest_marker(self) -> "int | None":
+        """Return the global_step in the S3 `latest` marker, or None if absent.
+
+        The marker is uploaded *after* all checkpoint shards (see _do_s3_uploads),
+        so it only ever names a fully-uploaded checkpoint -- safer than picking
+        max(global_step_*), which could select a partially-uploaded directory left
+        behind by an interrupted run.
+        """
+        try:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile() as tmp:
+                self.s3_client.download_file(self.s3_bucket, f"{self.s3_prefix}/latest", tmp.name)
+                return int(Path(tmp.name).read_text().strip())
+        except Exception:
+            return None
+
+    def _saved_world_size(self, global_step: int) -> "int | None":
+        """Infer the DP world size a checkpoint was saved with by counting its ZeRO
+        optimizer shards (one `pp_rank_{i}_` file per rank). Used to detect a resume
+        across a changed GPU count, which ZeRO cannot repartition."""
+        try:
+            import re
+
+            paginator = self.s3_client.get_paginator("list_objects_v2")
+            prefix = f"{self.s3_prefix}/global_step_{global_step}/"
+            ranks = set()
+            for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    m = re.search(r"pp_rank_(\d+)_", obj["Key"])
+                    if m:
+                        ranks.add(int(m.group(1)))
+            return len(ranks) if ranks else None
+        except Exception as e:
+            logger.error(f"Failed to determine saved world size for global_step_{global_step}: {e}")
+            return None
+
     def _cleanup_local_cache(self) -> None:
         """Remove old checkpoints from local cache to stay within limit"""
         # List all checkpoint directories in cache
@@ -398,26 +435,55 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
                 torch.distributed.barrier()
             return
 
-        # First, only global rank 0 checks if there are any checkpoints
-        global_steps = []
+        # Decide which checkpoint to resume from (global rank 0 decides, then we
+        # broadcast). Prefer the `latest` marker (uploaded last, so it always names
+        # a fully-uploaded checkpoint) over max(global_step_*), which could pick a
+        # partially-uploaded dir left by an interrupted run. Also refuse to resume
+        # across a changed GPU count: ZeRO optimizer state can't be repartitioned,
+        # so loading would crash -- start fresh with a loud warning instead.
+        resume_step = -1  # -1 => no resumable checkpoint, start fresh
         if self.global_rank == 0:
-            global_steps = self._list_s3_checkpoints()
-            if not global_steps:
+            steps = self._list_s3_checkpoints()
+            if not steps:
                 logger.info("No checkpoints found in S3, starting from scratch")
+            else:
+                marker = self._read_latest_marker()
+                if marker is not None and marker in steps:
+                    resume_step = marker
+                else:
+                    resume_step = steps[-1]
+                    if marker is not None:
+                        logger.warning(
+                            f"`latest` marker ({marker}) is not among uploaded checkpoints {steps}; "
+                            f"falling back to newest complete step {resume_step}."
+                        )
+                saved_ws = self._saved_world_size(resume_step)
+                if saved_ws is not None and saved_ws != self.trainer.world_size:
+                    logger.warning(
+                        f"Checkpoint global_step_{resume_step} was saved with world_size={saved_ws}, but "
+                        f"current world_size={self.trainer.world_size}. ZeRO optimizer state cannot be "
+                        f"repartitioned across GPU counts -- starting from scratch instead of crashing. "
+                        f"(Resume on {saved_ws} GPUs, or set AUTO_RESUME=False to silence this.)"
+                    )
+                    resume_step = -1
+                elif saved_ws is None:
+                    logger.warning(
+                        f"Could not verify the saved world size for global_step_{resume_step}; proceeding."
+                    )
 
-        # Broadcast whether checkpoints exist to all ranks
-        has_checkpoints = len(global_steps) > 0 if self.global_rank == 0 else False
+        # Broadcast the resume decision to all ranks.
         if self.trainer.world_size > 1:
-            has_checkpoints_list = [has_checkpoints]
-            torch.distributed.broadcast_object_list(has_checkpoints_list, src=0)
-            has_checkpoints = has_checkpoints_list[0]
+            resume_step_list = [resume_step]
+            torch.distributed.broadcast_object_list(resume_step_list, src=0)
+            resume_step = resume_step_list[0]
 
-        # If no checkpoints, all ranks return
-        if not has_checkpoints:
-            # Ensure all ranks are synchronized before returning
+        # No resumable checkpoint -> all ranks start fresh.
+        if resume_step < 0:
             if self.trainer.world_size > 1:
                 torch.distributed.barrier()
             return
+
+        latest_step = resume_step
 
         # Now proceed with normal checkpoint loading logic
         local_checkpoint_dir = None
@@ -431,17 +497,8 @@ class BiencoderS3CheckpointEngine(HFCheckpointEngine):
         torch.distributed.all_gather_object(all_hostnames, hostname)
         node_ranks = [i for i, h in enumerate(all_hostnames) if h == hostname]
 
-        # Get the latest checkpoint step - broadcast from global rank 0 to all ranks
-        latest_step = 0
         if self.global_rank == 0:
-            latest_step = global_steps[-1]
-            logger.info(f"Found {len(global_steps)} checkpoints, loading latest: global_step_{latest_step}")
-
-        # Broadcast latest_step to ALL ranks (not just local_rank 0)
-        latest_step_list = [latest_step]
-        torch.distributed.broadcast_object_list(latest_step_list, src=0)
-        latest_step = latest_step_list[0]
-
+            logger.info(f"Resuming from global_step_{latest_step}")
         # Only local_rank 0 on each node downloads checkpoint
         # This is necessary when nodes don't share storage
         if local_rank == 0:
