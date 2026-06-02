@@ -37,6 +37,9 @@ class BiencoderModelConfig(ModelConfig):
     # Gradient/activation checkpointing granularity: checkpoint every n-th layer.
     # 1 = every layer (max memory savings, max recompute); higher = less recompute.
     activation_checkpoint_every_n: int = 1
+    # torch.compile the encoder after construction. Off by default: the per-batch
+    # variable sequence length can trigger recompiles that erase the speedup.
+    torch_compile: bool = False
 
 
 class BiencoderModelFactory(ModelFactory):
@@ -52,16 +55,12 @@ class BiencoderModelFactory(ModelFactory):
     def create_config(self):
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
-        return AutoConfig.from_pretrained(
-            self.config.name_or_path, **arctic_training_model_config.kwargs
-        )
+        return AutoConfig.from_pretrained(self.config.name_or_path, **arctic_training_model_config.kwargs)
 
     def create_model(self, model_config: AutoConfig) -> Biencoder:
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
-        trust_remote_code = arctic_training_model_config.kwargs.get(
-            "trust_remote_code", None
-        )
+        trust_remote_code = arctic_training_model_config.kwargs.get("trust_remote_code", None)
         encoder = AutoModel.from_pretrained(
             self.config.name_or_path,
             config=model_config,
@@ -93,16 +92,12 @@ class BiencoderModelFactory(ModelFactory):
             if n < 1:
                 raise ValueError(f"activation_checkpoint_every_n must be >= 1, got {n}")
 
-            model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(
-                model.encoder
-            )
+            model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(model.encoder)
             # transformers sets `_gradient_checkpointing_func` AND
             # `gradient_checkpointing=True` on every GradientCheckpointingLayer here
             # (use_reentrant=False is the recommended, non-deprecated mode). We then
             # leave it enabled on only every n-th layer.
-            model.encoder.gradient_checkpointing_enable(
-                gradient_checkpointing_kwargs={"use_reentrant": False}
-            )
+            model.encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
             if hasattr(model.encoder, "config") and hasattr(model.encoder.config, "use_cache"):
                 model.encoder.config.use_cache = False
 
@@ -124,8 +119,16 @@ class BiencoderModelFactory(ModelFactory):
                 for i, layer in enumerate(layers):
                     layer.gradient_checkpointing = i % n == 0
                     kept += int(i % n == 0)
-                logging.getLogger(__name__).info(
-                    f"Gradient checkpointing on {kept}/{len(layers)} layers (every {n})."
-                )
+                logging.getLogger(__name__).info(f"Gradient checkpointing on {kept}/{len(layers)} layers (every {n}).")
+
+        if getattr(self.config, "torch_compile", False):
+            import logging
+
+            import torch
+
+            # dynamic=True avoids a recompile per distinct (batch, seqlen) shape,
+            # which is essential here: every batch has a different padded length.
+            model.encoder = torch.compile(model.encoder, dynamic=True)
+            logging.getLogger(__name__).info("torch.compile enabled on encoder (dynamic=True).")
 
         return model

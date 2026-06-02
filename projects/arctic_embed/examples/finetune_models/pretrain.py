@@ -44,6 +44,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         disable_activation_checkpoint=not cfg.get("ACTIVATION_CHECKPOINTING", False),
         attn_implementation=cfg.get("ATTN_IMPLEMENTATION", "flash_attention_2"),
         activation_checkpoint_every_n=cfg.get("ACTIVATION_CHECKPOINT_EVERY_N", 1),
+        torch_compile=cfg.get("TORCH_COMPILE", False),
     )
 
     # Data
