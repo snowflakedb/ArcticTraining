@@ -120,6 +120,11 @@ class BiencoderModelFactory(ModelFactory):
                 if layers is None:
                     raise ValueError("Could not locate the transformer layer stack for gradient checkpointing.")
                 num_layers = len(layers)
+                if last_k >= num_layers:
+                    raise ValueError(
+                        f"activation_checkpoint_uncheckpointed_last_k ({last_k}) must be < num_layers "
+                        f"({num_layers}); a value >= num_layers leaves every layer un-checkpointed (AC off) and OOMs."
+                    )
                 kept = 0
                 for i, layer in enumerate(layers):
                     # Checkpoint every n-th layer, but never the last `last_k` layers:

@@ -267,9 +267,13 @@ class BiencoderTrainer(Trainer):
         )
 
         # Spread-out regularizer (EmbeddingGemma, arXiv:2509.20354): push query and
-        # positive-document embeddings toward uniform spread on the hypersphere for
-        # better embedding-space utilization / quantization / MRL-truncation robustness.
-        # `document_embeddings` here are the batch's positive docs (query-positive pairs).
+        # document embeddings toward uniform spread on the hypersphere for better
+        # embedding-space utilization / quantization / MRL-truncation robustness.
+        # NOTE: `document_embeddings` is the batch's document set. For 1-positive-per-query
+        # data (in-batch negatives only, e.g. combined_all_32768) these are exactly the
+        # positives, matching the paper. If a dataset packs labeled hard-negative docs into
+        # the batch, they're included here too — spreading negatives as well, which deviates
+        # from the paper's positives-only term; revisit the doc-side spread for such data.
         loss_spread_out = None
         if self.config.spread_out_weight > 0:
             loss_spread_out = spread_out_loss(query_embeddings) + spread_out_loss(document_embeddings)
