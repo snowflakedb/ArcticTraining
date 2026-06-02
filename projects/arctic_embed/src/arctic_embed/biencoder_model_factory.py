@@ -34,6 +34,9 @@ class BiencoderModelConfig(ModelConfig):
     type: str = "biencoder"
     pooling: PoolingOption = "first_token"
     kwargs: Dict[str, Any] = {}
+    # Gradient/activation checkpointing granularity: checkpoint every n-th layer.
+    # 1 = every layer (max memory savings, max recompute); higher = less recompute.
+    activation_checkpoint_every_n: int = 1
 
 
 class BiencoderModelFactory(ModelFactory):
@@ -110,6 +113,6 @@ class BiencoderModelFactory(ModelFactory):
             model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(
                 model.encoder
             )
-            enable_gc_every_n_layers(model.encoder, n=1, use_reentrant=False)
+            enable_gc_every_n_layers(model.encoder, n=self.config.activation_checkpoint_every_n, use_reentrant=False)
 
         return model
