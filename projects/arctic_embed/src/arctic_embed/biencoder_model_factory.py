@@ -66,6 +66,13 @@ class BiencoderModelFactory(ModelFactory):
             torch_dtype=self.config.dtype.value,
             trust_remote_code=trust_remote_code,
         )
+        # Train Qwen3 as a bidirectional encoder: disable causal masking on every
+        # attention layer. The matching non-causal attention bias is supplied in
+        # `Biencoder.encode` (see `_qwen3_attention_masks`).
+        if getattr(model_config, "model_type", "") == "qwen3":
+            for layer in encoder.layers:
+                if hasattr(layer, "self_attn") and hasattr(layer.self_attn, "is_causal"):
+                    layer.self_attn.is_causal = False
         return Biencoder(encoder, pooling=arctic_training_model_config.pooling)
 
     def post_create_model_callback(self, model: Biencoder):
