@@ -85,7 +85,6 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         "gradient_clipping": cfg.get("GRADIENT_CLIPPING", 10.0),
         "zero_optimization": {"stage": int(cfg.get("ZERO_STAGE", 1))},
         "communication_data_type": cfg.get("COMMUNICATION_DATA_TYPE", "fp32"),
-        "wall_clock_breakdown": cfg.get("WALL_CLOCK_BREAKDOWN", False),
     }
 
     # S3 Checkpoint configuration (always required)
