@@ -92,6 +92,34 @@ def _dim_truncated_infonce(
     return loss
 
 
+def spread_out_loss(embeddings: Tensor) -> Tensor:
+    """Spread-out regularizer (EmbeddingGemma, arXiv:2509.20354).
+
+    Mean squared off-diagonal cosine similarity among a batch of embeddings:
+
+        L = 1/(B(B-1)) * sum_{i != j} (e_i . e_j)^2
+
+    Minimizing it pushes embeddings toward mutual orthogonality (uniform spread on
+    the hypersphere), which improves embedding-space utilization and robustness to
+    quantization / MRL truncation.
+
+    Computed via the d x d Gram trick instead of the B x B similarity matrix:
+        sum_{i,j} (e_i . e_j)^2 = ||E^T E||_F^2   (E is B x d, E^T E is d x d)
+    and the i==j diagonal contributes sum_i ||e_i||^4 = B for unit-norm rows, so
+        sum_{i != j} (e_i . e_j)^2 = ||E^T E||_F^2 - B.
+    This is O(B*d^2) compute / O(d^2) memory -- negligible vs a B x B matrix.
+    """
+    b = embeddings.size(0)
+    if b < 2:
+        return embeddings.sum() * 0.0  # keep it in the graph, contribute nothing
+    e = F.normalize(embeddings, dim=1)
+    gram = e.transpose(0, 1) @ e  # (d, d) == E^T E
+    sum_sq = (gram * gram).sum()  # ||E^T E||_F^2 == sum_{i,j} (e_i . e_j)^2
+    off_diagonal = sum_sq - b  # subtract i==j terms (== b for unit-norm rows)
+    return off_diagonal / (b * (b - 1))
+
+
+
 def info_nce_loss(scores: Tensor, relations: Tensor, temperature: float = 0.01) -> Tensor:
     """InfoNCE loss for potentially many-to-many query-document pairings.
 

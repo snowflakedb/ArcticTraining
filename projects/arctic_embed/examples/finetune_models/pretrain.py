@@ -119,6 +119,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         loss_temperature=cfg.get("LOSS_TEMPERATURE", 0.02),
         overfit_first_batch=cfg.get("OVERFIT_FIRST_BATCH", False),
         mrl_dim=cfg.get("MRL_DIM", 256),
+        spread_out_weight=cfg.get("SPREAD_OUT_WEIGHT", 0.0),
     )
     return tconf
 

@@ -48,6 +48,7 @@ from .contrastive_dataloader import ContrastivePretokenizedDataFactory
 from .core.biencoder_model import Biencoder
 from .core.losses import info_nce_loss
 from .core.losses import one_size_truncated_mrl_info_nce_loss
+from .core.losses import spread_out_loss
 from .core.pretokenized_batch_loader import ContrastiveLearningBatch
 
 
@@ -59,6 +60,10 @@ class BiencoderTrainerConfig(TrainerConfig):
     data: ContrastivePretokenizedDataConfig
     mrl_dim: Optional[int] = None
     eval_interval: Optional[int] = None
+    # Spread-out regularizer weight (EmbeddingGemma, arXiv:2509.20354). 0 = off.
+    # Adds spread_out_weight * (spread(queries) + spread(positive_docs)) to the loss
+    # to push embeddings toward uniform spread (quantization / MRL-truncation robustness).
+    spread_out_weight: float = 0.0
 
 
 class FakeTokenizer:
@@ -261,6 +266,15 @@ class BiencoderTrainer(Trainer):
             temperature=self.config.loss_temperature,
         )
 
+        # Spread-out regularizer (EmbeddingGemma, arXiv:2509.20354): push query and
+        # positive-document embeddings toward uniform spread on the hypersphere for
+        # better embedding-space utilization / quantization / MRL-truncation robustness.
+        # `document_embeddings` here are the batch's positive docs (query-positive pairs).
+        loss_spread_out = None
+        if self.config.spread_out_weight > 0:
+            loss_spread_out = spread_out_loss(query_embeddings) + spread_out_loss(document_embeddings)
+            loss = loss + self.config.spread_out_weight * loss_spread_out
+
         # Weights and Biases logging.
         # NOTE: We log more than is feasible to do in a callback, so we do it here
         # in the `loss` function.
@@ -279,6 +293,8 @@ class BiencoderTrainer(Trainer):
             if loss_truncated is not None:
                 truncated_loss_name = f"train/loss_truncate_{self.config.mrl_dim}"
                 metrics[truncated_loss_name] = loss_truncated.item()
+            if loss_spread_out is not None:
+                metrics["train/loss_spread_out"] = loss_spread_out.item()
             wandb.log(metrics, step=self.global_step)
 
         return loss
