@@ -85,34 +85,47 @@ class BiencoderModelFactory(ModelFactory):
             model.encoder = get_peft_model(model.encoder, peft_config)
 
         if not self.config.disable_activation_checkpoint:
+            import logging
+
             import torch
 
-            def enable_gc_every_n_layers(model, n=2, use_reentrant=False):
-                try:
-                    model.gradient_checkpointing_enable(
-                        gradient_checkpointing_kwargs={"use_reentrant": use_reentrant}
-                    )
-                except TypeError:
-                    model.gradient_checkpointing_enable()
-
-                if hasattr(model, "layers"):
-                    for i, layer in enumerate(model.layers):
-                        if not hasattr(layer, "_gradient_checkpointing_func"):
-                            layer._gradient_checkpointing_func = (
-                                lambda f, *args, **kwargs: torch.utils.checkpoint.checkpoint(
-                                    f, *args, use_reentrant=use_reentrant, **kwargs
-                                )
-                            )
-                        layer.gradient_checkpointing = (i % n == 0)
-                else:
-                    raise ValueError(f"Model {model} has no `layers` attribute")
-
-                if hasattr(model, "config") and hasattr(model.config, "use_cache"):
-                    model.config.use_cache = False
+            n = self.config.activation_checkpoint_every_n
+            if n < 1:
+                raise ValueError(f"activation_checkpoint_every_n must be >= 1, got {n}")
 
             model.encoder = HFModelFactory.make_model_gradient_checkpointing_compatible(
                 model.encoder
             )
-            enable_gc_every_n_layers(model.encoder, n=self.config.activation_checkpoint_every_n, use_reentrant=False)
+            # transformers sets `_gradient_checkpointing_func` AND
+            # `gradient_checkpointing=True` on every GradientCheckpointingLayer here
+            # (use_reentrant=False is the recommended, non-deprecated mode). We then
+            # leave it enabled on only every n-th layer.
+            model.encoder.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
+            if hasattr(model.encoder, "config") and hasattr(model.encoder.config, "use_cache"):
+                model.encoder.config.use_cache = False
+
+            if n > 1:
+                layers = getattr(model.encoder, "layers", None)
+                if layers is None:
+                    # AutoModel may nest the layer stack; find the decoder ModuleList.
+                    for module in model.encoder.modules():
+                        if (
+                            isinstance(module, torch.nn.ModuleList)
+                            and len(module) > 0
+                            and hasattr(module[0], "gradient_checkpointing")
+                        ):
+                            layers = module
+                            break
+                if layers is None:
+                    raise ValueError("Could not locate the transformer layer stack for gradient checkpointing.")
+                kept = 0
+                for i, layer in enumerate(layers):
+                    layer.gradient_checkpointing = i % n == 0
+                    kept += int(i % n == 0)
+                logging.getLogger(__name__).info(
+                    f"Gradient checkpointing on {kept}/{len(layers)} layers (every {n})."
+                )
 
         return model
