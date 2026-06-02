@@ -44,26 +44,10 @@ class Biencoder(nn.Module):
         self.config = encoder.config
 
     def encode(self, input_ids: Tensor, attention_mask: Tensor) -> Tensor:
-        original_attention_mask = attention_mask
-        if getattr(self.config, "model_type", "") == "qwen3":
-            # Run Qwen3 with bidirectional (non-causal) attention by feeding an
-            # explicit padding-only attention bias. The per-layer `is_causal=False`
-            # is set in the model factory; here we supply the mask the model expects.
-            has_sliding = getattr(self.encoder, "has_sliding_layers", False)
-            embeddings = getattr(self.encoder, "embed_tokens", None)
-            if embeddings is not None:
-                attn_dtype = embeddings.weight.dtype
-            else:
-                try:
-                    attn_dtype = next(self.encoder.parameters()).dtype
-                except StopIteration:
-                    attn_dtype = torch.get_default_dtype()
-            attention_mask = _qwen3_attention_masks(
-                pad_mask=original_attention_mask,
-                dtype=attn_dtype,
-                device=original_attention_mask.device,
-                has_sliding=has_sliding,
-            )
+        # Bidirectional attention for decoder bases (e.g. Qwen3) comes from
+        # `self_attn.is_causal = False` set in the model factory; we pass the plain
+        # 2D padding mask so FlashAttention can unpad and run non-causal efficiently
+        # (a dense 4D float bias would force the slow math path and skip unpadding).
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         if not hasattr(out, "last_hidden_state"):
             raise ValueError(
@@ -74,11 +58,11 @@ class Biencoder(nn.Module):
         out = out.last_hidden_state
         assert out.ndim == 3  # batch, token, hidden_dim.
         if self.pooling == "first_token":
-            out = first_token_pool(out, original_attention_mask)
+            out = first_token_pool(out, attention_mask)
         elif self.pooling == "last_token":
-            out = last_token_pool(out, original_attention_mask)
+            out = last_token_pool(out, attention_mask)
         elif self.pooling == "mean":
-            out = average_pool(out, original_attention_mask)
+            out = average_pool(out, attention_mask)
         else:
             raise ValueError(f"Unknown pooling method: {self.pooling}")
         out = F.normalize(out, dim=-1)
@@ -168,28 +152,3 @@ def last_token_pool(out: Tensor, attention_mask: Tensor) -> Tensor:
 
     row = torch.arange(B, device=out.device)
     return out[row, col, ...]  # (B, H)
-
-
-def _qwen3_attention_masks(
-    pad_mask: torch.Tensor,
-    *,
-    dtype: torch.dtype,
-    device: torch.device,
-    has_sliding: bool = False,
-) -> dict[str, torch.Tensor]:
-    """Build a non-causal (bidirectional) attention bias for Qwen3.
-
-    Returns the transformers mask-interface dict expected by recent Qwen3
-    implementations: an additive float bias of shape (B, 1, S, S) that only masks
-    out padding positions (no causal triangle), keyed by attention type.
-    """
-    batch, seq_len = pad_mask.shape
-    key_padding = ~pad_mask.bool()
-    neg_inf = torch.finfo(dtype).min
-    attn_bias = torch.zeros(batch, 1, seq_len, seq_len, dtype=dtype, device=device)
-    if key_padding.any():
-        attn_bias = attn_bias.masked_fill(key_padding[:, None, None, :], neg_inf)
-    masks = {"full_attention": attn_bias}
-    if has_sliding:
-        masks["sliding_attention"] = attn_bias
-    return masks
