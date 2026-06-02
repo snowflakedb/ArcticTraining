@@ -55,6 +55,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         eval_max_seq_length_doc=cfg.get("MAX_SEQ_LENGTH_DOC", 256),
         pad_value=cfg["PAD_VALUE"],
         left_pad=cfg.get("LEFT_PADDING", True),
+        split_factor=cfg.get("SPLIT_FACTOR", 1),
     )
 
     # Sched/optim/logging
