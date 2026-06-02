@@ -44,6 +44,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         disable_activation_checkpoint=not cfg.get("ACTIVATION_CHECKPOINTING", False),
         attn_implementation=cfg.get("ATTN_IMPLEMENTATION", "flash_attention_2"),
         activation_checkpoint_every_n=cfg.get("ACTIVATION_CHECKPOINT_EVERY_N", 1),
+        activation_checkpoint_uncheckpointed_last_k=cfg.get("ACTIVATION_CHECKPOINT_UNCHECKPOINTED_LAST_K", 0),
         torch_compile=cfg.get("TORCH_COMPILE", False),
     )
 
@@ -84,6 +85,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         "gradient_clipping": cfg.get("GRADIENT_CLIPPING", 10.0),
         "zero_optimization": {"stage": int(cfg.get("ZERO_STAGE", 1))},
         "communication_data_type": cfg.get("COMMUNICATION_DATA_TYPE", "fp32"),
+        "wall_clock_breakdown": cfg.get("WALL_CLOCK_BREAKDOWN", False),
     }
 
     # S3 Checkpoint configuration (always required)

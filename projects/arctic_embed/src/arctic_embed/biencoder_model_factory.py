@@ -37,6 +37,9 @@ class BiencoderModelConfig(ModelConfig):
     # Gradient/activation checkpointing granularity: checkpoint every n-th layer.
     # 1 = every layer (max memory savings, max recompute); higher = less recompute.
     activation_checkpoint_every_n: int = 1
+    # Leave the last k transformer layers un-checkpointed (full activations kept).
+    # Composes with every_n. Use spare VRAM to skip recompute of the final layers.
+    activation_checkpoint_uncheckpointed_last_k: int = 0
     # torch.compile the encoder after construction. Off by default: the per-batch
     # variable sequence length can trigger recompiles that erase the speedup.
     torch_compile: bool = False
@@ -89,6 +92,7 @@ class BiencoderModelFactory(ModelFactory):
             import torch
 
             n = self.config.activation_checkpoint_every_n
+            last_k = getattr(self.config, "activation_checkpoint_uncheckpointed_last_k", 0)
             if n < 1:
                 raise ValueError(f"activation_checkpoint_every_n must be >= 1, got {n}")
 
@@ -96,12 +100,12 @@ class BiencoderModelFactory(ModelFactory):
             # transformers sets `_gradient_checkpointing_func` AND
             # `gradient_checkpointing=True` on every GradientCheckpointingLayer here
             # (use_reentrant=False is the recommended, non-deprecated mode). We then
-            # leave it enabled on only every n-th layer.
+            # selectively disable it on some layers below.
             model.encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
             if hasattr(model.encoder, "config") and hasattr(model.encoder.config, "use_cache"):
                 model.encoder.config.use_cache = False
 
-            if n > 1:
+            if n > 1 or last_k > 0:
                 layers = getattr(model.encoder, "layers", None)
                 if layers is None:
                     # AutoModel may nest the layer stack; find the decoder ModuleList.
@@ -115,11 +119,19 @@ class BiencoderModelFactory(ModelFactory):
                             break
                 if layers is None:
                     raise ValueError("Could not locate the transformer layer stack for gradient checkpointing.")
+                num_layers = len(layers)
                 kept = 0
                 for i, layer in enumerate(layers):
-                    layer.gradient_checkpointing = i % n == 0
-                    kept += int(i % n == 0)
-                logging.getLogger(__name__).info(f"Gradient checkpointing on {kept}/{len(layers)} layers (every {n}).")
+                    # Checkpoint every n-th layer, but never the last `last_k` layers:
+                    # leaving the final layers un-checkpointed spends spare memory to
+                    # skip their recompute (cheapest recompute to drop — needed first
+                    # in backward). `last_k` lets us tune recompute to fill VRAM headroom.
+                    ckpt = (i % n == 0) and (i < num_layers - last_k)
+                    layer.gradient_checkpointing = ckpt
+                    kept += int(ckpt)
+                logging.getLogger(__name__).info(
+                    f"Gradient checkpointing on {kept}/{num_layers} layers (every {n}, last {last_k} uncheckpointed)."
+                )
 
         if getattr(self.config, "torch_compile", False):
             import logging
