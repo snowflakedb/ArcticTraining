@@ -19,7 +19,6 @@ from typing import Iterator
 
 import fire
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm.auto import tqdm
@@ -44,14 +43,75 @@ def main(
     assert str(out_path).endswith(".parquet")
 
     # Load data and organize dense retrieval scores and annotated labels by query id.
-    df_relevance_scores = pd.read_parquet(relevance_score_pq_path)
-    df_labels = pd.read_parquet(labels_pq_path)
-    qid_to_label_idx = df_labels.groupby("QUERY_ID").indices
-    qid_to_score_idx = df_relevance_scores.groupby("QUERY_ID").indices
-    union_query_ids = sorted(set(qid_to_label_idx.keys()) & set(qid_to_score_idx.keys()))
-    label_docid_array = df_labels["DOCUMENT_ID"].to_numpy()
-    score_docid_array = df_relevance_scores["DOCUMENT_ID"].to_numpy()
-    score_value_array = df_relevance_scores["SCORE"].to_numpy()
+    #
+    # Memory note: the scores parquet can be enormous (triviaqa is ~2.7B rows of
+    # uint64/uint64/float32). The previous implementation held, at once: the full scores
+    # pandas DataFrame + numpy copies of its columns + a `groupby().indices` dict with one
+    # position-array per query (~2.5x the raw data => OOM-killed the 160GiB job). Instead:
+    #   * read each column straight to numpy via pyarrow (zero-copy, no DataFrame doubling),
+    #   * group by query WITHOUT a global sort -- dense-retrieval output is already written
+    #     grouped per query, so we detect contiguous runs in O(n) and address each query's
+    #     rows with a cheap (start, end) span (slices are VIEWS); we fall back to a stable
+    #     argsort only if the input is not already grouped,
+    #   * free each query-id array as soon as its spans are built.
+    # The per-query mining math below is unchanged, so the output is identical.
+    def _col_to_numpy(path: str, col: str, dtype=None) -> np.ndarray:
+        table = pq.read_table(path, columns=[col])
+        arr = table.column(col).combine_chunks().to_numpy(zero_copy_only=False)
+        del table
+        if dtype is not None and arr.dtype != dtype:
+            arr = arr.astype(dtype, copy=False)
+        return arr
+
+    def _is_grouped(qid_array: np.ndarray) -> bool:
+        """True if every query id occupies a single contiguous run (no global sort needed).
+        Only inspects the value at each run boundary, so it is cheap (~#queries, not #rows)."""
+        if len(qid_array) <= 1:
+            return True
+        run_start = np.empty(len(qid_array), dtype=bool)
+        run_start[0] = True
+        np.not_equal(qid_array[1:], qid_array[:-1], out=run_start[1:])
+        run_values = qid_array[run_start]
+        return len(run_values) == len(set(run_values.tolist()))
+
+    def _spans(qid_array: np.ndarray) -> tuple[np.ndarray, dict]:
+        """Unique qids and a {qid: (start, end)} map for a qid array whose equal values are
+        contiguous. O(n), one bool mask -- no internal sort (unlike np.unique)."""
+        if len(qid_array) == 0:
+            return qid_array[:0], {}
+        run_start = np.empty(len(qid_array), dtype=bool)
+        run_start[0] = True
+        np.not_equal(qid_array[1:], qid_array[:-1], out=run_start[1:])
+        starts = np.flatnonzero(run_start)
+        ends = np.append(starts[1:], len(qid_array))
+        uniq = qid_array[starts]
+        return uniq, dict(zip(uniq.tolist(), zip(starts.tolist(), ends.tolist())))
+
+    def _load_grouped(path: str, is_labels: bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+        """Read (QUERY_ID, DOCUMENT_ID[, SCORE]) and return (doc_ids, scores_or_None,
+        uniq_qids, qid->span), grouping rows by query id (stable, no global sort unless
+        the file is not already grouped). The labels file has no SCORE column."""
+        qids = _col_to_numpy(path, "QUERY_ID")
+        dids = _col_to_numpy(path, "DOCUMENT_ID")
+        scores = None if is_labels else _col_to_numpy(path, "SCORE", np.float32)
+        if not _is_grouped(qids):
+            order = np.argsort(qids, kind="stable")
+            qids = qids[order]
+            dids = dids[order]
+            if scores is not None:
+                scores = scores[order]
+            del order
+        uniq, spans = _spans(qids)
+        del qids
+        return dids, scores, uniq, spans
+
+    # Scores: also capture the output id arrow types from this (the larger) file.
+    _score_schema = pq.read_schema(relevance_score_pq_path)
+    out_qid_arrow_type = _score_schema.field("QUERY_ID").type
+    out_did_arrow_type = _score_schema.field("DOCUMENT_ID").type
+    score_docid_array, score_value_array, score_qids, qid_to_score_idx = _load_grouped(relevance_score_pq_path)
+    label_docid_array, _, label_qids, qid_to_label_idx = _load_grouped(labels_pq_path, is_labels=True)
+    union_query_ids = sorted(set(label_qids.tolist()) & set(score_qids.tolist()))
 
     # Create the output directory.
     out_path = Path(out_path)
@@ -77,14 +137,15 @@ def main(
         drop_pos_count: int = 0
         for query_id in tqdm(union_query_ids, unit="query"):
             # Slice to the scores of all docs and the annotated relevance labels
-            # of the current query.
-            score_idx = qid_to_score_idx[query_id]
-            doc_ids = score_docid_array[score_idx]
-            scores = score_value_array[score_idx]
-            del score_idx
+            # of the current query. Spans are contiguous (data was sorted by QUERY_ID),
+            # so these slices are views — no per-query copies.
+            score_start, score_end = qid_to_score_idx[query_id]
+            doc_ids = score_docid_array[score_start:score_end]
+            scores = score_value_array[score_start:score_end]
 
             # Find which of these scores are positive.
-            pos_doc_ids = label_docid_array[qid_to_label_idx[query_id]]
+            label_start, label_end = qid_to_label_idx[query_id]
+            pos_doc_ids = label_docid_array[label_start:label_end]
             is_pos_doc = np.isin(element=doc_ids, test_elements=pos_doc_ids)
             del pos_doc_ids
 
@@ -144,11 +205,13 @@ def main(
                 f"Dropped {drop_pos_count:,} positive documents because we were limited to {max_positives_per_query=}"
             )
 
-    # Write the mined relevances to disk chunk by chunk.
+    # Write the mined relevances to disk chunk by chunk. (ID arrow types were captured
+    # from the scores frame before it was freed; QUERY_ID/DOCUMENT_ID share a dtype
+    # across the scores and labels inputs.)
     out_schema = pa.schema(
         {
-            "QUERY_ID": pa.infer_type(df_labels["QUERY_ID"]),
-            "DOCUMENT_ID": pa.infer_type(df_labels["DOCUMENT_ID"]),
+            "QUERY_ID": out_qid_arrow_type,
+            "DOCUMENT_ID": out_did_arrow_type,
             "RELEVANCE": pa.int8(),
         }
     )
