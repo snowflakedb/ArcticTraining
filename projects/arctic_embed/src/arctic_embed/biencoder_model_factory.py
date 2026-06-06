@@ -43,6 +43,11 @@ class BiencoderModelConfig(ModelConfig):
     # torch.compile the encoder after construction. Off by default: the per-batch
     # variable sequence length can trigger recompiles that erase the speedup.
     torch_compile: bool = False
+    # Apply Liger fused Triton kernels (RMSNorm / RoPE / SwiGLU / cross-entropy) to
+    # the Qwen3 encoder. Measured 2.08x faster + ~21% lower peak memory on Qwen3-0.6B
+    # (2xH200) and the only consistently-winning training optimization we found (FA3
+    # was neutral, FP8 a loss in this DeepSpeed+AC stack). Off by default.
+    use_liger: bool = False
 
 
 class BiencoderModelFactory(ModelFactory):
@@ -64,6 +69,13 @@ class BiencoderModelFactory(ModelFactory):
         arctic_training_model_config = self.config
         assert isinstance(arctic_training_model_config, BiencoderModelConfig)
         trust_remote_code = arctic_training_model_config.kwargs.get("trust_remote_code", None)
+        # Liger fuses RMSNorm/RoPE/SwiGLU/cross-entropy into Triton kernels by
+        # monkeypatching the Qwen3 module-level classes, so it MUST run before
+        # from_pretrained instantiates the model. Scoped to qwen3 (no-op otherwise).
+        if arctic_training_model_config.use_liger and getattr(model_config, "model_type", "") == "qwen3":
+            from liger_kernel.transformers import apply_liger_kernel_to_qwen3
+
+            apply_liger_kernel_to_qwen3()
         encoder = AutoModel.from_pretrained(
             self.config.name_or_path,
             config=model_config,

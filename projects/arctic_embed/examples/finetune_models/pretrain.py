@@ -46,6 +46,7 @@ def build_trainer_config_from_json(cfg: dict) -> BiencoderTrainerConfig:
         activation_checkpoint_every_n=cfg.get("ACTIVATION_CHECKPOINT_EVERY_N", 1),
         activation_checkpoint_uncheckpointed_last_k=cfg.get("ACTIVATION_CHECKPOINT_UNCHECKPOINTED_LAST_K", 0),
         torch_compile=cfg.get("TORCH_COMPILE", False),
+        use_liger=cfg.get("USE_LIGER", False),
     )
 
     # Data
