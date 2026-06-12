@@ -245,8 +245,12 @@ class PretokenizeAndBatchMinedDataConfig(BaseModel):
 
 def _ith_random_subset_idx(total_count: int, subset_size: int, total_splits: int, split_i: int) -> NDArray[np.int64]:
     assert split_i < total_splits, f"{split_i=} {total_splits=}"
-    total_taken = subset_size * total_splits
-    assert total_taken <= total_count, "Requested more items than available"
+    # Clamp to availability. A query may have fewer than subset_size * total_splits
+    # negatives -- e.g. after RLHN false-negative relabel flips some mined negatives
+    # into positives, the surviving negative pool shrinks below num_negatives_per_query.
+    # Take the largest multiple of total_splits that fits so np.split stays even; this
+    # is a no-op when total_count >= subset_size * total_splits (the unrelabeled case).
+    total_taken = min(subset_size * total_splits, (total_count // total_splits) * total_splits)
     rand_idx = np.random.default_rng(seed=0).permutation(total_count)[:total_taken]
     return np.split(rand_idx, total_splits)[split_i]
 
