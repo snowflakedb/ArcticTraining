@@ -43,8 +43,10 @@ import argparse
 import random
 from collections import defaultdict
 from collections import deque
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import PurePosixPath
+from typing import Deque
 from typing import Dict
 from typing import Iterable
 from typing import List
@@ -57,7 +59,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from fsspec.core import url_to_fs
 from tqdm.auto import tqdm
-
 
 QUERY_TOKEN_COLUMN = "QUERY_TOKEN_ID_LIST"
 DOC_TOKEN_COLUMN = "DOCUMENT_TOKEN_ID_LIST"
@@ -111,6 +112,12 @@ def parse_arguments() -> argparse.Namespace:
         type=int,
         default=4,
         help="Number of concurrent workers used to prefetch batches (default: 4).",
+    )
+    parser.add_argument(
+        "--write-workers",
+        type=int,
+        default=8,
+        help="Number of concurrent workers used to write output batches (default: 8).",
     )
     return parser.parse_args()
 
@@ -281,8 +288,9 @@ def rebatch_datasets(args: argparse.Namespace) -> None:
     progress = tqdm(total=total_batches, desc="Rebatching", disable=not args.progress)
 
     max_workers = max(1, args.prefetch_workers)
+    write_workers = max(1, args.write_workers)
     batch_iter = iter(all_batches)
-    pending_futures = deque()
+    pending_futures: Deque[Tuple[Future, fsspec.AbstractFileSystem, str]] = deque()
 
     def submit_next(executor: ThreadPoolExecutor) -> bool:
         try:
@@ -293,7 +301,10 @@ def rebatch_datasets(args: argparse.Namespace) -> None:
         pending_futures.append((future, fs, batch_dir))
         return True
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    write_futures: List = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor, ThreadPoolExecutor(
+        max_workers=write_workers
+    ) as write_executor:
         for _ in range(min(max_workers, total_batches)):
             submit_next(executor)
 
@@ -305,35 +316,48 @@ def rebatch_datasets(args: argparse.Namespace) -> None:
             for example in extract_query_examples(queries_table, documents_table, relations_table):
                 pending_examples.append(example)
                 if len(pending_examples) == args.queries_per_batch:
-                    write_batch(
-                        out_fs,
-                        out_path,
-                        batch_index,
-                        pending_examples,
-                        query_id_type,
-                        doc_id_type,
-                        relation_value_type,
-                        query_token_value_type,
-                        doc_token_value_type,
+                    # pending_examples is rebound (not mutated) below, so the submitted
+                    # task safely holds the old list until the write completes.
+                    write_futures.append(
+                        write_executor.submit(
+                            write_batch,
+                            out_fs,
+                            out_path,
+                            batch_index,
+                            pending_examples,
+                            query_id_type,
+                            doc_id_type,
+                            relation_value_type,
+                            query_token_value_type,
+                            doc_token_value_type,
+                        )
                     )
                     pending_examples = []
                     batch_index += 1
 
             progress.update(1)
 
-    if pending_examples:
-        write_batch(
-            out_fs,
-            out_path,
-            batch_index,
-            pending_examples,
-            query_id_type,
-            doc_id_type,
-            relation_value_type,
-            query_token_value_type,
-            doc_token_value_type,
-        )
-        batch_index += 1
+        if pending_examples:
+            write_futures.append(
+                write_executor.submit(
+                    write_batch,
+                    out_fs,
+                    out_path,
+                    batch_index,
+                    pending_examples,
+                    query_id_type,
+                    doc_id_type,
+                    relation_value_type,
+                    query_token_value_type,
+                    doc_token_value_type,
+                )
+            )
+            batch_index += 1
+
+        # Wait for all writes to complete and propagate any errors.
+        # (The context manager's shutdown(wait=True) waits but does not reraise.)
+        for f in write_futures:
+            f.result()
 
     progress.close()
     print(f"Wrote {batch_index} batches to {args.output_root}")
@@ -346,4 +370,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
