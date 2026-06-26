@@ -78,6 +78,51 @@ def one_size_truncated_mrl_info_nce_loss(
     return loss, loss_full_dim, loss_truncated_dim
 
 
+def multi_size_truncated_mrl_info_nce_loss(
+    query_embeddings: Tensor,
+    document_embeddings: Tensor,
+    relations: Tensor,
+    truncated_dimensions: List[int],
+    temperature: float = 0.01,
+) -> Tuple[Tensor, Tensor, List[TruncatedDimensionLoss]]:
+    """InfoNCE loss with multiple truncated dimensions for Matryoshka Representation
+    Learning (MRL). All terms (full-dim + each truncated dim) receive equal weight
+    of 1 / (1 + len(truncated_dimensions)).
+
+    Returns (total_loss, loss_full_dim, [TruncatedDimensionLoss(dim, loss), ...]).
+    """
+    full_dimension = query_embeddings.size(1)
+    for d in truncated_dimensions:
+        assert 0 < d < full_dimension, f"mrl dim {d} must be in (0, {full_dimension})"
+    n_terms = 1 + len(truncated_dimensions)
+    weight = 1.0 / n_terms
+
+    loss_full_dim = torch.utils.checkpoint.checkpoint(
+        _dim_truncated_infonce,
+        use_reentrant=False,
+        query_embeddings=query_embeddings,
+        document_embeddings=document_embeddings,
+        relations=relations,
+        dim=full_dimension,
+        temperature=temperature,
+    )
+    loss = weight * loss_full_dim
+    truncated_losses: List[TruncatedDimensionLoss] = []
+    for d in truncated_dimensions:
+        loss_d = torch.utils.checkpoint.checkpoint(
+            _dim_truncated_infonce,
+            use_reentrant=False,
+            query_embeddings=query_embeddings,
+            document_embeddings=document_embeddings,
+            relations=relations,
+            dim=d,
+            temperature=temperature,
+        )
+        loss = loss + weight * loss_d
+        truncated_losses.append(TruncatedDimensionLoss(dim=d, loss=loss_d))
+    return loss, loss_full_dim, truncated_losses
+
+
 def _dim_truncated_infonce(
     query_embeddings: Tensor,
     document_embeddings: Tensor,
@@ -117,7 +162,6 @@ def spread_out_loss(embeddings: Tensor) -> Tensor:
     sum_sq = (gram * gram).sum()  # ||E^T E||_F^2 == sum_{i,j} (e_i . e_j)^2
     off_diagonal = sum_sq - b  # subtract i==j terms (== b for unit-norm rows)
     return off_diagonal / (b * (b - 1))
-
 
 
 def info_nce_loss(scores: Tensor, relations: Tensor, temperature: float = 0.01) -> Tensor:

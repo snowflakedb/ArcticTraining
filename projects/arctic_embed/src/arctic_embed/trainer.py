@@ -47,6 +47,7 @@ from .contrastive_dataloader import ContrastivePretokenizedDataConfig
 from .contrastive_dataloader import ContrastivePretokenizedDataFactory
 from .core.biencoder_model import Biencoder
 from .core.losses import info_nce_loss
+from .core.losses import multi_size_truncated_mrl_info_nce_loss
 from .core.losses import one_size_truncated_mrl_info_nce_loss
 from .core.losses import spread_out_loss
 from .core.pretokenized_batch_loader import ContrastiveLearningBatch
@@ -58,7 +59,7 @@ class BiencoderTrainerConfig(TrainerConfig):
     loss_temperature: float = 0.02
     model: BiencoderModelConfig
     data: ContrastivePretokenizedDataConfig
-    mrl_dim: Optional[int] = None
+    mrl_dim: Optional[Union[int, List[int]]] = None
     eval_interval: Optional[int] = None
     # Spread-out regularizer weight (EmbeddingGemma, arXiv:2509.20354). 0 = off.
     # Adds spread_out_weight * (spread(queries) + spread(positive_docs)) to the loss
@@ -256,15 +257,28 @@ class BiencoderTrainer(Trainer):
         query_embeddings, document_embeddings, relations = self.forward_and_gather(batch)
 
         # InfoNCE loss with Matryoshka Representation Learning (MRL).
+        # mrl_dim may be a single int (legacy) or a list of dims for multi-point MRL.
         if self.config.use_in_batch_negatives:
             relations[relations == 0] = -1
-        loss, loss_base, loss_truncated = one_size_truncated_mrl_info_nce_loss(
-            query_embeddings=query_embeddings,
-            document_embeddings=document_embeddings,
-            relations=relations,
-            truncated_dimension=self.config.mrl_dim,
-            temperature=self.config.loss_temperature,
-        )
+        mrl_dim = self.config.mrl_dim
+        if isinstance(mrl_dim, list):
+            loss, loss_base, loss_truncated_list = multi_size_truncated_mrl_info_nce_loss(
+                query_embeddings=query_embeddings,
+                document_embeddings=document_embeddings,
+                relations=relations,
+                truncated_dimensions=mrl_dim,
+                temperature=self.config.loss_temperature,
+            )
+            loss_truncated = None  # for legacy compat below
+        else:
+            loss, loss_base, loss_truncated = one_size_truncated_mrl_info_nce_loss(
+                query_embeddings=query_embeddings,
+                document_embeddings=document_embeddings,
+                relations=relations,
+                truncated_dimension=mrl_dim,
+                temperature=self.config.loss_temperature,
+            )
+            loss_truncated_list = None
 
         # Spread-out regularizer (EmbeddingGemma, arXiv:2509.20354): push query and
         # document embeddings toward uniform spread on the hypersphere for better
@@ -295,8 +309,10 @@ class BiencoderTrainer(Trainer):
                 "train/loss_no_truncate": loss_base.item(),
             }
             if loss_truncated is not None:
-                truncated_loss_name = f"train/loss_truncate_{self.config.mrl_dim}"
-                metrics[truncated_loss_name] = loss_truncated.item()
+                metrics[f"train/loss_truncate_{mrl_dim}"] = loss_truncated.item()
+            if loss_truncated_list is not None:
+                for tl in loss_truncated_list:
+                    metrics[f"train/loss_truncate_{tl.dim}"] = tl.loss.item()
             if loss_spread_out is not None:
                 metrics["train/loss_spread_out"] = loss_spread_out.item()
             wandb.log(metrics, step=self.global_step)
