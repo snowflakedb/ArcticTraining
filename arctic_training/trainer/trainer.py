@@ -226,6 +226,14 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.count_model_params_in_original_model()
 
+        # Qwen3.5-style linear_attn (GDN) mixers reset their state only at cu_seq_lens_q /
+        # seq_idx, which the model does not derive from position_ids. Without this, packed
+        # samples leak recurrent state and conv context into each other.
+        if getattr(self.config.data, "pack_samples", False):
+            from arctic_training.model.packed_gdn_boundaries import install_packed_gdn_boundaries
+
+            install_packed_gdn_boundaries(self.model)
+
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
         if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [
