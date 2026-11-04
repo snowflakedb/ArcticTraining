@@ -62,9 +62,24 @@ def tiled_mlp_forward_common(self, x):
         #
         # XXX: but this will run on every layer - it'd be good to cache the number of shards as it
         # doesn't change during the iteration, but may change between iterations if seqlen is varlen
-        tensor = torch.tensor(num_shards, device=x.device)
-        dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
-        num_shards = tensor.item()
+        # ...but only under ZeRO-3, which is the hazard the comment above describes: a
+        # rank running fewer shards fails to supply its weights shard. Under ZeRO-1/2 the
+        # weights are resident, there is no per-shard gather, and unequal shard counts are
+        # harmless -- while the collective itself deadlocks. Measured on 8xH200 (Qwen3-4B,
+        # gc, ZeRO-2, max_length 393,216): six ranks issued a DeepSpeed bucket reduction
+        # between MLP recompute #41 and #42 while two issued this all_reduce, producing a
+        # circular wait between the two collectives (each rank blocked in one, needed by
+        # the other). A dedicated process group does not help -- both collectives still
+        # need all ranks.
+        #
+        # hasattr(w, "ds_id") is DeepSpeed's marker for a ZeRO-3 partitioned parameter. All
+        # ranks share the ZeRO stage, so every rank takes the same branch and this test
+        # cannot itself cause skew.
+        zero3_partitioned = hasattr(self.down_proj.weight, "ds_id")
+        if zero3_partitioned and dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+            tensor = torch.tensor(num_shards, device=x.device)
+            dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+            num_shards = tensor.item()
         # print(f"derived {num_shards} for {seqlen=} and {hidden=} max'ed across ranks")
 
     compute_params = [self.down_proj.weight, self.gate_proj.weight, self.up_proj.weight]

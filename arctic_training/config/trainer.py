@@ -145,6 +145,20 @@ class TrainerConfig(BaseConfig):
     tiled_mlp_compute: bool = False
     """ Tile the MLP computation to save GPU memory. Currently only limited architectures supported, but can be expanded to more. """
 
+    packed_seq_tiled_remat: bool = False
+    """ Install token-axis tiled rematerialization on self_attn/linear_attn forward for packed
+    sequences (DeepSpeed fork's packed_seq_tiled_rematerialize_compute). Requires the DeepSpeed
+    checkout to be the sfc-gh-truwase/DeepSpeed fork (docs/cpu-checkpointing-perf-note branch or
+    newer) on PYTHONPATH; unrelated to activation_checkpoint_cpu_offload/tiled_mlp_compute. """
+
+    packed_seq_tiled_remat_token_budget: int = 8192
+    """ Token budget per tile when packed_seq_tiled_remat is enabled. """
+
+    native_activation_checkpoint_cpu_offload: bool = False
+    """ Use DeepSpeed's native non-reentrant CPU-offload activation-checkpoint engine
+    (requires the DeepSpeed fork) instead of HF's gradient_checkpointing_enable(). Independent
+    of packed_seq_tiled_remat - either or both may be on. """
+
     seed: int = Field(default=42, ge=0)
     """ Random seed value for numpy, python.random, torch, and transformers. """
 
@@ -406,14 +420,27 @@ class TrainerConfig(BaseConfig):
         from transformers import AutoConfig
 
         model_config = AutoConfig.from_pretrained(self.model.name_or_path)
-        if hasattr(model_config, "hidden_size"):
-            hidden_size = model_config.hidden_size
-        elif hasattr(model_config, "hidden_sizes"):
-            # if there are many hidden sizes pick the largest one
-            hidden_size = max(model_config.hidden_sizes)
-        else:
+        # Hybrid/multimodal configs (Qwen3.5, and VLMs generally) describe the text tower
+        # under `text_config` and leave the top level without a hidden size, so look there
+        # too. `hasattr` is not enough: the attribute can be present and None, which then
+        # fails later in arithmetic instead of here.
+        hidden_size = None
+        for cfg in (model_config, getattr(model_config, "text_config", None)):
+            if cfg is None:
+                continue
+            value = getattr(cfg, "hidden_size", None)
+            if value:
+                hidden_size = value
+                break
+            sizes = getattr(cfg, "hidden_sizes", None)
+            if sizes:
+                # if there are many hidden sizes pick the largest one
+                hidden_size = max(sizes)
+                break
+        if not hidden_size:
             raise ValueError(
-                "Can find neither `model_config.hidden_size` nor `model_config.hidden_sizes`, in the "
+                "Can find neither `model_config.hidden_size` nor `model_config.hidden_sizes`,"
+                " on the config or its `text_config`, in the "
                 f" {self.model.name_or_path}'s config"
             )
 

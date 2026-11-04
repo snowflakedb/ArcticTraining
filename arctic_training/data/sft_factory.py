@@ -332,8 +332,12 @@ def pack_dataset(self, dataset: DatasetType) -> DatasetType:
         dataset = repeat_dataset(dataset=dataset, max_length=self.config.max_length, num_proc=self.config.num_proc)
 
     batch_size = len(dataset) // self.config.num_proc + 1
-    # for huge datasets keep the bs to a sane size to avoid cpu-oom
-    batch_size = int(min(batch_size, 1e3))
+    # a packed sample cannot span map batches, so one batch must hold >= max_length tokens or the
+    # packed length is capped at that batch's token total (~1.17M rows-of-1000 on ultrachat).
+    # Estimate rows-per-max_length from the first 1000 rows and keep the bs bounded for cpu-oom.
+    sample_len = [len(x) for x in dataset.select(range(min(1000, len(dataset))))["input_ids"]]
+    mean_len = max(1, sum(sample_len) // len(sample_len))
+    batch_size = int(min(batch_size, max(1000, 2 * self.config.max_length // mean_len)))
     dataset = dataset.shuffle(seed=self.config.seed)
     dataset = dataset.map(
         lambda x: pack_sft_batch(

@@ -226,6 +226,31 @@ class Trainer(ABC, CallbackMixin, metaclass=RegistryMeta):
 
         self.count_model_params_in_original_model()
 
+        # packed GDN boundaries - Qwen3.5's linear_attn mixers reset state only at
+        # cu_seq_lens_q / seq_idx, which the model never derives from position_ids, so
+        # without this every packed sample leaks state into the next (all arms)
+        if getattr(self.config.data, "pack_samples", False):
+            from arctic_training.model.packed_gdn_boundaries import install_packed_gdn_boundaries
+
+            install_packed_gdn_boundaries(self.model)
+
+        # packed-seq tiled rematerialization - needs an instantiated model to discover
+        # the self_attn/linear_attn mixer classes to patch, but patches the *class* (not
+        # the instance), so it still takes effect for self.model. Outer gradient
+        # checkpointing (just enabled above, inside model_factory()'s
+        # post_create_model_callback) stays on - this only shrinks the mixer workspace.
+        if self.config.packed_seq_tiled_remat:
+            from arctic_training.model.packed_seq_tiled_remat import install_packed_seq_tiled_remat
+
+            install_packed_seq_tiled_remat(self.model, self.config.packed_seq_tiled_remat_token_budget)
+
+        # native DeepSpeed CPU-offload activation checkpointing - overrides the
+        # gradient_checkpointing_func HFModelFactory.post_create_model_callback just set
+        if self.config.native_activation_checkpoint_cpu_offload:
+            from arctic_training.model.packed_seq_tiled_remat import enable_native_activation_checkpoint_offload
+
+            enable_native_activation_checkpoint_offload(self.model)
+
         # prevent causal mask from being created in HF Transformers - it's a huge `[bs, seqlen, seqlen]` tensor
         # XXX: This should also benefit a single gpu use case when SDPA is used - so perhaps remove the SP>1 check?
         if self.config.sequence_parallel_size > 1 and self.config.model.attn_implementation not in [

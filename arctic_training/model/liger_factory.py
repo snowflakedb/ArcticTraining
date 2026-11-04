@@ -38,10 +38,26 @@ class LigerModelFactory(HFModelFactory):
                 f"liger-kernel>={liger_version_min} is required, but you have liger-kernel=={liger_version_have}"
             )
 
-        # Disable liger's mlp override if we are using our mlp override
-        swiglu = False if self.trainer.config.tiled_mlp_compute else True
-        # XXX: it might be possible to combine the 2 in the future to benefit from the efficient liger swiglu kernel, but currently liger monkey patches the MLP class and thus we would have a race condition on who gets the override.
-
+        # Restrict liger to fused linear cross-entropy only; leave rope, RMSNorm and SwiGLU
+        # to HF. With those kernels on, native_activation_checkpoint_cpu_offload regresses
+        # badly: +70 GiB peak at seq 32768 on Qwen3-8B (SwiGLU ~54, RMSNorm ~29, rope 0),
+        # versus no penalty with FLCE alone.
+        #
+        # Mechanism (measured 2026-10-16, autorun/diag_offload*.py + diag_memhist.py):
+        # with liger the checkpointed layers' FORWARD activations are never released --
+        # 84.96 GiB live at end of forward vs 29.37 GiB without, 54 GiB of it SwiGLU's
+        # gate/up projections (linear.py:134 <- swiglu.py:35 = 36 layers x 2 x 768 MiB).
+        # The checkpoint pack hook DOES intercept those tensors (108 x (32768,12288) =
+        # 81 GiB packed) and gc.get_referrers() finds no Python holder, so the retaining
+        # reference is C-level inside autograd/liger and is not fixable from the DeepSpeed
+        # fork. autorun/bench_qwen3_offload.py pins this same FLCE-only set.
+        # NB: an earlier "leaf-set accounting" explanation of this was WRONG -- that block
+        # frees no memory and is not even installed by default (SYNCHRONIZE/PROFILE_TIME
+        # both False).
+        #
+        # This also removes the MLP monkey-patch race with tiled_mlp_compute that the
+        # previous `swiglu = not tiled_mlp_compute` line existed to avoid -- SwiGLU is now
+        # always left to HF (or to tiled_mlp_compute), so the two can never contend.
         try:
 
             if self.using_random_model:
@@ -50,7 +66,11 @@ class LigerModelFactory(HFModelFactory):
                     model_config,
                     attn_implementation=self.config.attn_implementation,
                     dtype=self.config.dtype.value,
-                    swiglu=swiglu,
+                    rope=False,
+                    rms_norm=False,
+                    swiglu=False,
+                    cross_entropy=False,
+                    fused_linear_cross_entropy=True,
                 )
             else:
                 return AutoLigerKernelForCausalLM.from_pretrained(
@@ -58,7 +78,11 @@ class LigerModelFactory(HFModelFactory):
                     config=model_config,
                     attn_implementation=self.config.attn_implementation,
                     dtype=self.config.dtype.value,
-                    swiglu=swiglu,
+                    rope=False,
+                    rms_norm=False,
+                    swiglu=False,
+                    cross_entropy=False,
+                    fused_linear_cross_entropy=True,
                 )
         except KeyError as e:
             raise ValueError(

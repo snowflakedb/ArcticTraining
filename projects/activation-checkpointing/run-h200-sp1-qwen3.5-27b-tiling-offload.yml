@@ -1,0 +1,128 @@
+# Activation-checkpointing sweep -- model: Qwen3.5-27B (hybrid: GDN linear_attn + full attention)
+# arm: tiling-offload
+#
+# Both axes on. Tiling shrinks the per-layer mixer workspace, the native engine
+# offloads saved activations to CPU. They act on different things, so this arm
+# shows whether the savings compose.
+#
+# Requires the sfc-gh-truwase/DeepSpeed fork (docs/cpu-checkpointing-perf-note branch
+# or newer) ahead of the installed deepspeed on PYTHONPATH. Export it before launching;
+# the DeepSpeed launcher passes the parent environment through to each rank:
+#   export PYTHONPATH="<fork checkout>:$PYTHONPATH"
+#   arctic_training run-h200-sp1-qwen3.5-27b-tiling-offload.yml --num_gpus 8
+#
+# Run the gc arm under the same shadow as the others so deepspeed.__file__ is identical
+# across all four and the comparison isolates the flags, not the DeepSpeed version.
+#
+# GDN NOTE (Qwen3.5 only): this model's linear_attn layers carry recurrent + short-conv
+# state. The tiling arms refuse to run (RuntimeError from _gdn_boundary_reset_gaps)
+# unless both causal-conv1d and fla/flash-linear-attention are installed, since without
+# them the kernels silently drop the cu_seqlens/seq_idx kwargs that reset state at
+# packed-sample boundaries -- tiling would then reset state at tile boundaries instead,
+# giving numbers that match neither the untiled baseline nor the truth.
+#
+# max_length below is a STARTING GUESS, not a measured value -- binary-search it per
+# arm and record the result inline, matching ../sequence-parallelism/ (e.g.
+# "max_length: 650_000 # ok 126.81 GB"). The guesses here are deliberately well below
+# the stage-3 numbers in that directory, since ZeRO-2 keeps params resident on the GPU.
+#
+# OFFLOAD REGRESSION (known, unresolved as of 2026-10-15): this arm's native CPU-offload
+# checkpoint engine currently makes memory WORSE, not better. Measured walls for
+# Qwen3-8B: gc 311_296, tiling 360_448, offload 118_784, tiling-offload 196_608 -- i.e.
+# enabling native_activation_checkpoint_cpu_offload costs ~62% of the gc baseline
+# instead of raising it. At the OOM point ~137 GiB of 139.8 GiB is already allocated and
+# the failure lands inside liger's fused cross-entropy, so the checkpointed activations
+# are evidently not leaving the GPU. The engine IS active (the run logs
+# "native_activation_checkpoint_cpu_offload enabled on N layers"), so this is not an
+# inert flag. Do not treat this arm's number as a property of CPU offloading in general
+# until the wiring is fixed.
+type: sft
+micro_batch_size: 1
+exit_iteration: 30
+min_iterations: 30
+sequence_parallel_size: 1
+
+# SHARED BASELINE -- always on, in every arm, for both models. These four are the floor
+# the checkpointing comparison sits on top of, not variables:
+#   flash attention  -> model.attn_implementation below
+#   tiled MLP        -> tiled_mlp_compute here
+#   fused linear CE  -> implied by model.type "liger" (no config key of its own:
+#                       SFTTrainer.loss() branches on model.type == "liger", and
+#                       liger defaults fused_linear_cross_entropy=True)
+#   liger kernels    -> model.type below
+# tiled_mlp_compute tiles the MLP, a different module from the attention mixer that
+# packed_seq_tiled_remat tiles, so the two are orthogonal and compose.
+tiled_mlp_compute: true
+
+# the older torch.utils.checkpoint monkey-patch -- deliberately off in all arms, the
+# native engine below is what replaces HF checkpointing in the offload arms
+#activation_checkpoint_cpu_offload: true
+
+packed_seq_tiled_remat: true
+packed_seq_tiled_remat_token_budget: 4096
+native_activation_checkpoint_cpu_offload: true
+
+# ZeRO-2, not 3, and deliberately so. Under ZeRO-3 the tiled forward calls each mixer
+# once per tile, so DeepSpeed re-runs its per-submodule hooks per tile and registers the
+# same param into a grad bucket twice -- tripping the ds_id uniqueness assert in
+# stage3.py. Avoiding that needs set_z3_leaf_modules() on the tiled mixer classes, which
+# ArcticTraining never calls. ZeRO-2 has no such hazard. It also matches the baseline
+# the bench sweeps were run on. Note ZeRO-2 cannot offload params (stage-3 only), so
+# params stay resident on each GPU and there is less activation headroom here than in
+# the stage-3 configs under ../sequence-parallelism/.
+deepspeed:
+  zero_optimization:
+    stage: 2
+    offload_optimizer:
+      device: cpu
+
+  seq_parallel_communication_data_type: bf16
+
+optimizer:
+  type: cpu_adam
+  learning_rate: 0.00001
+
+model:
+  type: "liger"
+  name_or_path: Qwen/Qwen3.5-27B
+
+  attn_implementation: flash_attention_2
+  #attn_implementation: sdpa
+
+  dtype: bf16
+
+data:
+  sources:
+    - type: huggingface_instruct
+      name_or_path: HuggingFaceH4/ultrachat_200k
+      split: train_sft
+      role_mapping:
+        user: messages.role.user
+        assistant: messages.role.assistant
+
+  # packing is required: tiling splits along the token axis at packed-sample
+  # boundaries. ArcticTraining asserts micro_batch_size == 1 when this is on.
+  pack_samples: true
+  # strict packing: every batch is filled to exactly max_length. REQUIRED for the
+  # recorded max_length above to mean anything -- with the default (false) the packer
+  # fills only *up to* max_length and realized length varies (one 262144 trial ran
+  # 201K/248K/261K iterations), which inflates the apparent wall ~3%.
+  always_max_length: true
+  # Local NVMe on the GPU pod (/dev/md127, 28 TB): 3.0 GB/s vs 299 MB/s on lustre.
+  # Absolute on purpose - a relative path resolves against each run's cwd, which
+  # scattered caches per working directory. This is an emptyDir, so a pod recycle
+  # wipes it and the next run rebuilds; that is fine, the cache is derived data.
+  cache_dir: /data-fast/data-cache
+  dl_num_workers: 1
+
+  max_length: 196_608 # starting point: the bench cpu-adam wall for this arm
+
+logger:
+  level: WARNING
+  output_dir: "logs"
+  print_output_ranks: [0,1,2,3,4,5,6,7]
+
+# checkpoint:
+#   - type: huggingface
+#     save_end_of_training: true
+#     output_dir: ./fine-tuned-model
