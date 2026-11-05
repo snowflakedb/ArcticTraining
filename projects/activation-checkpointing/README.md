@@ -91,7 +91,7 @@ Both new axes depend on modules that do **not** exist in released DeepSpeed:
 - `deepspeed.runtime.activation_checkpointing.offload_activations`
 
 They come from the `sfc-gh-truwase/DeepSpeed` fork, branch
-`docs/cpu-checkpointing-perf-note` or newer. Put that checkout ahead of the installed
+`tjruwase/tiled-remat` or newer. Put that checkout ahead of the installed
 `deepspeed` on `PYTHONPATH` **before** invoking `arctic_training` — the DeepSpeed
 launcher passes the parent environment through to each rank, so exporting it in the
 launching shell is enough for a single-node job:

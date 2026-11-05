@@ -18,7 +18,7 @@ ArcticTraining, delegating to DeepSpeed's Hugging Face integration
 (``deepspeed.runtime.activation_checkpointing.hf_tiled_rematerialization``).
 
 Needs a DeepSpeed build that ships that module (sfc-gh-truwase/DeepSpeed,
-docs/cpu-checkpointing-perf-note branch or newer) ahead of the installed ``deepspeed`` on
+tjruwase/tiled-remat branch or newer) ahead of the installed ``deepspeed`` on
 PYTHONPATH. ArcticTraining's SFT collator produces only ``position_ids`` for packed rows;
 the DeepSpeed integration derives ``cu_seqlens`` / ``seq_idx`` from them.
 """

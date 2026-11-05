@@ -148,7 +148,7 @@ class TrainerConfig(BaseConfig):
     packed_seq_tiled_remat: bool = False
     """ Install token-axis tiled rematerialization on self_attn/linear_attn forward for packed
     sequences (DeepSpeed fork's packed_seq_tiled_rematerialize_compute). Requires the DeepSpeed
-    checkout to be the sfc-gh-truwase/DeepSpeed fork (docs/cpu-checkpointing-perf-note branch or
+    checkout to be the sfc-gh-truwase/DeepSpeed fork (tjruwase/tiled-remat branch or
     newer) on PYTHONPATH; unrelated to activation_checkpoint_cpu_offload/tiled_mlp_compute. """
 
     packed_seq_tiled_remat_token_budget: int = 8192

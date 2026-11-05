@@ -5,7 +5,7 @@
 # gradient checkpointing. No token-axis tiling -- only the checkpoint engine
 # changes vs. the gc arm.
 #
-# Requires the sfc-gh-truwase/DeepSpeed fork (docs/cpu-checkpointing-perf-note branch
+# Requires the sfc-gh-truwase/DeepSpeed fork (tjruwase/tiled-remat branch
 # or newer) ahead of the installed deepspeed on PYTHONPATH. Export it before launching;
 # the DeepSpeed launcher passes the parent environment through to each rank:
 #   export PYTHONPATH="<fork checkout>:$PYTHONPATH"

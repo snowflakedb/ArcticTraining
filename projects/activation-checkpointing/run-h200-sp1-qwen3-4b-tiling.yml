@@ -5,7 +5,7 @@
 # packed sequences. HF gradient checkpointing stays on underneath -- tiling only
 # shrinks the mixer's own workspace, it does not replace outer checkpointing.
 #
-# Requires the sfc-gh-truwase/DeepSpeed fork (docs/cpu-checkpointing-perf-note branch
+# Requires the sfc-gh-truwase/DeepSpeed fork (tjruwase/tiled-remat branch
 # or newer) ahead of the installed deepspeed on PYTHONPATH. Export it before launching;
 # the DeepSpeed launcher passes the parent environment through to each rank:
 #   export PYTHONPATH="<fork checkout>:$PYTHONPATH"
